@@ -49,11 +49,13 @@ publish:
   provider: github
   owner: 9thdesigns
   repo: configure-my-ai-desktop
-  # Publish straight to a full (non-draft) release, not the default draft.
-  # Our model is "a release IS shipping" — the /download page links to the
-  # latest release's assets — and electron-builder refuses to upload into an
-  # already-published release when it expects a draft ("existing type not
-  # compatible with publishing type"), which silently left v0.1.0 with zero
-  # assets. releaseType: release matches the published release and uploads
-  # into it.
-  releaseType: release
+  # Default (draft) publishing — deliberately NOT releaseType: release.
+  # electron-builder creates ONE draft release, uploads every asset to it by
+  # id, then flips it to published in a single final step. releaseType:
+  # release instead uploads into a live release and re-resolves it on each
+  # parallel upload; that race fires a stray `POST /releases` with a bad tag
+  # and GitHub rejects it — "422 Published releases must have a valid tag" —
+  # after the DMGs are up but before latest-mac.yml, which is what left
+  # auto-update broken on v0.1.1 and v0.1.2. The draft finalize has no such
+  # race. (releaseType: release was only needed for the hand-published
+  # v0.1.0; a version electron-builder creates itself must stay on draft.)
