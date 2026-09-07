@@ -1,7 +1,7 @@
 {
   "name": "configure-my-ai-desktop",
   "productName": "Configure My AI",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Configure My AI for macOS — a thin Electron shell around configuremyai.com, distributed as a direct-download DMG.",
   "main": "src/main.js",
   "private": true,
