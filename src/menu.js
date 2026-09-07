@@ -6,8 +6,11 @@ const { Menu, shell } = require('electron')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
-function installMenu ({ appUrl, getWindow, onCheckForUpdates }) {
+function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates }) {
   const contents = () => getWindow()?.webContents
+  // Home goes to the app's entry point (the sign-in screen, which Devise
+  // bounces to the app when already signed in) rather than the marketing root.
+  const homeUrl = startUrl || appUrl
 
   const template = [
     { role: 'appMenu' },
@@ -19,7 +22,7 @@ function installMenu ({ appUrl, getWindow, onCheckForUpdates }) {
         {
           label: 'Home',
           accelerator: 'Shift+CmdOrCtrl+H',
-          click: () => contents()?.loadURL(appUrl),
+          click: () => contents()?.loadURL(homeUrl),
         },
         {
           label: 'Back',
