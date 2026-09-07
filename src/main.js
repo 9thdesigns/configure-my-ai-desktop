@@ -19,13 +19,6 @@ const windowState = require('./window-state')
 const APP_HOST = 'configuremyai.com'
 const APP_URL = `https://${APP_HOST}`
 
-// The app opens to the sign-in screen, not the marketing home. Signed out,
-// that renders the desktop-only email/password landing (no marketing chrome,
-// no OAuth buttons — see the server's desktop_app? branch); an already
-// signed-in WebView is bounced straight into the app by Devise. Marketing
-// pages are never linked from these screens, so the app never surfaces them.
-const START_URL = `${APP_URL}/login`
-
 // Hosts that must complete INSIDE the app window: every OAuth provider the
 // Rails app offers (see the omniauth-* gems in its Gemfile). Their round trip
 // ends back on APP_HOST, so sending them to the system browser would strand
@@ -83,15 +76,15 @@ function openExternally (value) {
   }
 }
 
-// Identify this window to the server as the desktop app. The Rails app keys
-// its desktop-only signed-out experience — no marketing chrome, and
-// email/password sign-in only (no OAuth buttons, which a desktop webview
-// can't complete) — on this exact token (MobileHelper::DESKTOP_MARKER). It is
-// appended, leaving the genuine Chrome user agent intact; because the server
-// strips the OAuth buttons for this UA, Google's embedded-webview block is
-// never reached.
-function tagUserAgent () {
-  app.userAgentFallback = `${app.userAgentFallback} ConfigureMyAI-Desktop/${app.getVersion()}`
+// Google refuses OAuth in anything whose UA admits to being an embedded
+// shell ("disallowed_useragent"). Stripping the Electron and app tokens
+// leaves the plain Chrome UA, which is both accurate — this IS Chromium —
+// and what every comparable wrapper ships.
+function normalizeUserAgent () {
+  app.userAgentFallback = app.userAgentFallback
+    .replace(/\s?Electron\/\S+/, '')
+    .replace(/\s?configure-my-ai-desktop\/\S+/, '')
+    .replace(/\s?ConfigureMyAI\/\S+/, '')
 }
 
 function applyNavigationPolicy (contents) {
@@ -155,7 +148,7 @@ function createMainWindow () {
   mainWindow.once('ready-to-show', () => mainWindow.show())
   mainWindow.on('closed', () => { mainWindow = null })
 
-  mainWindow.loadURL(START_URL)
+  mainWindow.loadURL(APP_URL)
   return mainWindow
 }
 
@@ -187,11 +180,11 @@ function setUpAutoUpdates () {
 }
 
 app.setName('Configure My AI')
-tagUserAgent()
+normalizeUserAgent()
 
 app.whenReady().then(() => {
   restrictPermissions()
-  installMenu({ appUrl: APP_URL, startUrl: START_URL, getWindow: () => mainWindow })
+  installMenu({ appUrl: APP_URL, getWindow: () => mainWindow })
   createMainWindow()
   setUpAutoUpdates()
 

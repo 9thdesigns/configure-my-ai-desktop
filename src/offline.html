@@ -39,7 +39,7 @@
     <button type="button" onclick="retry()">Retry now</button>
   </main>
   <script>
-    function retry () { location.replace('https://configuremyai.com/login') }
+    function retry () { location.replace('https://configuremyai.com') }
     addEventListener('online', retry)
     setInterval(function () { if (navigator.onLine) retry() }, 10000)
   </script>
