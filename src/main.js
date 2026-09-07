@@ -19,12 +19,15 @@ const windowState = require('./window-state')
 const APP_HOST = 'configuremyai.com'
 const APP_URL = `https://${APP_HOST}`
 
-// The app opens to the sign-in screen, not the marketing home. Signed out,
-// that renders the desktop-only email/password landing (no marketing chrome,
-// no OAuth buttons — see the server's desktop_app? branch); an already
-// signed-in WebView is bounced straight into the app by Devise. Marketing
-// pages are never linked from these screens, so the app never surfaces them.
-const START_URL = `${APP_URL}/login`
+// The app opens on the walkthrough landing (/welcome), not the marketing
+// home. Signed out, /welcome renders the desktop-only wizard — what Configure
+// My AI does, plus Log in / Create account — with no marketing chrome (see
+// the server's desktop_app? branch); already signed in, the server bounces
+// /welcome straight into the app. Sign-in itself is email/password only in
+// the app (no OAuth buttons, which a desktop webview can't complete), and
+// marketing pages are never linked from these screens, so the app never
+// surfaces them.
+const START_URL = `${APP_URL}/welcome`
 
 // Hosts that must complete INSIDE the app window: every OAuth provider the
 // Rails app offers (see the omniauth-* gems in its Gemfile). Their round trip
