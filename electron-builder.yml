@@ -19,6 +19,11 @@ files:
   - src/**/*
   - package.json
 
+# Runs after each arch is packaged. For unsigned builds it ad-hoc signs the
+# .app so Apple Silicon will launch it (an entirely unsigned app reads as
+# "damaged"); for signed builds it stands aside. See build/afterPack.js.
+afterPack: build/afterPack.js
+
 mac:
   category: public.app-category.productivity
   icon: build/icon.png
