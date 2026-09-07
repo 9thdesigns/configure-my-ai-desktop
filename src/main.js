@@ -137,6 +137,14 @@ function createMainWindow () {
     minHeight: 600,
     show: false,
     backgroundColor: '#ffffff',
+    // No title bar — the web content runs edge to edge to the top of the
+    // window, the way the Grok, Claude and Slack desktop apps look.
+    // 'hiddenInset' drops the title-bar strip but keeps the native traffic
+    // lights (close/minimise/zoom), nudged in from the corner; the window is
+    // NOT frameless, so the top strip stays natively draggable and the buttons
+    // keep working. macOS-only styling; harmless on other platforms.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
