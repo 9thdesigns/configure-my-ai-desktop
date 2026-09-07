@@ -1,15 +1,17 @@
-// Configure My AI for macOS — the Electron main process.
+// Configure My AI for desktop (macOS + Windows) — the Electron main process.
 //
 // A deliberately thin shell: every screen is https://configuremyai.com
 // rendered in the bundled Chromium — the same model as the Claude, Slack and
 // Grok Bot desktop apps. Product logic stays in the Rails app; the only jobs
 // here are windowing, the menu bar, keeping foreign links out of the app
-// window, surviving offline, and auto-update.
+// window, surviving offline, and auto-update. The code is shared across
+// platforms; the few OS differences (window chrome, quit-on-close) are
+// branched inline.
 //
 // The Rails app decides its layout by user agent (app/helpers/mobile_helper.rb
 // in the main repo): only a UA carrying "Turbo Native" gets the phone chrome.
 // This shell never sends that marker, so it renders the full desktop UI —
-// which on a Mac is the point.
+// which on a laptop or desktop is the point.
 
 const { app, BrowserWindow, session, shell } = require('electron')
 const path = require('node:path')
@@ -128,6 +130,30 @@ function showOfflinePage (win) {
   win.loadFile(path.join(__dirname, 'offline.html'))
 }
 
+// Chromeless window chrome, per OS — a window with no title-bar strip but with
+// working, native window controls, the way the Grok, Claude and Slack apps
+// look. The mechanism differs by platform:
+//   macOS   — 'hiddenInset' hides the strip and keeps the traffic lights
+//             (close/minimise/zoom), nudged in from the corner.
+//   Windows — 'hidden' plus a Window Controls Overlay, which paints the
+//             minimise/maximise/close buttons over the top-right of the page so
+//             the web content still reaches the top edge. Colours track the
+//             window background so the caption area blends in.
+// Either way the window is not frameless, so the top strip stays draggable.
+// Linux and anything else keep the standard frame.
+function titleBarOptions () {
+  if (process.platform === 'darwin') {
+    return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
+  }
+  if (process.platform === 'win32') {
+    return {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: 40 },
+    }
+  }
+  return {}
+}
+
 function createMainWindow () {
   const state = windowState.load()
 
@@ -137,14 +163,7 @@ function createMainWindow () {
     minHeight: 600,
     show: false,
     backgroundColor: '#ffffff',
-    // No title bar — the web content runs edge to edge to the top of the
-    // window, the way the Grok, Claude and Slack desktop apps look.
-    // 'hiddenInset' drops the title-bar strip but keeps the native traffic
-    // lights (close/minimise/zoom), nudged in from the corner; the window is
-    // NOT frameless, so the top strip stays natively draggable and the buttons
-    // keep working. macOS-only styling; harmless on other platforms.
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
+    ...titleBarOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
