@@ -1,0 +1,27 @@
+{
+  "name": "configure-my-ai-desktop",
+  "productName": "Configure My AI",
+  "version": "0.1.0",
+  "description": "Configure My AI for macOS — a thin Electron shell around configuremyai.com, distributed as a direct-download DMG.",
+  "main": "src/main.js",
+  "private": true,
+  "author": "9th Designs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/9thdesigns/configure-my-ai-desktop.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js",
+    "pack": "electron-builder --mac --dir",
+    "dist": "electron-builder --mac",
+    "release": "electron-builder --mac --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3"
+  }
+}

@@ -1,0 +1,52 @@
+# Tag → DMG → GitHub Release.
+#
+# Push a tag like v0.1.0 and this builds Apple Silicon and Intel DMGs (plus
+# the zips electron-updater applies) and publishes them to a GitHub Release.
+# The /download page on configuremyai.com links to the `latest` release's
+# assets, so publishing a release IS shipping.
+#
+# Signing and notarization are driven entirely by repository secrets: with
+# none set, the build is ad-hoc signed (runs locally, but downloaders must
+# right-click → Open past Gatekeeper); with all five set, the DMG is
+# Developer ID signed and notarized — the real distribution path.
+#
+#   CSC_LINK                     base64 of the Developer ID Application .p12
+#   CSC_KEY_PASSWORD             password for that .p12
+#   APPLE_ID                     Apple ID email used for notarization
+#   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID
+#   APPLE_TEAM_ID                the 10-character team identifier
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run check
+
+      - name: Build and publish DMGs
+        run: npx electron-builder --mac --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

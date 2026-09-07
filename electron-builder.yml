@@ -1,0 +1,46 @@
+# Build + packaging for the macOS app.
+#
+# Artifact names are part of the site's wire contract: the /download page on
+# configuremyai.com links to
+#   .../releases/latest/download/ConfigureMyAI-arm64.dmg
+#   .../releases/latest/download/ConfigureMyAI-x64.dmg
+# so `artifactName` below must not change casually — renaming it breaks every
+# published download button until the Rails page is updated to match.
+
+appId: com.configuremyai.desktop
+productName: Configure My AI
+copyright: © 9th Designs
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - src/**/*
+  - package.json
+
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  darkModeSupport: true
+  # Hardened runtime is required for notarization; harmless without it.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: "ConfigureMyAI-${arch}.${ext}"
+  # dmg is what people download; zip is what electron-updater applies.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+
+# Notarization runs automatically when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD
+# and APPLE_TEAM_ID are present in the environment (the release workflow
+# passes them through from repository secrets), and is skipped when absent.
+
+publish:
+  provider: github
+  owner: 9thdesigns
+  repo: configure-my-ai-desktop

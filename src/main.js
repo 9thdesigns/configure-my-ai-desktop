@@ -1,0 +1,199 @@
+// Configure My AI for macOS — the Electron main process.
+//
+// A deliberately thin shell: every screen is https://configuremyai.com
+// rendered in the bundled Chromium — the same model as the Claude, Slack and
+// Grok Bot desktop apps. Product logic stays in the Rails app; the only jobs
+// here are windowing, the menu bar, keeping foreign links out of the app
+// window, surviving offline, and auto-update.
+//
+// The Rails app decides its layout by user agent (app/helpers/mobile_helper.rb
+// in the main repo): only a UA carrying "Turbo Native" gets the phone chrome.
+// This shell never sends that marker, so it renders the full desktop UI —
+// which on a Mac is the point.
+
+const { app, BrowserWindow, session, shell } = require('electron')
+const path = require('node:path')
+const { installMenu } = require('./menu')
+const windowState = require('./window-state')
+
+const APP_HOST = 'configuremyai.com'
+const APP_URL = `https://${APP_HOST}`
+
+// Hosts that must complete INSIDE the app window: every OAuth provider the
+// Rails app offers (see the omniauth-* gems in its Gemfile). Their round trip
+// ends back on APP_HOST, so sending them to the system browser would strand
+// the session in the wrong cookie jar. Everything else off-host opens in the
+// user's default browser.
+const AUTH_HOSTS = new Set([
+  'accounts.google.com',
+  'accounts.youtube.com',
+  'github.com',
+  'appleid.apple.com',
+  'login.microsoftonline.com',
+  'login.live.com',
+  'facebook.com',
+  'www.facebook.com',
+  'm.facebook.com',
+  'linkedin.com',
+  'www.linkedin.com',
+  'twitter.com',
+  'x.com',
+  'api.twitter.com',
+  'api.x.com',
+  'slack.com',
+])
+
+let mainWindow = null
+
+function parseUrl (value) {
+  try {
+    return new URL(value)
+  } catch {
+    return null
+  }
+}
+
+function isAppUrl (value) {
+  const url = parseUrl(value)
+  if (!url || url.protocol !== 'https:') return false
+  return url.hostname === APP_HOST || url.hostname.endsWith(`.${APP_HOST}`)
+}
+
+function isAuthUrl (value) {
+  const url = parseUrl(value)
+  if (!url || url.protocol !== 'https:') return false
+  return AUTH_HOSTS.has(url.hostname)
+}
+
+// Anything not ours and not an auth hop leaves the app. Only web URLs are
+// handed to the OS — shell.openExternal with an arbitrary scheme is how a
+// page launches things it shouldn't.
+function openExternally (value) {
+  const url = parseUrl(value)
+  if (!url) return
+  if (url.protocol === 'https:' || url.protocol === 'http:') {
+    shell.openExternal(url.toString())
+  }
+}
+
+// Google refuses OAuth in anything whose UA admits to being an embedded
+// shell ("disallowed_useragent"). Stripping the Electron and app tokens
+// leaves the plain Chrome UA, which is both accurate — this IS Chromium —
+// and what every comparable wrapper ships.
+function normalizeUserAgent () {
+  app.userAgentFallback = app.userAgentFallback
+    .replace(/\s?Electron\/\S+/, '')
+    .replace(/\s?configure-my-ai-desktop\/\S+/, '')
+    .replace(/\s?ConfigureMyAI\/\S+/, '')
+}
+
+function applyNavigationPolicy (contents) {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (isAppUrl(url)) return { action: 'allow' }
+    if (isAuthUrl(url)) {
+      // OAuth popups get a plain, menu-less window sized like the ones the
+      // providers design for.
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 600,
+          height: 720,
+          autoHideMenuBar: true,
+        },
+      }
+    }
+    openExternally(url)
+    return { action: 'deny' }
+  })
+
+  contents.on('will-navigate', (event, url) => {
+    if (isAppUrl(url) || isAuthUrl(url)) return
+    event.preventDefault()
+    openExternally(url)
+  })
+}
+
+function showOfflinePage (win) {
+  win.loadFile(path.join(__dirname, 'offline.html'))
+}
+
+function createMainWindow () {
+  const state = windowState.load()
+
+  mainWindow = new BrowserWindow({
+    ...state.bounds,
+    minWidth: 960,
+    minHeight: 600,
+    show: false,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: true,
+    },
+  })
+
+  if (state.isMaximized) mainWindow.maximize()
+  windowState.track(mainWindow)
+  applyNavigationPolicy(mainWindow.webContents)
+
+  // -3 is ERR_ABORTED — fired by ordinary in-page cancellations, not by being
+  // offline. Everything else on the main frame gets the retry page.
+  mainWindow.webContents.on('did-fail-load', (_event, code, _desc, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) showOfflinePage(mainWindow)
+  })
+
+  mainWindow.once('ready-to-show', () => mainWindow.show())
+  mainWindow.on('closed', () => { mainWindow = null })
+
+  mainWindow.loadURL(APP_URL)
+  return mainWindow
+}
+
+// The renderer is a website; it should hold website permissions. Notifications
+// and fullscreen are part of the product (web push, video), the rest is not —
+// and nothing off-host gets anything at all.
+function restrictPermissions () {
+  const allowed = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write'])
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
+    callback(isAppUrl(contents.getURL()) && allowed.has(permission))
+  })
+}
+
+// Update checks are quiet and failure-tolerant on purpose: an unsigned local
+// build cannot apply updates on macOS, and that must never surface as a
+// dialog. Signed releases published to GitHub Releases update silently.
+function setUpAutoUpdates () {
+  if (!app.isPackaged) return
+  try {
+    const { autoUpdater } = require('electron-updater')
+    autoUpdater.logger = null
+    autoUpdater.on('error', () => {})
+    const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {})
+    check()
+    setInterval(check, 4 * 60 * 60 * 1000)
+  } catch {
+    // electron-updater missing or unusable — the app still runs.
+  }
+}
+
+app.setName('Configure My AI')
+normalizeUserAgent()
+
+app.whenReady().then(() => {
+  restrictPermissions()
+  installMenu({ appUrl: APP_URL, getWindow: () => mainWindow })
+  createMainWindow()
+  setUpAutoUpdates()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+  })
+})
+
+// macOS convention: closing the window leaves the app in the Dock.
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
