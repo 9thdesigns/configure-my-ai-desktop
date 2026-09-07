@@ -44,3 +44,11 @@ publish:
   provider: github
   owner: 9thdesigns
   repo: configure-my-ai-desktop
+  # Publish straight to a full (non-draft) release, not the default draft.
+  # Our model is "a release IS shipping" — the /download page links to the
+  # latest release's assets — and electron-builder refuses to upload into an
+  # already-published release when it expects a draft ("existing type not
+  # compatible with publishing type"), which silently left v0.1.0 with zero
+  # assets. releaseType: release matches the published release and uploads
+  # into it.
+  releaseType: release
