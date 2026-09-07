@@ -15,6 +15,7 @@ const { app, BrowserWindow, session, shell } = require('electron')
 const path = require('node:path')
 const { installMenu } = require('./menu')
 const windowState = require('./window-state')
+const updater = require('./updater')
 
 const APP_HOST = 'configuremyai.com'
 const APP_URL = `https://${APP_HOST}`
@@ -169,31 +170,21 @@ function restrictPermissions () {
   })
 }
 
-// Update checks are quiet and failure-tolerant on purpose: an unsigned local
-// build cannot apply updates on macOS, and that must never surface as a
-// dialog. Signed releases published to GitHub Releases update silently.
-function setUpAutoUpdates () {
-  if (!app.isPackaged) return
-  try {
-    const { autoUpdater } = require('electron-updater')
-    autoUpdater.logger = null
-    autoUpdater.on('error', () => {})
-    const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {})
-    check()
-    setInterval(check, 4 * 60 * 60 * 1000)
-  } catch {
-    // electron-updater missing or unusable — the app still runs.
-  }
-}
-
 app.setName('Configure My AI')
 tagUserAgent()
 
 app.whenReady().then(() => {
   restrictPermissions()
-  installMenu({ appUrl: APP_URL, startUrl: START_URL, getWindow: () => mainWindow })
+  installMenu({
+    appUrl: APP_URL,
+    startUrl: START_URL,
+    getWindow: () => mainWindow,
+    onCheckForUpdates: () => updater.checkForUpdates({ getWindow: () => mainWindow }),
+  })
   createMainWindow()
-  setUpAutoUpdates()
+  // Background update checks; the "Update Ready" modal appears once a newer
+  // signed build has downloaded. See src/updater.js.
+  updater.initAutoUpdates({ getWindow: () => mainWindow })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
