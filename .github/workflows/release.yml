@@ -41,6 +41,34 @@ jobs:
 
       - run: npm run check
 
+      - name: Read version
+        id: ver
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      # Pre-create the target release so electron-builder only ever UPLOADS
+      # into it — it never calls POST /releases itself. This is the fix for
+      # both multi-arch failure modes we hit: with releaseType: release the
+      # two parallel arch uploads raced to create the release and GitHub
+      # returned "422 Published releases must have a valid tag"; with the
+      # default draft flow each arch made its own separate draft because a
+      # draft can't be looked up by tag. A single published release that
+      # already exists resolves cleanly for every upload. Idempotent: skipped
+      # if the release is already there.
+      - name: Ensure the release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.ver.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists."
+          else
+            echo "Creating release $tag at $GITHUB_SHA."
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes "Configure My AI $tag" \
+              --target "$GITHUB_SHA"
+          fi
+
       # When the five signing secrets are absent they arrive here as empty
       # strings, and electron-builder mis-reads an empty CSC_LINK as a
       # certificate *path* — resolving it to the project dir and failing with
