@@ -41,8 +41,25 @@ jobs:
 
       - run: npm run check
 
+      # When the five signing secrets are absent they arrive here as empty
+      # strings, and electron-builder mis-reads an empty CSC_LINK as a
+      # certificate *path* — resolving it to the project dir and failing with
+      # "<dir> not a file". So branch explicitly: sign when a certificate is
+      # present, otherwise unset the empties and turn identity auto-discovery
+      # off for a clean unsigned (ad-hoc) build. Downloaders of an unsigned
+      # build open it past Gatekeeper once; add the secrets to get notarized
+      # builds that just open. See README.md.
       - name: Build and publish DMGs
-        run: npx electron-builder --mac --publish always
+        run: |
+          if [ -n "$CSC_LINK" ]; then
+            echo "Developer ID certificate present — signing."
+            npx electron-builder --mac --publish always
+          else
+            echo "No signing certificate — building an unsigned (ad-hoc) release."
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            npx electron-builder --mac --publish always
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
