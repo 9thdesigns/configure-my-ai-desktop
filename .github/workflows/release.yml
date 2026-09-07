@@ -1,20 +1,31 @@
-# Tag → DMG → GitHub Release.
+# Tag → installers → GitHub Release.
 #
-# Push a tag like v0.1.0 and this builds Apple Silicon and Intel DMGs (plus
-# the zips electron-updater applies) and publishes them to a GitHub Release.
+# Push a tag like v0.1.0 and this builds the macOS DMGs (Apple Silicon +
+# Intel, plus the zips electron-updater applies) AND the Windows NSIS
+# installers (x64 + ARM64), then publishes them to a single GitHub Release.
 # The /download page on configuremyai.com links to the `latest` release's
 # assets, so publishing a release IS shipping.
 #
-# Signing and notarization are driven entirely by repository secrets: with
-# none set, the build is ad-hoc signed (runs locally, but downloaders must
-# right-click → Open past Gatekeeper); with all five set, the DMG is
-# Developer ID signed and notarized — the real distribution path.
+# macOS signing/notarization is driven by repository secrets: with none set,
+# the build is ad-hoc signed (runs locally, but downloaders must right-click →
+# Open past Gatekeeper); with all five set, the DMG is Developer ID signed and
+# notarized — the real distribution path.
 #
 #   CSC_LINK                     base64 of the Developer ID Application .p12
 #   CSC_KEY_PASSWORD             password for that .p12
 #   APPLE_ID                     Apple ID email used for notarization
 #   APPLE_APP_SPECIFIC_PASSWORD  app-specific password for that Apple ID
 #   APPLE_TEAM_ID                the 10-character team identifier
+#
+# Windows signing is OPTIONAL and independent — its own Authenticode cert, not
+# Apple's:
+#
+#   WIN_CSC_LINK                 base64 of an Authenticode .pfx (optional)
+#   WIN_CSC_KEY_PASSWORD         password for that .pfx (optional)
+#
+# The Windows job never receives the Apple CSC_LINK, so electron-builder can't
+# mistake the macOS certificate for a Windows one. With no Windows cert the
+# installer ships unsigned and SmartScreen warns on first run.
 
 name: Release
 
@@ -27,33 +38,23 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: macos-14
+  # Pre-create the target release exactly once so the two build jobs only ever
+  # UPLOAD into it — neither calls POST /releases, so the parallel arch/os
+  # uploads can't race to create it (the 422 "Published releases must have a
+  # valid tag" we hit before) and can't each spawn a draft. Idempotent: if the
+  # release already exists (a re-run, or a tag push after a manual dispatch)
+  # this is a no-op.
+  create_release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm run check
 
       - name: Read version
         id: ver
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      # Pre-create the target release so electron-builder only ever UPLOADS
-      # into it — it never calls POST /releases itself. This is the fix for
-      # both multi-arch failure modes we hit: with releaseType: release the
-      # two parallel arch uploads raced to create the release and GitHub
-      # returned "422 Published releases must have a valid tag"; with the
-      # default draft flow each arch made its own separate draft because a
-      # draft can't be looked up by tag. A single published release that
-      # already exists resolves cleanly for every upload. Idempotent: skipped
-      # if the release is already there.
       - name: Ensure the release exists
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -69,6 +70,21 @@ jobs:
               --target "$GITHUB_SHA"
           fi
 
+  mac:
+    needs: create_release
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run check
+
       # When the five signing secrets are absent they arrive here as empty
       # strings, and electron-builder mis-reads an empty CSC_LINK as a
       # certificate *path* — resolving it to the project dir and failing with
@@ -77,7 +93,7 @@ jobs:
       # off for a clean unsigned (ad-hoc) build. Downloaders of an unsigned
       # build open it past Gatekeeper once; add the secrets to get notarized
       # builds that just open. See README.md.
-      - name: Build and publish DMGs
+      - name: Build and publish macOS DMGs
         run: |
           if [ -n "$CSC_LINK" ]; then
             echo "Developer ID certificate present — signing."
@@ -95,3 +111,31 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+  windows:
+    needs: create_release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run check
+
+      # Only the Windows-specific WIN_CSC_* secrets are exposed here — never
+      # the Apple CSC_LINK — so electron-builder signs with an Authenticode
+      # cert if one is provided and otherwise builds an unsigned installer.
+      # electron-builder reads WIN_CSC_LINK / WIN_CSC_KEY_PASSWORD directly; no
+      # branch needed because, unlike the macOS path, an empty value here is
+      # simply treated as "no certificate".
+      - name: Build and publish Windows installers
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}

@@ -1,11 +1,16 @@
-# Build + packaging for the macOS app.
+# Build + packaging for the desktop app (macOS + Windows).
 #
 # Artifact names are part of the site's wire contract: the /download page on
 # configuremyai.com links to
-#   .../releases/latest/download/ConfigureMyAI-arm64.dmg
-#   .../releases/latest/download/ConfigureMyAI-x64.dmg
-# so `artifactName` below must not change casually — renaming it breaks every
-# published download button until the Rails page is updated to match.
+#   .../releases/latest/download/ConfigureMyAI-arm64.dmg      (macOS Apple Silicon)
+#   .../releases/latest/download/ConfigureMyAI-x64.dmg        (macOS Intel)
+#   .../releases/latest/download/ConfigureMyAI-win-x64.exe    (Windows x64)
+#   .../releases/latest/download/ConfigureMyAI-win-arm64.exe  (Windows ARM64)
+# so the `artifactName` fields below must not change casually — renaming one
+# breaks every published download button until the Rails page is updated to
+# match. The Windows names carry a `win-` segment specifically so the Windows
+# assets never collide with the macOS ones in the same GitHub Release (a plain
+# ConfigureMyAI-x64.zip would clash with the macOS updater zip).
 
 appId: com.configuremyai.desktop
 productName: Configure My AI
@@ -44,6 +49,38 @@ mac:
 # Notarization runs automatically when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD
 # and APPLE_TEAM_ID are present in the environment (the release workflow
 # passes them through from repository secrets), and is skipped when absent.
+
+win:
+  icon: build/icon.png # electron-builder derives the .ico from this 1024² PNG.
+  # NSIS installer, the standard Electron distribution on Windows and what
+  # electron-updater knows how to apply in place (via latest.yml). Two arches,
+  # both cross-built on the x64 runner. `win-` keeps these names clear of the
+  # macOS assets in the same release; ${ext} is `exe`.
+  artifactName: "ConfigureMyAI-win-${arch}.${ext}"
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  # A per-user, one-click installer — no admin prompt, no install-location
+  # step — matching how Slack, Grok and the like ship. This is also what makes
+  # silent in-app auto-update possible: a per-machine install would need
+  # elevation on every update.
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  # Desktop + Start Menu shortcuts, and a clean uninstall of app data.
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+
+# Windows code-signing is OPTIONAL and separate from Apple's. When
+# WIN_CSC_LINK (base64 of an Authenticode .pfx) and WIN_CSC_KEY_PASSWORD are
+# present, electron-builder signs the installer; with neither, it ships
+# unsigned and Windows SmartScreen warns on first run (the Gatekeeper
+# equivalent). The release workflow's Windows job deliberately does NOT expose
+# the Apple CSC_LINK, so electron-builder never tries to sign an .exe with the
+# macOS certificate.
 
 publish:
   provider: github
