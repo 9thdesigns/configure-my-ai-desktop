@@ -12,7 +12,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check build/afterPack.js",
+    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check src/updater.js && node --check build/afterPack.js",
     "pack": "electron-builder --mac --dir",
     "dist": "electron-builder --mac",
     "release": "electron-builder --mac --publish always"

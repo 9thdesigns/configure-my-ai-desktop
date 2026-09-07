@@ -6,7 +6,7 @@ const { Menu, shell } = require('electron')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
-function installMenu ({ appUrl, getWindow }) {
+function installMenu ({ appUrl, getWindow, onCheckForUpdates }) {
   const contents = () => getWindow()?.webContents
 
   const template = [
@@ -52,6 +52,13 @@ function installMenu ({ appUrl, getWindow }) {
     {
       role: 'help',
       submenu: [
+        {
+          label: 'Check for Updates…',
+          // Guarded: if main didn't wire an updater (older host), the item is
+          // simply inert rather than throwing.
+          click: () => { if (typeof onCheckForUpdates === 'function') onCheckForUpdates() },
+        },
+        { type: 'separator' },
         { label: 'How It Works', click: () => shell.openExternal(`${appUrl}/about`) },
         { label: 'Features', click: () => shell.openExternal(`${appUrl}/features`) },
         { type: 'separator' },
