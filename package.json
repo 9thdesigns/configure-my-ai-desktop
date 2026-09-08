@@ -1,7 +1,7 @@
 {
   "name": "configure-my-ai-desktop",
   "productName": "Configure My AI",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Configure My AI for desktop — a thin Electron shell around configuremyai.com for macOS and Windows, distributed as a direct download.",
   "main": "src/main.js",
   "private": true,
