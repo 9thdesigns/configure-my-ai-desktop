@@ -72,10 +72,28 @@ function isAppUrl (value) {
   return url.hostname === APP_HOST || url.hostname.endsWith(`.${APP_HOST}`)
 }
 
+// A few AUTH_HOSTS are also ordinary destinations, not just OAuth waypoints —
+// GitHub most of all: the app surfaces repo, PR and release links, and those
+// need the user's BROWSER session (where they are signed in to GitHub), not
+// this app's empty cookie jar, which 404s on anything private. So for these
+// hosts only the real sign-in / OAuth endpoints stay in the app (to complete a
+// provider-connect round trip); every other path is content and opens
+// externally.
+const AUTH_PATH_ONLY_HOSTS = new Set(['github.com'])
+
+// GitHub's auth surface: the OAuth authorize / access-token endpoints (which
+// live under /login/oauth) and the sign-in gate they bounce through.
+// Everything else on github.com is content.
+function isGithubAuthPath (pathname) {
+  return /^\/(login|session)(\/|$)/.test(pathname)
+}
+
 function isAuthUrl (value) {
   const url = parseUrl(value)
   if (!url || url.protocol !== 'https:') return false
-  return AUTH_HOSTS.has(url.hostname)
+  if (!AUTH_HOSTS.has(url.hostname)) return false
+  if (AUTH_PATH_ONLY_HOSTS.has(url.hostname)) return isGithubAuthPath(url.pathname)
+  return true
 }
 
 // Anything not ours and not an auth hop leaves the app. Only web URLs are
