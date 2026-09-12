@@ -5,6 +5,20 @@
   <title>Configure My AI</title>
   <style>
     :root { color-scheme: light dark; }
+    /* The window has no title bar to drag by (see src/preload.js). The preload
+       installs a strip on every page it shows, this one included; this is the
+       same strip in the markup, so the page the user sees when the network is
+       gone is movable even if nothing else on it has run. Height matches
+       TITLEBAR_HEIGHT in src/main.js. */
+    .titlebar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: 40px;
+      z-index: 2147483647;
+      -webkit-app-region: drag;
+      -webkit-user-select: none;
+      user-select: none;
+    }
     body {
       margin: 0;
       display: grid;
@@ -33,6 +47,7 @@
   </style>
 </head>
 <body>
+  <div class="titlebar" aria-hidden="true"></div>
   <main>
     <h1>Can’t reach Configure My AI</h1>
     <p>Check your connection — this app is a window onto configuremyai.com, so it needs the network. It retries on its own every few seconds.</p>
