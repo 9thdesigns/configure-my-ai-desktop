@@ -13,7 +13,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, session, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, session, shell } = require('electron')
 const path = require('node:path')
 const { installMenu } = require('./menu')
 const windowState = require('./window-state')
@@ -21,6 +21,13 @@ const updater = require('./updater')
 
 const APP_HOST = 'configuremyai.com'
 const APP_URL = `https://${APP_HOST}`
+
+// Height of the strip at the top of the window that the user drags it by, and
+// of the Windows caption-button overlay drawn into it. The page reserves this
+// much room at its top (body.desktop-app in the Rails app) and the preload
+// marks it draggable, so the two have to agree; this is the one place it is
+// written down.
+const TITLEBAR_HEIGHT = 40
 
 // The app opens on the walkthrough landing (/welcome), not the marketing
 // home. Signed out, /welcome renders the desktop-only wizard — what Configure
@@ -57,6 +64,11 @@ const AUTH_HOSTS = new Set([
 ])
 
 let mainWindow = null
+
+// The windows drawn without a native title bar — the app's own, but not the
+// OAuth popups, which keep a standard frame. Only these need the page to
+// donate a draggable strip, and the preload asks before installing one.
+const chromelessWindows = new WeakSet()
 
 function parseUrl (value) {
   try {
@@ -166,7 +178,7 @@ function titleBarOptions () {
   if (process.platform === 'win32') {
     return {
       titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: 40 },
+      titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
     }
   }
   return {}
@@ -192,6 +204,7 @@ function createMainWindow () {
   })
 
   if (state.isMaximized) mainWindow.maximize()
+  if (Object.keys(titleBarOptions()).length > 0) chromelessWindows.add(mainWindow)
   windowState.track(mainWindow)
   applyNavigationPolicy(mainWindow.webContents)
 
@@ -206,6 +219,22 @@ function createMainWindow () {
 
   mainWindow.loadURL(START_URL)
   return mainWindow
+}
+
+// What the preload needs to know before the page paints: whether this window
+// has a title bar of its own, and how tall the strip is if it does not. Sent
+// synchronously because the answer decides what goes into the document, and
+// asking after the first paint means a window that is briefly unmovable.
+function registerIpc () {
+  ipcMain.on('cfa:window-info', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    event.returnValue = {
+      chromeless: Boolean(win && chromelessWindows.has(win)),
+      titleBarHeight: TITLEBAR_HEIGHT,
+      platform: process.platform,
+      version: app.getVersion(),
+    }
+  })
 }
 
 // The renderer is a website; it should hold website permissions. Notifications
@@ -223,6 +252,7 @@ tagUserAgent()
 
 app.whenReady().then(() => {
   restrictPermissions()
+  registerIpc()
   installMenu({
     appUrl: APP_URL,
     startUrl: START_URL,
