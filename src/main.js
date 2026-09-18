@@ -13,7 +13,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, ipcMain, session, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
 const { installMenu } = require('./menu')
 const windowState = require('./window-state')
@@ -237,14 +237,72 @@ function registerIpc () {
   })
 }
 
-// The renderer is a website; it should hold website permissions. Notifications
-// and fullscreen are part of the product (web push, video), the rest is not —
-// and nothing off-host gets anything at all.
+// The renderer is a website; it should hold website permissions. Notifications,
+// fullscreen and the clipboard are part of the product (web push, video, copy).
+// The microphone is too: the composer dictates into the same field as on the
+// web. Camera, geolocation and the rest are not, and nothing off-host gets
+// anything at all.
+//
+// Chromium asks twice — a synchronous check, then a request. Both have to
+// agree. Granting the request and refusing the check is how getUserMedia
+// fails with NotAllowedError before the OS prompt ever appears. On macOS the
+// request also has to pass TCC (systemPreferences.askForMediaAccess); the
+// Chromium grant is not enough on its own.
 function restrictPermissions () {
-  const allowed = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write'])
-  session.defaultSession.setPermissionRequestHandler((contents, permission, callback) => {
-    callback(isAppUrl(contents.getURL()) && allowed.has(permission))
+  const allowed = new Set(['notifications', 'fullscreen', 'clipboard-sanitized-write', 'media'])
+
+  session.defaultSession.setPermissionCheckHandler((contents, permission, requestingOrigin, details) => {
+    if (!fromApp(contents, requestingOrigin)) return false
+    if (permission === 'media') return mediaIsAudio(details)
+    return allowed.has(permission)
   })
+
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    if (!fromApp(contents) || !allowed.has(permission)) {
+      callback(false)
+      return
+    }
+    if (permission !== 'media') {
+      callback(true)
+      return
+    }
+    if (!mediaIsAudio(details)) {
+      callback(false)
+      return
+    }
+    grantMicrophone(callback)
+  })
+}
+
+function fromApp (contents, origin) {
+  if (origin && isAppUrl(origin)) return true
+  const url = contents?.getURL?.()
+  return Boolean(url && isAppUrl(url))
+}
+
+// Chromium names the capture as details.mediaTypes (request) or
+// details.mediaType (check). SpeechRecognition sometimes sends neither;
+// an unspecified media request is the microphone, not the camera.
+function mediaIsAudio (details) {
+  const types = details?.mediaTypes
+  if (Array.isArray(types) && types.length > 0) return types.includes('audio')
+  const type = details?.mediaType
+  if (type && type !== 'unknown') return type === 'audio'
+  return true
+}
+
+function grantMicrophone (callback) {
+  if (process.platform !== 'darwin') {
+    callback(true)
+    return
+  }
+  if (systemPreferences.getMediaAccessStatus('microphone') === 'granted') {
+    callback(true)
+    return
+  }
+  systemPreferences.askForMediaAccess('microphone')
+    .then((granted) => callback(Boolean(granted)))
+    .catch(() => callback(false))
 }
 
 app.setName('Configure My AI')
