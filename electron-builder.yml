@@ -38,6 +38,10 @@ mac:
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
+  # Usage string the OS shows on the microphone TCC prompt. Without it,
+  # getUserMedia fails silently on macOS even with the audio-input entitlement.
+  extendInfo:
+    NSMicrophoneUsageDescription: Configure My AI uses the microphone so you can dictate messages.
   artifactName: "ConfigureMyAI-${arch}.${ext}"
   # dmg is what people download; zip is what electron-updater applies.
   target:
