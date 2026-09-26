@@ -1,4 +1,4 @@
-# Build + packaging for the desktop app (macOS + Windows).
+# Build + packaging for the desktop app (macOS, Windows + Linux/Omarchy).
 #
 # Artifact names are part of the site's wire contract: the /download page on
 # configuremyai.com links to
@@ -6,6 +6,8 @@
 #   .../releases/latest/download/ConfigureMyAI-x64.dmg        (macOS Intel)
 #   .../releases/latest/download/ConfigureMyAI-win-x64.exe    (Windows x64)
 #   .../releases/latest/download/ConfigureMyAI-win-arm64.exe  (Windows ARM64)
+#   .../releases/latest/download/ConfigureMyAI-linux-x64.pacman   (Arch / Omarchy)
+#   .../releases/latest/download/ConfigureMyAI-linux-x64.AppImage (any Linux)
 # so the `artifactName` fields below must not change casually — renaming one
 # breaks every published download button until the Rails page is updated to
 # match. The Windows names carry a `win-` segment specifically so the Windows
@@ -81,6 +83,58 @@ nsis:
 # equivalent). The release workflow's Windows job deliberately does NOT expose
 # the Apple CSC_LINK, so electron-builder never tries to sign an .exe with the
 # macOS certificate.
+
+linux:
+  icon: build/icon.png # electron-builder derives the hicolor icon set from this.
+  # `configure-my-ai` is the binary, the .desktop file and — via desktopName in
+  # package.json + syncDesktopName — the Wayland app_id / X11 WM_CLASS, so the
+  # launcher (Walker on Omarchy), the dock and Hyprland window rules
+  # (`windowrule = ..., class:configure-my-ai`) all agree on one name.
+  executableName: configure-my-ai
+  syncDesktopName: true
+  category: Office
+  synopsis: Configure My AI in its own window
+  description: Configure My AI (configuremyai.com) in a dedicated desktop window.
+  # fpm (the pacman build) requires a maintainer with an email.
+  maintainer: 9th Designs <support@configuremyai.com>
+  desktop:
+    entry:
+      Name: Configure My AI
+      GenericName: AI Assistant
+      Keywords: ai;assistant;chat;claude;configure;
+  # pacman is the first-class Omarchy/Arch install: one `sudo pacman -U`, and
+  # it lands in /opt with a desktop entry the app launcher picks up.
+  # electron-updater's PacmanUpdater applies later versions the same way.
+  # AppImage is the portable fallback for every other distro and self-updates
+  # in place. x64 only — Omarchy (Arch) is x86_64. `linux-` keeps the names
+  # clear of the macOS/Windows assets in the same release. The names are
+  # spelled out per target rather than via ${arch}, which renders as `x86_64`
+  # for AppImage but `x64` for pacman.
+  target:
+    - target: pacman
+      arch: [x64]
+    - target: AppImage
+      arch: [x64]
+
+pacman:
+  artifactName: "ConfigureMyAI-linux-x64.${ext}"
+  # electron-builder's default pacman depends list names packages Arch no
+  # longer ships (http-parser, …) and would make `pacman -U` refuse the
+  # install. Electron bundles its own Chromium; these are the system libraries
+  # it actually loads, all in Arch's core/extra and present on Omarchy.
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libnotify
+    - libxss
+    - libxtst
+    - libsecret
+    - at-spi2-core
+    - xdg-utils
+
+appImage:
+  artifactName: "ConfigureMyAI-linux-x64.${ext}"
 
 publish:
   provider: github

@@ -1,8 +1,9 @@
 # Tag → installers → GitHub Release.
 #
 # Push a tag like v0.1.0 and this builds the macOS DMGs (Apple Silicon +
-# Intel, plus the zips electron-updater applies) AND the Windows NSIS
-# installers (x64 + ARM64), then publishes them to a single GitHub Release.
+# Intel, plus the zips electron-updater applies), the Windows NSIS
+# installers (x64 + ARM64) AND the Linux packages (an Arch/Omarchy .pacman and
+# a portable AppImage), then publishes them to a single GitHub Release.
 # The /download page on configuremyai.com links to the `latest` release's
 # assets, so publishing a release IS shipping.
 #
@@ -26,6 +27,9 @@
 # The Windows job never receives the Apple CSC_LINK, so electron-builder can't
 # mistake the macOS certificate for a Windows one. With no Windows cert the
 # installer ships unsigned and SmartScreen warns on first run.
+#
+# Linux needs no secrets: pacman and AppImage packages are not code-signed, and
+# electron-updater verifies each update against the sha512 in latest-linux.yml.
 
 name: Release
 
@@ -139,3 +143,30 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+  linux:
+    needs: create_release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # fpm's pacman target shells out to bsdtar to write the package's .MTREE;
+      # Ubuntu ships it as libarchive-tools.
+      - name: Install pacman packaging tools
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+
+      - run: npm ci
+
+      - run: npm run check
+
+      # One latest-linux.yml lists both files; electron-updater picks the
+      # AppImage or the .pacman by how the running copy was installed.
+      - name: Build and publish Linux packages
+        run: npx electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
