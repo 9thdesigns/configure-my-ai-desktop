@@ -1,10 +1,12 @@
 // In-app auto-update.
 //
-// electron-updater checks the GitHub release channel (the latest-mac.yml the
-// release workflow publishes), downloads a newer signed build in the
-// background, and — when it's ready — this shows a modal offering to restart
-// into it. "Restart Now" calls quitAndInstall, so the user updates without
-// re-downloading the DMG by hand. A menu item ("Check for Updates…") routes
+// electron-updater checks the GitHub release channel (the latest-mac.yml,
+// latest.yml and latest-linux.yml the release workflow publishes), downloads a
+// newer build in the background, and — when it's ready — this shows a modal
+// offering to restart into it. "Restart Now" calls quitAndInstall, so the user
+// updates without re-downloading the installer by hand. On Linux an AppImage
+// replaces itself in place, and a pacman install (Omarchy/Arch) runs
+// `pacman -U` on the new package behind the system's polkit password prompt. A menu item ("Check for Updates…") routes
 // here too for an on-demand check.
 //
 // Only packaged, Developer ID-signed builds can self-update on macOS, so

@@ -19,7 +19,8 @@ const info = ipcRenderer.sendSync('cfa:window-info')
 // ---------------------------------------------------------------------------
 //
 // The app window has no title bar — hiddenInset on macOS, a Window Controls
-// Overlay on Windows — which leaves the OS nothing to drag it by. Only the
+// Overlay on Windows and floating Linux desktops, no frame at all under a
+// tiling WM like Omarchy's Hyprland — which leaves the OS nothing to drag it by. Only the
 // page can say where the window may be dragged from, by marking an element
 // `-webkit-app-region: drag`, and until now neither the shell nor the site
 // marked anything at all: the window moved only where macOS happened to leave
@@ -34,8 +35,15 @@ const info = ipcRenderer.sendSync('cfa:window-info')
 // order, so a strip that any overlay can stack on top of is a strip that
 // stops working as soon as a modal opens.
 //
-// Windows that keep a native frame — the OAuth popups, and Linux — get none of
-// this; `chromeless` is false there and the OS handles dragging itself.
+// Windows that keep a native frame — the OAuth popups — get none of this;
+// `chromeless` is false there and the OS handles dragging itself.
+//
+// Alongside the strip, <html> is stamped with data-desktop-captions: which side
+// of the strip the OS paints its window buttons on ('left' for the macOS
+// traffic lights, 'right' for a Window Controls Overlay, 'none' under a tiling
+// WM). The server can tell the OS from the user agent but not the window
+// manager, so this is how the site's top bar knows to keep clear of the buttons
+// on GNOME and to use the whole strip on Omarchy.
 
 const DRAG_STRIP_ID = 'cfa-desktop-drag-strip'
 const DRAG_STYLE_ID = 'cfa-desktop-drag-style'
@@ -62,7 +70,7 @@ function dragStripCss (height) {
   `
 }
 
-function installDragStrip (height) {
+function installDragStrip (height, captions) {
   let bodyObserver = null
   let lastPointerDown = 0
 
@@ -103,7 +111,15 @@ function installDragStrip (height) {
     if (body.lastElementChild !== strip) body.appendChild(strip)
   }
 
+  const ensureCaptions = () => {
+    const root = document.documentElement
+    if (captions && root && root.dataset.desktopCaptions !== captions) {
+      root.dataset.desktopCaptions = captions
+    }
+  }
+
   const ensure = () => {
+    ensureCaptions()
     ensureStyle()
     ensureStrip()
     // <body> is a different element after a Turbo visit; the observer follows it.
@@ -139,4 +155,4 @@ function installDragStrip (height) {
   }
 }
 
-if (info && info.chromeless) installDragStrip(info.titleBarHeight)
+if (info && info.chromeless) installDragStrip(info.titleBarHeight, info.captions)

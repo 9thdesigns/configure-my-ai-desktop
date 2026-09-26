@@ -21,6 +21,10 @@ directly:
 - **[Windows x64](https://github.com/9thdesigns/configure-my-ai-desktop/releases/latest/download/ConfigureMyAI-win-x64.exe)** — most PCs
 - **[Windows ARM64](https://github.com/9thdesigns/configure-my-ai-desktop/releases/latest/download/ConfigureMyAI-win-arm64.exe)** — Arm-based PCs
 
+**Linux**
+- **[Omarchy / Arch Linux](https://github.com/9thdesigns/configure-my-ai-desktop/releases/latest/download/ConfigureMyAI-linux-x64.pacman)** — a native pacman package
+- **[AppImage](https://github.com/9thdesigns/configure-my-ai-desktop/releases/latest/download/ConfigureMyAI-linux-x64.AppImage)** — any other x64 distro
+
 Or visit **[configuremyai.com/downloads](https://configuremyai.com/downloads)**.
 Every version lives on the
 [releases page](https://github.com/9thdesigns/configure-my-ai-desktop/releases).
@@ -28,7 +32,8 @@ Every version lives on the
 On macOS, not sure which? Apple menu → **About This Mac**; a chip that starts
 with “Apple” is Apple Silicon, “Intel” is Intel.
 
-**Requirements:** macOS 11 (Big Sur) or later; Windows 10 or later.
+**Requirements:** macOS 11 (Big Sur) or later; Windows 10 or later; 64-bit
+(x86_64) Linux — Omarchy, Arch, or any distro that runs AppImages.
 
 ## Install
 
@@ -60,6 +65,40 @@ First launch: if the installer isn't code-signed yet, Windows SmartScreen may
 warn. Click **More info → Run anyway** — once only. *(This goes away once the
 installer is signed.)*
 
+**Omarchy / Arch Linux**
+
+1. Download the package and install it with pacman:
+
+   ```sh
+   curl -LO https://github.com/9thdesigns/configure-my-ai-desktop/releases/latest/download/ConfigureMyAI-linux-x64.pacman
+   sudo pacman -U ConfigureMyAI-linux-x64.pacman
+   ```
+
+   *(Download first rather than handing pacman the URL: pacman insists on a
+   signature for remote packages, and this one isn't signed.)*
+
+2. Launch **Configure My AI** from the app launcher (<kbd>Super</kbd> +
+   <kbd>Space</kbd> on Omarchy) and sign in.
+
+On Omarchy the window opens without a title bar or buttons, like the rest of
+the desktop: Hyprland tiles it, <kbd>Super</kbd> + <kbd>W</kbd> closes it, and
+Back / Forward / Home sit in the app's top bar and on <kbd>Ctrl</kbd> +
+<kbd>[</kbd> / <kbd>]</kbd> / <kbd>Shift</kbd> + <kbd>H</kbd>. Its window class is
+`configure-my-ai`, for Hyprland rules — e.g. to bind it to a key, add
+`bind = SUPER SHIFT, A, exec, uwsm app -- configure-my-ai` to
+`~/.config/hypr/bindings.conf`. Updates arrive in-app like on the other
+platforms; installing one asks for your password once, since it goes through
+pacman. To remove it: `sudo pacman -R configure-my-ai-desktop`.
+
+**Other Linux (AppImage)**
+
+1. Download the `.AppImage`, then `chmod +x ConfigureMyAI-linux-x64.AppImage`.
+2. Run it. AppImages need FUSE 2 — on Arch that's `sudo pacman -S fuse2`, on
+   Ubuntu/Debian `sudo apt install libfuse2`.
+
+On GNOME, KDE and other floating desktops the window gets the same chromeless
+look as on Windows, with the window buttons drawn over the top-right corner.
+
 ## What you get
 
 - **Its own window and icon** — one keystroke to your AI instead of hunting for a browser tab.
@@ -78,8 +117,15 @@ sign-in, same security.
 The app is a thin [Electron](https://www.electronjs.org/) shell. It carries no
 product logic and never sends the `Turbo Native` user-agent marker, so the
 server renders it the full desktop UI rather than the mobile layout. The same
-`src/` runs on both platforms; the few OS differences (window chrome,
-quit-on-close) are branched inline in `src/main.js`.
+`src/` runs on every platform; the few OS differences (window chrome,
+quit-on-close, Wayland) are branched inline in `src/main.js`.
+
+On Linux the window chrome depends on the window manager, not just the OS:
+under a tiling WM (Hyprland — i.e. Omarchy — Sway, i3, niri, …, detected from
+the environment) the window is frameless with no caption buttons; anywhere else
+it gets the Windows-style Window Controls Overlay. The preload stamps
+`<html data-desktop-captions="left|right|none">` so the site's top bar keeps
+clear of whatever buttons the OS draws.
 
 ### Run it locally
 
@@ -89,12 +135,15 @@ npm start           # runs against https://configuremyai.com
 npm run check       # parse-checks the main-process files
 npm run pack        # unpacked .app in dist/ (macOS), for local poking
 npm run pack:win    # unpacked app in dist/ (Windows)
+npm run pack:linux  # unpacked app in dist/ (Linux)
 npm run dist        # local DMGs in dist/
 npm run dist:win    # local Windows installers in dist/
+npm run dist:linux  # local .pacman + AppImage in dist/
 ```
 
 Requires Node 22+. Windows installers must be built on Windows; macOS DMGs on
-macOS.
+macOS. Linux packages build on any Linux; the pacman target needs `bsdtar`
+(`libarchive-tools` on Ubuntu/Debian, preinstalled on Arch).
 
 ### Release
 
@@ -108,8 +157,9 @@ git push origin v0.2.0
 
 `.github/workflows/release.yml` pre-creates the GitHub Release, then builds in
 parallel: Apple Silicon + Intel DMGs (plus the zips `electron-updater` applies)
-on a macOS runner, and x64 + ARM64 NSIS installers on a Windows runner. Both
-publish into the one release. The download links above point at the **latest**
+on a macOS runner, x64 + ARM64 NSIS installers on a Windows runner, and the
+x64 `.pacman` + AppImage on an Ubuntu runner. All three publish into the one
+release. The download links above point at the **latest**
 release's assets at stable names, so a new release goes live with no website
 change. Renaming an `artifactName` in `electron-builder.yml` breaks those URLs
 — the site's `/downloads` page must change in the same breath.
@@ -139,7 +189,9 @@ Windows (optional, independent of Apple — an Authenticode cert from a CA):
 | `WIN_CSC_KEY_PASSWORD` | password for that `.pfx` |
 
 With the platform's secrets set, that platform's build is signed — users just
-open it — and auto-update works (each OS only applies signed updates). The
+open it — and auto-update works (each OS only applies signed updates). Linux
+needs no secrets: its packages aren't code-signed, and updates are verified
+against the checksums in `latest-linux.yml`. The
 Windows job never receives the Apple `CSC_LINK`, so the macOS certificate is
 never mistaken for a Windows one.
 
@@ -152,7 +204,7 @@ src/menu.js           the application menu bar
 src/window-state.js   remembered window bounds
 src/preload.js        deliberately empty — see the comment inside
 src/offline.html      the retry page shown when the network is gone
-electron-builder.yml  packaging, artifact names (macOS + Windows), publish target
+electron-builder.yml  packaging, artifact names (macOS, Windows, Linux), publish target
 build/afterPack.js    ad-hoc signs unsigned macOS builds so they'll launch
 build/                app icon + hardened-runtime entitlements
 scripts/make-icon.py  regenerates build/icon.png from the brand palette

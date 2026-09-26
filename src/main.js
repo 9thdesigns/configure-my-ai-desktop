@@ -1,12 +1,13 @@
-// Configure My AI for desktop (macOS + Windows) — the Electron main process.
+// Configure My AI for desktop (macOS, Windows + Linux/Omarchy) — the Electron
+// main process.
 //
 // A deliberately thin shell: every screen is https://configuremyai.com
 // rendered in the bundled Chromium — the same model as the Claude, Slack and
 // Grok Bot desktop apps. Product logic stays in the Rails app; the only jobs
 // here are windowing, the menu bar, keeping foreign links out of the app
 // window, surviving offline, and auto-update. The code is shared across
-// platforms; the few OS differences (window chrome, quit-on-close) are
-// branched inline.
+// platforms; the few OS differences (window chrome, quit-on-close, Wayland)
+// are branched inline.
 //
 // The Rails app decides its layout by user agent (app/helpers/mobile_helper.rb
 // in the main repo): only a UA carrying "Turbo Native" gets the phone chrome.
@@ -160,6 +161,33 @@ function showOfflinePage (win) {
   win.loadFile(path.join(__dirname, 'offline.html'))
 }
 
+// Tiling Wayland/X11 window managers — Hyprland (what Omarchy runs), Sway, i3,
+// niri, river. They tile, move and close windows from the keyboard and draw no
+// title bars of their own, so a caption strip with minimise/maximise buttons is
+// dead weight there (minimise has no meaning in Hyprland at all). Detected from
+// the environment the compositor exports to every client it starts; the desktop
+// name is the fallback for sessions started some other way.
+const TILING_DESKTOPS = /\b(hyprland|sway|i3|niri|river|bspwm|qtile|awesome|dwm|xmonad)\b/i
+
+function isTilingWindowManager () {
+  if (process.platform !== 'linux') return false
+  const env = process.env
+  if (env.HYPRLAND_INSTANCE_SIGNATURE || env.SWAYSOCK || env.I3SOCK || env.NIRI_SOCKET) return true
+  return TILING_DESKTOPS.test(`${env.XDG_CURRENT_DESKTOP || ''} ${env.XDG_SESSION_DESKTOP || ''} ${env.DESKTOP_SESSION || ''}`)
+}
+
+// Where the OS draws the window buttons over the page, which the site needs to
+// know to keep its top bar clear of them (html[data-desktop-captions] in the
+// Rails app's desktop.css):
+//   'left'  — macOS traffic lights
+//   'right' — Windows / Linux Window Controls Overlay
+//   'none'  — a tiling WM (Omarchy): no buttons at all
+function captionSide () {
+  if (process.platform === 'darwin') return 'left'
+  if (isTilingWindowManager()) return 'none'
+  return 'right'
+}
+
 // Chromeless window chrome, per OS — a window with no title-bar strip but with
 // working, native window controls, the way the Grok, Claude and Slack apps
 // look. The mechanism differs by platform:
@@ -169,19 +197,24 @@ function showOfflinePage (win) {
 //             minimise/maximise/close buttons over the top-right of the page so
 //             the web content still reaches the top edge. Colours track the
 //             window background so the caption area blends in.
-// Either way the window is not frameless, so the top strip stays draggable.
-// Linux and anything else keep the standard frame.
+//   Linux   — floating desktops (GNOME, KDE, …) get the same overlay as
+//             Windows. Tiling WMs such as Hyprland (Omarchy) get a frameless
+//             window: the compositor owns placement and has no buttons to show,
+//             and a client-drawn title bar in a tile looks like a bug.
+// On every OS but the tiling case the window is not frameless, so the top
+// strip stays draggable; in the tiling case the strip still drags a floating
+// window, and a tiled one is moved from the keyboard as usual.
 function titleBarOptions () {
   if (process.platform === 'darwin') {
     return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 14 } }
   }
-  if (process.platform === 'win32') {
-    return {
-      titleBarStyle: 'hidden',
-      titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
-    }
+  if (isTilingWindowManager()) {
+    return { frame: false }
   }
-  return {}
+  return {
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
+  }
 }
 
 function createMainWindow () {
@@ -193,6 +226,9 @@ function createMainWindow () {
     minHeight: 600,
     show: false,
     backgroundColor: '#ffffff',
+    // Linux keeps the menu for its accelerators (Back/Forward, zoom, reload)
+    // but not as a GTK bar across a chromeless window; Alt shows it.
+    autoHideMenuBar: process.platform === 'linux',
     ...titleBarOptions(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -204,7 +240,7 @@ function createMainWindow () {
   })
 
   if (state.isMaximized) mainWindow.maximize()
-  if (Object.keys(titleBarOptions()).length > 0) chromelessWindows.add(mainWindow)
+  chromelessWindows.add(mainWindow)
   windowState.track(mainWindow)
   applyNavigationPolicy(mainWindow.webContents)
 
@@ -231,6 +267,7 @@ function registerIpc () {
     event.returnValue = {
       chromeless: Boolean(win && chromelessWindows.has(win)),
       titleBarHeight: TITLEBAR_HEIGHT,
+      captions: captionSide(),
       platform: process.platform,
       version: app.getVersion(),
     }
@@ -249,6 +286,14 @@ function restrictPermissions () {
 
 app.setName('Configure My AI')
 tagUserAgent()
+
+// Linux: run as a native Wayland client when the session is Wayland (Omarchy /
+// Hyprland always is) and fall back to X11 otherwise. Recent Electron already
+// defaults to this; saying so keeps it true on any build, and native Wayland is
+// what makes the window crisp on fractional scaling and tile cleanly.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
+}
 
 app.whenReady().then(() => {
   restrictPermissions()
