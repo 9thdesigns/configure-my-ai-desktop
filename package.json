@@ -3,7 +3,7 @@
   "productName": "Configure My AI",
   "desktopName": "configure-my-ai.desktop",
   "version": "0.3.0",
-  "description": "Configure My AI for desktop — a thin Electron shell around configuremyai.com for macOS, Windows and Linux (Omarchy/Arch), distributed as a direct download.",
+  "description": "Configure My AI for desktop \u2014 a thin Electron shell around configuremyai.com for macOS, Windows and Linux (Omarchy/Arch), distributed as a direct download.",
   "main": "src/main.js",
   "private": true,
   "author": "9th Designs",
@@ -13,7 +13,8 @@
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check src/updater.js && node --check build/afterPack.js",
+    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check src/updater.js && node --check build/afterPack.js && node --check src/url-policy.js && node --check src/offline.js",
+    "test": "node --test test/",
     "pack": "electron-builder --mac --dir",
     "pack:win": "electron-builder --win --dir",
     "pack:linux": "electron-builder --linux --dir",

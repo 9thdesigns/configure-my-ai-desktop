@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'">
   <title>Configure My AI</title>
   <style>
     :root { color-scheme: light dark; }
@@ -51,12 +53,8 @@
   <main>
     <h1>Can’t reach Configure My AI</h1>
     <p>Check your connection — this app is a window onto configuremyai.com, so it needs the network. It retries on its own every few seconds.</p>
-    <button type="button" onclick="retry()">Retry now</button>
+    <button type="button" id="retry">Retry now</button>
   </main>
-  <script>
-    function retry () { location.replace('https://configuremyai.com/welcome') }
-    addEventListener('online', retry)
-    setInterval(function () { if (navigator.onLine) retry() }, 10000)
-  </script>
+  <script src="offline.js"></script>
 </body>
 </html>
