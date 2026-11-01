@@ -25,7 +25,33 @@ function onSomeDisplay (bounds) {
   })
 }
 
+// Shrinks bounds so the window fits inside a work area (and is centred there
+// when it has no position yet). A 1280x820 default on a 1366x768 laptop, or a
+// size saved on a big monitor and restored on a small one, otherwise opens a
+// window whose bottom edge — the composer — sits under the dock/taskbar.
+// Never goes below the window's minimum size.
+function fitToWorkArea (bounds, workArea, min = { width: 960, height: 600 }) {
+  const width = Math.max(Math.min(bounds.width, workArea.width), Math.min(min.width, workArea.width))
+  const height = Math.max(Math.min(bounds.height, workArea.height), Math.min(min.height, workArea.height))
+  const hasPos = Number.isFinite(bounds.x) && Number.isFinite(bounds.y)
+  let x = hasPos ? bounds.x : workArea.x + Math.round((workArea.width - width) / 2)
+  let y = hasPos ? bounds.y : workArea.y + Math.round((workArea.height - height) / 2)
+  x = Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width)
+  y = Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height)
+  return { x, y, width, height }
+}
+
+function workAreaFor (bounds) {
+  const display = Number.isFinite(bounds.x) ? screen.getDisplayMatching(bounds) : screen.getPrimaryDisplay()
+  return display.workArea
+}
+
 function load () {
+  const state = loadRaw()
+  return { ...state, bounds: fitToWorkArea(state.bounds, workAreaFor(state.bounds)) }
+}
+
+function loadRaw () {
   try {
     const saved = JSON.parse(fs.readFileSync(stateFile(), 'utf8'))
     const bounds = saved.bounds
@@ -48,7 +74,7 @@ function track (win) {
   const save = () => {
     if (win.isDestroyed()) return
     const state = {
-      bounds: win.isMaximized() ? load().bounds : win.getNormalBounds(),
+      bounds: win.isMaximized() ? loadRaw().bounds : win.getNormalBounds(),
       isMaximized: win.isMaximized(),
     }
     try {
@@ -71,4 +97,4 @@ function track (win) {
   })
 }
 
-module.exports = { load, track }
+module.exports = { load, track, fitToWorkArea }
