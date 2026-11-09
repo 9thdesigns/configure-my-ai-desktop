@@ -22,6 +22,21 @@ let checking = false
 let interactive = false // the in-flight check was user-initiated
 let restartPromptOpen = false // guard against stacking two restart prompts
 
+// What the site's account menu shows (src/preload.js exposes getStatus over
+// IPC). One of: idle (nothing known yet), checking, downloading, ready (a
+// build is downloaded and installs on quit/restart), none (checked, already
+// on the latest), error, unsupported (unpackaged build, or the updater could
+// not load). `version` is the newer build's, when one is known. 'ready' is
+// sticky: the downloaded build stays installable whatever a later check's
+// network trouble says.
+const status = { state: 'idle', version: null }
+
+function setStatus (state, version) {
+  if (status.state === 'ready' && state !== 'ready') return
+  status.state = state
+  status.version = version || (state === 'ready' ? status.version : null)
+}
+
 function box (getWindow, options) {
   const win = getWindow && getWindow()
   return (win ? dialog.showMessageBox(win, options) : dialog.showMessageBox(options))
@@ -46,6 +61,7 @@ function wire (getWindow) {
   wired = true
 
   updater.on('error', () => {
+    setStatus('error')
     if (interactive) {
       interactive = false
       box(getWindow, {
@@ -60,6 +76,7 @@ function wire (getWindow) {
   })
 
   updater.on('update-not-available', () => {
+    setStatus('none')
     checking = false
     if (interactive) {
       interactive = false
@@ -73,7 +90,8 @@ function wire (getWindow) {
     }
   })
 
-  updater.on('update-available', () => {
+  updater.on('update-available', (info) => {
+    setStatus('downloading', info && info.version)
     checking = false
     // The build downloads in the background (autoDownload). Only acknowledge
     // for a manual check, so an on-demand click isn't silent while it fetches.
@@ -101,6 +119,8 @@ function wire (getWindow) {
   // which blocks every page with a quit-and-reopen screen — and because
   // autoInstallOnAppQuit is set, that quit IS the update.
   updater.on('update-downloaded', (info) => {
+    status.state = 'ready' // directly: 'ready' is the one state setStatus won't leave
+    status.version = (info && info.version) || status.version
     checking = false
     interactive = false
     if (restartPromptOpen) return
@@ -127,7 +147,8 @@ function wire (getWindow) {
 function runCheck () {
   if (checking) return
   checking = true
-  Promise.resolve(updater.checkForUpdates()).catch(() => { checking = false })
+  setStatus('checking')
+  Promise.resolve(updater.checkForUpdates()).catch(() => { checking = false; setStatus('error') })
 }
 
 // Background: quiet periodic checks; the modal only appears once a build is
@@ -158,4 +179,31 @@ function checkForUpdates ({ getWindow } = {}) {
   runCheck()
 }
 
-module.exports = { initAutoUpdates, checkForUpdates }
+// The renderer's side of the account-menu updater (cfa:update-* in main.js).
+// A quiet check: no dialogs on "up to date" or failure — the page renders the
+// outcome from getStatus() — but a download that completes still raises the
+// native Update Ready prompt, which is the louder and longer-lived affordance.
+function checkQuietly ({ getWindow } = {}) {
+  if (!app.isPackaged || !load()) {
+    setStatus('unsupported')
+    return
+  }
+  wire(getWindow)
+  runCheck()
+}
+
+function getStatus () {
+  if (!app.isPackaged || load() === false) setStatus('unsupported')
+  return { state: status.state, version: status.version, appVersion: app.getVersion() }
+}
+
+// Restart into the downloaded build, from the page's "Restart to update".
+// Deferred a tick for the same reason the dialog path defers: let the click's
+// event loop turn finish before the app tears itself down.
+function installNow () {
+  if (!load() || status.state !== 'ready') return false
+  setImmediate(() => updater.quitAndInstall())
+  return true
+}
+
+module.exports = { initAutoUpdates, checkForUpdates, checkQuietly, getStatus, installNow }

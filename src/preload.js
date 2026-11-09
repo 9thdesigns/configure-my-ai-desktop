@@ -3,16 +3,44 @@
 // The site's native bridge (app/javascript/turbo/bridge.js in the main repo)
 // no-ops when neither window.webkit nor the Android interface exists, which is
 // exactly the situation here: the desktop app IS the web app, and needs no
-// channel to itself. So nothing is exposed to the page — that is a statement,
-// not an omission, and when the shell grows native features (a Dock badge
-// count, global shortcuts) the contextBridge.exposeInMainWorld call lands
-// here, behind contextIsolation.
+// channel to itself. The one native feature the page can reach is the
+// updater, below; everything else stays unexposed on purpose.
 //
-// What this file does own is the window's drag strip, below.
+// What this file also owns is the window's drag strip, further below.
 
-const { ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer } = require('electron')
 
 const info = ipcRenderer.sendSync('cfa:window-info')
+
+// ---------------------------------------------------------------------------
+// window.cmaiDesktop — the account menu's updater
+// ---------------------------------------------------------------------------
+//
+// The site's left-rail account menu shows the desktop build and a
+// check-for-updates / restart-to-update action (desktop_update Stimulus
+// controller in the main repo). Exposed only to our own origin: the app
+// window can sit on an OAuth provider's page mid-round-trip, and the preload
+// runs there too, but a provider's page gets no bridge. The main process
+// checks the sender's frame again on every call (cfa:update-* in main.js),
+// so this gate is a courtesy, not the lock.
+
+function onAppOrigin () {
+  if (!info || !info.appHost) return false
+  if (location.protocol !== 'https:') return false
+  return location.hostname === info.appHost || location.hostname.endsWith(`.${info.appHost}`)
+}
+
+if (info && info.chromeless && onAppOrigin()) {
+  contextBridge.exposeInMainWorld('cmaiDesktop', {
+    version: info.version,
+    platform: info.platform,
+    updates: {
+      status: () => ipcRenderer.invoke('cfa:update-status'),
+      check: () => ipcRenderer.invoke('cfa:update-check'),
+      install: () => ipcRenderer.invoke('cfa:update-install'),
+    },
+  })
+}
 
 // ---------------------------------------------------------------------------
 // The drag strip
