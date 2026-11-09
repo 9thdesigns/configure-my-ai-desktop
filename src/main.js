@@ -20,7 +20,7 @@ const { installMenu } = require('./menu')
 const windowState = require('./window-state')
 const updater = require('./updater')
 
-const { APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
+const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -204,7 +204,34 @@ function registerIpc () {
       captions: captionSide(),
       platform: process.platform,
       version: app.getVersion(),
+      appHost: APP_HOST,
     }
+  })
+
+  // The account menu's updater (the site's desktop_update Stimulus
+  // controller, through window.cmaiDesktop in src/preload.js). Answered only
+  // for frames on our own origin: the app window can legitimately sit on an
+  // OAuth provider's page mid-round-trip, and a provider's page has no
+  // business reading this app's update state, let alone restarting it.
+  const fromAppFrame = (event) => {
+    const url = (event.senderFrame && event.senderFrame.url) || event.sender.getURL()
+    return Boolean(url && isAppUrl(url))
+  }
+
+  ipcMain.handle('cfa:update-status', (event) => {
+    if (!fromAppFrame(event)) return null
+    return updater.getStatus()
+  })
+
+  ipcMain.handle('cfa:update-check', (event) => {
+    if (!fromAppFrame(event)) return null
+    updater.checkQuietly({ getWindow: () => mainWindow })
+    return updater.getStatus()
+  })
+
+  ipcMain.handle('cfa:update-install', (event) => {
+    if (!fromAppFrame(event)) return false
+    return updater.installNow()
   })
 }
 
