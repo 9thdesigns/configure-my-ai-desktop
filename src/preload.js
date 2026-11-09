@@ -29,7 +29,7 @@ const info = ipcRenderer.sendSync('cfa:window-info')
 // So the shell draws the strip itself, on every page it shows — the site's
 // screens, a provider's sign-in page during an OAuth round trip, the bundled
 // offline page. It is transparent and exactly as tall as the room the site
-// reserves at the top of the page (body.desktop-app in the Rails app), so it
+// reserves at the top of the page (body.is-desktop-app in the Rails app), so it
 // covers chrome rather than content, and it is re-attached as the last child
 // of <body> after every navigation: a draggable region is resolved in paint
 // order, so a strip that any overlay can stack on top of is a strip that

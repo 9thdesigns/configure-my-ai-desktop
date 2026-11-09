@@ -24,7 +24,7 @@ const { APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-pol
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
-// much room at its top (body.desktop-app in the Rails app) and the preload
+// much room at its top (body.is-desktop-app in the Rails app) and the preload
 // marks it draggable, so the two have to agree; this is the one place it is
 // written down.
 const TITLEBAR_HEIGHT = 40
@@ -140,7 +140,14 @@ function titleBarOptions () {
   }
   return {
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#ffffff', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
+    // The overlay colour is the band the OS paints behind its own buttons, so
+    // it should match what the site paints in that band. With the signed-in
+    // shell up, the strip is the sidebar tint — #f6f5f1, the light-theme
+    // resolution of the Rails app's --shell-sidebar-bg (see .desktop-titlebar
+    // in its desktop.css) — not plain white. Static, so dark theme keeps the
+    // light band it always had; tracking the page theme needs IPC this thin
+    // shell doesn't carry yet.
+    titleBarOverlay: { color: '#f6f5f1', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
   }
 }
 
