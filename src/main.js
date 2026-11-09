@@ -306,6 +306,19 @@ app.whenReady().then(() => {
   })
 })
 
+// Chromium writes cookies to disk on a lazy timer (~30s). A quit that lands
+// between flushes loses whatever changed since the last one — most painfully
+// the fresh remember-me cookie of someone who signed in and quit, who then
+// had to sign in again next launch. Signed-in persistence is the server's
+// job (the Rails app forces Devise's persistent remember cookie for this
+// app's user agent); this makes sure that cookie actually reaches disk.
+// Fire-and-forget: quit must never hang on it.
+app.on('before-quit', () => {
+  try {
+    session.defaultSession.cookies.flushStore().catch(() => {})
+  } catch {}
+})
+
 // macOS convention: closing the window leaves the app in the Dock.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

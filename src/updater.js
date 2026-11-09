@@ -20,7 +20,7 @@ let updater = null // null = not yet loaded, false = unavailable
 let wired = false
 let checking = false
 let interactive = false // the in-flight check was user-initiated
-let promptedVersion = null // guard against a second restart prompt
+let restartPromptOpen = false // guard against stacking two restart prompts
 
 function box (getWindow, options) {
   const win = getWindow && getWindow()
@@ -89,12 +89,23 @@ function wire (getWindow) {
     }
   })
 
+  // Fires when a download completes, and again on every later check that
+  // finds the same build already sitting in the cache — which is what makes
+  // the prompt recur. "Later" used to mean never (a one-shot version guard),
+  // and an app that is never quit then stayed silently stale for weeks. Now
+  // "Later" means later: the next background check (every 4 hours) offers
+  // the restart again. Still a choice, never a rug-pull — unsaved work is
+  // the user's, and quitting on their behalf is how it gets lost. The hard
+  // floor for builds too old to serve lives on the server
+  // (MINIMUM_DESKTOP_APP_VERSION in the main repo, MobileVersionCheck),
+  // which blocks every page with a quit-and-reopen screen — and because
+  // autoInstallOnAppQuit is set, that quit IS the update.
   updater.on('update-downloaded', (info) => {
     checking = false
     interactive = false
+    if (restartPromptOpen) return
+    restartPromptOpen = true
     const version = info && info.version
-    if (version && version === promptedVersion) return
-    promptedVersion = version
     box(getWindow, {
       type: 'info',
       buttons: ['Restart Now', 'Later'],
@@ -104,6 +115,7 @@ function wire (getWindow) {
       message: 'A new version of Configure My AI is ready.',
       detail: `Version ${version || ''} has been downloaded. Restart to install it — it only takes a moment.`.replace('  ', ' '),
     }).then((res) => {
+      restartPromptOpen = false
       if (res && res.response === 0) {
         // Defer so the dialog fully closes before the app quits.
         setImmediate(() => updater.quitAndInstall())
