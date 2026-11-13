@@ -39,6 +39,16 @@ if (info && info.chromeless && onAppOrigin()) {
       check: () => ipcRenderer.invoke('cfa:update-check'),
       install: () => ipcRenderer.invoke('cfa:update-install'),
     },
+    // The WEB-deploy refresh (the site's lib/app_version.js feature-detects
+    // these, so a Rails deploy never waits on a shell release; older shells
+    // fall back to location.reload()). reloadForWebUpdate clears the HTTP
+    // cache and service workers ONLY — never localStorage, IndexedDB or
+    // cookies, where drafts and the session live — then reloads the current
+    // url. relaunch is the page's "Restart required" card; main checks the
+    // sender's frame again on both (cfa:web-refresh / cfa:relaunch), same
+    // as the updater calls above.
+    reloadForWebUpdate: () => ipcRenderer.invoke('cfa:web-refresh'),
+    relaunch: () => ipcRenderer.invoke('cfa:relaunch'),
   })
 }
 
