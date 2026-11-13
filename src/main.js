@@ -21,6 +21,7 @@ const windowState = require('./window-state')
 const updater = require('./updater')
 
 const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
+const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -215,7 +216,7 @@ function registerIpc () {
   // business reading this app's update state, let alone restarting it.
   const fromAppFrame = (event) => {
     const url = (event.senderFrame && event.senderFrame.url) || event.sender.getURL()
-    return Boolean(url && isAppUrl(url))
+    return senderAllowed(url)
   }
 
   ipcMain.handle('cfa:update-status', (event) => {
@@ -232,6 +233,40 @@ function registerIpc () {
   ipcMain.handle('cfa:update-install', (event) => {
     if (!fromAppFrame(event)) return false
     return updater.installNow()
+  })
+
+  // The WEB-deploy refresh (cmaiDesktop.reloadForWebUpdate, asked for by the
+  // Rails app's lib/app_version.js when GET /version says a new release is
+  // live). Distinct from the SHELL updater above: nothing here downloads or
+  // installs a binary — it clears what can serve the old release (the HTTP
+  // cache; service workers and CacheStorage, per web-refresh.js, which is
+  // the one place the "never localStorage / IndexedDB / cookies" rule is
+  // written down) and reloads the CURRENT url of the asking frame, not a
+  // bounce to the start page. The default persistent session stays exactly
+  // that: composer drafts and the remember-me cookie survive.
+  ipcMain.handle('cfa:web-refresh', async (event) => {
+    if (!fromAppFrame(event)) return false
+    try {
+      await session.defaultSession.clearCache()
+      await session.defaultSession.clearStorageData(webRefreshClearOptions())
+    } catch {
+      // A cache that would not clear still gets the hard reload below —
+      // reloadIgnoringCache revalidates the document either way.
+    }
+    event.sender.reloadIgnoringCache()
+    return true
+  })
+
+  // The page's last resort, behind its "Restart required" card: a refresh
+  // that came back still on the old release. Same defer-a-tick pattern as
+  // updater.installNow — let the invoke's turn finish before teardown.
+  ipcMain.handle('cfa:relaunch', (event) => {
+    if (!fromAppFrame(event)) return false
+    setImmediate(() => {
+      app.relaunch()
+      app.quit()
+    })
+    return true
   })
 }
 
