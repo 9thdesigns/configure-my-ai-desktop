@@ -14,7 +14,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, ipcMain, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
 const { installMenu } = require('./menu')
 const windowState = require('./window-state')
@@ -22,6 +22,7 @@ const updater = require('./updater')
 
 const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
 const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
+const { defaultColors, colorsFromPage, overlayOptions } = require('./window-chrome')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -142,15 +143,39 @@ function titleBarOptions () {
   return {
     titleBarStyle: 'hidden',
     // The overlay colour is the band the OS paints behind its own buttons, so
-    // it should match what the site paints in that band. With the signed-in
-    // shell up, the strip is the sidebar tint — #f6f5f1, the light-theme
-    // resolution of the Rails app's --shell-sidebar-bg (see .desktop-titlebar
-    // in its desktop.css) — not plain white. Static, so dark theme keeps the
-    // light band it always had; tracking the page theme needs IPC this thin
-    // shell doesn't carry yet.
-    titleBarOverlay: { color: '#f6f5f1', symbolColor: '#231d1b', height: TITLEBAR_HEIGHT },
+    // it has to match what the page shows in that band. It starts on the OS
+    // theme's default (window-chrome.js) and the page corrects it as soon as
+    // it has painted (cmaiDesktop.setChromeColors → cfa:chrome-colors below):
+    // the right sidebar's tone when it is open, the page's when it is folded,
+    // on whichever theme the page is on.
+    titleBarOverlay: overlayOptions(defaultColors(nativeTheme.shouldUseDarkColors), TITLEBAR_HEIGHT),
   }
 }
+
+// Does this window have a Window Controls Overlay to recolour? macOS draws
+// traffic lights on the page and a tiling WM draws nothing.
+function hasTitleBarOverlay () {
+  return process.platform !== 'darwin' && !isTilingWindowManager()
+}
+
+// Paint the window's own chrome: its background (seen while a page loads or
+// a resize catches up) and, where there is one, the caption-button band.
+function applyChromeColors (win, colors) {
+  if (!win || win.isDestroyed()) return
+  win.setBackgroundColor(colors.background)
+  if (hasTitleBarOverlay() && typeof win.setTitleBarOverlay === 'function') {
+    try {
+      win.setTitleBarOverlay(overlayOptions(colors, TITLEBAR_HEIGHT))
+    } catch {
+      // A window created without an overlay (older OS builds) has nothing to
+      // recolour; the page's own strip still matches.
+    }
+  }
+}
+
+// Until the page has said, the chrome follows the OS theme; once it has, the
+// page's answer stands (it knows its own theme, which may not be the OS's).
+const pageColored = new WeakSet()
 
 function createMainWindow () {
   const state = windowState.load()
@@ -160,7 +185,8 @@ function createMainWindow () {
     minWidth: 960,
     minHeight: 600,
     show: false,
-    backgroundColor: '#ffffff',
+    // The page's colour, not white: a dark window flashed white on every load.
+    backgroundColor: defaultColors(nativeTheme.shouldUseDarkColors).background,
     // Linux keeps the menu for its accelerators (Back/Forward, zoom, reload)
     // but not as a GTK bar across a chromeless window; Alt shows it.
     autoHideMenuBar: process.platform === 'linux',
@@ -218,6 +244,28 @@ function registerIpc () {
     const url = (event.senderFrame && event.senderFrame.url) || event.sender.getURL()
     return senderAllowed(url)
   }
+
+  // The page's colours for the window's own chrome (the site's
+  // desktop_chrome_controller, through cmaiDesktop.setChromeColors). Same
+  // origin gate as the rest; the colours are validated in window-chrome.js
+  // before they reach the OS.
+  ipcMain.handle('cfa:chrome-colors', (event, input) => {
+    if (!fromAppFrame(event)) return false
+    const colors = colorsFromPage(input)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!colors || !win) return false
+    pageColored.add(win)
+    applyChromeColors(win, colors)
+    return true
+  })
+
+  // The OS theme changed: windows the page has not coloured yet follow it.
+  nativeTheme.on('updated', () => {
+    const colors = defaultColors(nativeTheme.shouldUseDarkColors)
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (chromelessWindows.has(win) && !pageColored.has(win)) applyChromeColors(win, colors)
+    }
+  })
 
   ipcMain.handle('cfa:update-status', (event) => {
     if (!fromAppFrame(event)) return null

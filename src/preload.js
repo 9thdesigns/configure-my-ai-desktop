@@ -49,6 +49,11 @@ if (info && info.chromeless && onAppOrigin()) {
     // as the updater calls above.
     reloadForWebUpdate: () => ipcRenderer.invoke('cfa:web-refresh'),
     relaunch: () => ipcRenderer.invoke('cfa:relaunch'),
+    // The window's own chrome in the page's colours: { background, symbol }
+    // as "#rrggbb" — the band behind the Windows / Linux caption buttons and
+    // the window background (the site's desktop_chrome_controller; main
+    // validates them, src/window-chrome.js).
+    setChromeColors: (colors) => ipcRenderer.invoke('cfa:chrome-colors', colors),
   })
 }
 
