@@ -202,6 +202,19 @@ function createMainWindow () {
 
   if (state.isMaximized) mainWindow.maximize()
   chromelessWindows.add(mainWindow)
+
+  // Full screen hides the macOS traffic lights, so the site's top bar can take
+  // back the room it keeps for them at the left of the title strip (the Rails
+  // app reads html[data-desktop-fullscreen], which the preload stamps). The
+  // window-info reply carries the state at each page load; these carry every
+  // change after it. Sent as the new state rather than read back, because
+  // isFullScreen() can still report the old one while the animation runs.
+  const sendFullscreen = (on) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('cfa:fullscreen', on)
+  }
+  mainWindow.on('enter-full-screen', () => sendFullscreen(true))
+  mainWindow.on('leave-full-screen', () => sendFullscreen(false))
   windowState.track(mainWindow)
   applyNavigationPolicy(mainWindow.webContents)
 
@@ -229,6 +242,9 @@ function registerIpc () {
       chromeless: Boolean(win && chromelessWindows.has(win)),
       titleBarHeight: TITLEBAR_HEIGHT,
       captions: captionSide(),
+      // Whether this window is full screen as the page loads; changes after
+      // that arrive as cfa:fullscreen (createMainWindow).
+      fullscreen: Boolean(win && win.isFullScreen()),
       platform: process.platform,
       version: app.getVersion(),
       appHost: APP_HOST,
