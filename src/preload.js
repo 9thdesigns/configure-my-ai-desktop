@@ -87,6 +87,11 @@ if (info && info.chromeless && onAppOrigin()) {
 // WM). The server can tell the OS from the user agent but not the window
 // manager, so this is how the site's top bar knows to keep clear of the buttons
 // on GNOME and to use the whole strip on Omarchy.
+//
+// And data-desktop-fullscreen, present only while the window is full screen:
+// macOS hides the traffic lights there, so the top bar stops keeping room for
+// them. The state at load comes with the window info; main sends every change
+// after that (cfa:fullscreen).
 
 const DRAG_STRIP_ID = 'cfa-desktop-drag-strip'
 const DRAG_STYLE_ID = 'cfa-desktop-drag-style'
@@ -113,9 +118,10 @@ function dragStripCss (height) {
   `
 }
 
-function installDragStrip (height, captions) {
+function installDragStrip (height, captions, fullscreenAtLoad) {
   let bodyObserver = null
   let lastPointerDown = 0
+  let fullscreen = Boolean(fullscreenAtLoad)
 
   const ensureStyle = () => {
     const root = document.head || document.documentElement
@@ -161,8 +167,16 @@ function installDragStrip (height, captions) {
     }
   }
 
+  const ensureFullscreen = () => {
+    const root = document.documentElement
+    if (!root) return
+    if (fullscreen && root.dataset.desktopFullscreen !== '1') root.dataset.desktopFullscreen = '1'
+    if (!fullscreen && 'desktopFullscreen' in root.dataset) delete root.dataset.desktopFullscreen
+  }
+
   const ensure = () => {
     ensureCaptions()
+    ensureFullscreen()
     ensureStyle()
     ensureStrip()
     // <body> is a different element after a Turbo visit; the observer follows it.
@@ -196,6 +210,11 @@ function installDragStrip (height, captions) {
   for (const event of ['pageshow', 'turbo:load', 'turbo:render']) {
     window.addEventListener(event, ensure)
   }
+
+  ipcRenderer.on('cfa:fullscreen', (_event, on) => {
+    fullscreen = Boolean(on)
+    ensureFullscreen()
+  })
 }
 
-if (info && info.chromeless) installDragStrip(info.titleBarHeight, info.captions)
+if (info && info.chromeless) installDragStrip(info.titleBarHeight, info.captions, info.fullscreen)
