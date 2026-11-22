@@ -10,11 +10,11 @@ const { DEFAULTS, defaultColors, validColor, colorsFromPage, symbolFor, overlayO
 
 test('before the page has said, the chrome follows the OS theme in the app\'s own colours', () => {
   // The Rails app's main column on each theme (--shell-main-bg) and its ink.
-  assert.deepEqual(defaultColors(false), { background: '#fcfcfc', symbol: '#231d1b' })
-  assert.deepEqual(defaultColors(true), { background: '#1c1c1c', symbol: '#ffffff' })
+  assert.deepEqual(defaultColors(false), { background: '#ffffff', symbol: '#231d1b' })
+  assert.deepEqual(defaultColors(true), { background: '#161616', symbol: '#ffffff' })
   const copy = defaultColors(true)
   copy.background = '#000000'
-  assert.equal(DEFAULTS.dark.background, '#1c1c1c', 'callers get a copy, never the shared default')
+  assert.equal(DEFAULTS.dark.background, '#161616', 'callers get a copy, never the shared default')
 })
 
 test('only #rrggbb from the page reaches the OS', () => {
