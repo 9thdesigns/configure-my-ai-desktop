@@ -18,8 +18,8 @@
 //      column on its light / dark theme (--shell-main-bg), and its ink.
 
 const DEFAULTS = Object.freeze({
-  light: Object.freeze({ background: '#fcfcf9', symbol: '#231d1b' }),
-  dark: Object.freeze({ background: '#333331', symbol: '#ffffff' }),
+  light: Object.freeze({ background: '#fcfcfc', symbol: '#231d1b' }),
+  dark: Object.freeze({ background: '#1c1c1c', symbol: '#ffffff' }),
 })
 
 function defaultColors (dark) {
