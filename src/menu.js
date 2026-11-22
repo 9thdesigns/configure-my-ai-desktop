@@ -3,6 +3,7 @@
 // and Help links into the site itself.
 
 const { Menu, shell } = require('electron')
+const { goBack, goHome } = require('./menu-actions')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
@@ -22,15 +23,15 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates }) {
         {
           label: 'Home',
           accelerator: 'Shift+CmdOrCtrl+H',
-          click: () => contents()?.loadURL(homeUrl),
+          // A Turbo visit in the page (no reload); a URL load only as a fallback.
+          click: () => goHome(contents(), homeUrl, appUrl),
         },
         {
           label: 'Back',
           accelerator: 'CmdOrCtrl+[',
-          click: () => {
-            const wc = contents()
-            if (wc?.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
-          },
+          // The page's own Back (it follows the app's route map); window
+          // history only when the page has none. See menu-actions.js.
+          click: () => goBack(contents()),
         },
         {
           label: 'Forward',
