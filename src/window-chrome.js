@@ -19,7 +19,7 @@
 
 const DEFAULTS = Object.freeze({
   light: Object.freeze({ background: '#ffffff', symbol: '#231d1b' }),
-  dark: Object.freeze({ background: '#161616', symbol: '#ffffff' }),
+  dark: Object.freeze({ background: '#0a0a0a', symbol: '#ffffff' }),
 })
 
 function defaultColors (dark) {
