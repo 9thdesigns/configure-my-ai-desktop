@@ -2,7 +2,7 @@
 
 // The offline page is the one screen the desktop app draws itself, so its
 // button has to follow the web app's button system (t419u): a solid-ink
-// primary at size md (32px, 14px medium, rounded-lg), soft press, a visible
+// primary at size md (32px, 14px medium, rounded-lg, 10px like the web md button), soft press, a visible
 // keyboard focus ring, and no emoji or pill/brand-blue leftovers.
 
 const test = require('node:test')
@@ -17,7 +17,7 @@ test('the retry button is the primary md button', () => {
   assert.match(buttonRule, /height:\s*32px/)
   assert.match(buttonRule, /font-size:\s*14px/)
   assert.match(buttonRule, /font-weight:\s*500/)
-  assert.match(buttonRule, /border-radius:\s*8px/)
+  assert.match(buttonRule, /border-radius:\s*10px/)
   assert.match(buttonRule, /background:\s*var\(--btn-bg\)/)
   assert.doesNotMatch(html, /999px|#2563eb|#1d4ed8/, 'no pill or brand-blue leftovers')
 })
