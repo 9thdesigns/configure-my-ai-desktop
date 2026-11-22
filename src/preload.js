@@ -54,6 +54,10 @@ if (info && info.chromeless && onAppOrigin()) {
     // the window background (the site's desktop_chrome_controller; main
     // validates them, src/window-chrome.js).
     setChromeColors: (colors) => ipcRenderer.invoke('cfa:chrome-colors', colors),
+    // The dock badge: bot alerts that arrived while the window was hidden
+    // (the site's bot_alerts_controller; 0 clears it). main clamps the number
+    // and checks the sender's frame, src/badge.js.
+    setBadge: (n) => ipcRenderer.send('cfa:set-badge', Number(n) || 0),
   })
 }
 
