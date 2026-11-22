@@ -27,25 +27,43 @@
       place-items: center;
       min-height: 100vh;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f7f5f4;
+      /* The web app's body (pane) colour, so the window doesn't flash a
+         different page colour while offline. */
+      background: #ffffff;
       color: #231d1b;
+      /* The web app's primary button (t419u button system): solid ink. */
+      --btn-bg: #1c1c1c;
+      --btn-ink: #ffffff;
     }
     @media (prefers-color-scheme: dark) {
-      body { background: #100c0b; color: #f4f1ef; }
+      body { background: #0a0a0a; color: #f4f1ef; --btn-bg: #f5f5f5; --btn-ink: #0a0a0a; }
     }
     main { text-align: center; padding: 48px 24px; max-width: 26rem; }
     h1 { font-size: 1.35rem; margin: 0 0 8px; }
     p { margin: 0 0 24px; opacity: 0.75; line-height: 1.5; }
+    /* Primary, size md: 32px tall, 14px medium text, rounded-lg, soft press. */
     button {
+      appearance: none;
       font: inherit;
-      padding: 10px 22px;
+      font-size: 14px;
+      font-weight: 500;
+      height: 32px;
+      padding: 0 14px;
       border: 0;
-      border-radius: 999px;
-      background: #2563eb;
-      color: #fff;
+      border-radius: 8px;
+      background: var(--btn-bg);
+      color: var(--btn-ink);
       cursor: pointer;
+      transition: transform 80ms ease-out, opacity 80ms ease-out;
     }
-    button:hover { background: #1d4ed8; }
+    button:hover { opacity: 0.88; }
+    button:active { transform: scale(0.98); opacity: 0.8; }
+    button:focus { outline: none; }
+    button:focus-visible { outline: 2px solid var(--btn-bg); outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) {
+      button { transition: none; }
+      button:active { transform: none; }
+    }
   </style>
 </head>
 <body>
