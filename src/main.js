@@ -23,6 +23,7 @@ const updater = require('./updater')
 const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
 const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
 const { defaultColors, colorsFromPage, overlayOptions } = require('./window-chrome')
+const { applyBadge } = require('./badge')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -273,6 +274,13 @@ function registerIpc () {
     pageColored.add(win)
     applyChromeColors(win, colors)
     return true
+  })
+
+  // The unread badge (cmaiDesktop.setBadge). Same origin gate; the count is
+  // clamped in badge.js before it reaches the OS.
+  ipcMain.on('cfa:set-badge', (event, n) => {
+    if (!fromAppFrame(event)) return
+    applyBadge(app, n)
   })
 
   // The OS theme changed: windows the page has not coloured yet follow it.
