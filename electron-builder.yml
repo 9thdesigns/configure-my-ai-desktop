@@ -33,7 +33,7 @@ afterPack: build/afterPack.js
 
 mac:
   category: public.app-category.productivity
-  icon: build/icon.png
+  icon: build/icon.icns  # padded rounded-square, from the mobile app icon.
   darkModeSupport: true
   # Hardened runtime is required for notarization; harmless without it.
   hardenedRuntime: true
@@ -57,7 +57,7 @@ mac:
 # passes them through from repository secrets), and is skipped when absent.
 
 win:
-  icon: build/icon.png # electron-builder derives the .ico from this 1024² PNG.
+  icon: build/icon.ico # full-bleed, from the same mobile app icon as macOS.
   # NSIS installer, the standard Electron distribution on Windows and what
   # electron-updater knows how to apply in place (via latest.yml). Two arches,
   # both cross-built on the x64 runner. `win-` keeps these names clear of the
@@ -89,7 +89,7 @@ nsis:
 # macOS certificate.
 
 linux:
-  icon: build/icon.png # electron-builder derives the hicolor icon set from this.
+  icon: build/icons # full-bleed hicolor PNGs (16–1024), from the same mobile app icon.
   # `configure-my-ai` is the binary, the .desktop file and — via desktopName in
   # package.json + syncDesktopName — the Wayland app_id / X11 WM_CLASS, so the
   # launcher (Walker on Omarchy), the dock and Hyprland window rules
