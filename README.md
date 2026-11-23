@@ -206,8 +206,9 @@ src/preload.js        deliberately empty — see the comment inside
 src/offline.html      the retry page shown when the network is gone
 electron-builder.yml  packaging, artifact names (macOS, Windows, Linux), publish target
 build/afterPack.js    ad-hoc signs unsigned macOS builds so they'll launch
-build/                app icon + hardened-runtime entitlements
-scripts/make-icon.py  regenerates build/icon.png from the brand palette
+build/                app icons (mac .icns, Windows .ico, Linux PNGs) + entitlements
+scripts/make-icon.py  regenerates the app icons from the mobile app icon
+scripts/icon-source.png  the mobile light icon (assets/icon.png in the RN app)
 ```
 
 ## License

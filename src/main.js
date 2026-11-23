@@ -16,6 +16,7 @@
 
 const { app, BrowserWindow, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
+const fs = require('node:fs')
 const { installMenu } = require('./menu')
 const windowState = require('./window-state')
 const updater = require('./updater')
@@ -181,11 +182,18 @@ const pageColored = new WeakSet()
 function createMainWindow () {
   const state = windowState.load()
 
+  // Unpackaged runs (npm start) have no bundle icon, so Windows and Linux
+  // would otherwise show Electron's default. The packaged app already carries
+  // the platform icon; this path is not inside the asar, so it is skipped.
+  // macOS ignores BrowserWindow.icon and uses the .icns from the .app.
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.png')
+
   mainWindow = new BrowserWindow({
     ...state.bounds,
     minWidth: 960,
     minHeight: 600,
     show: false,
+    ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     // The page's colour, not white: a dark window flashed white on every load.
     backgroundColor: defaultColors(nativeTheme.shouldUseDarkColors).background,
     // Linux keeps the menu for its accelerators (Back/Forward, zoom, reload)
