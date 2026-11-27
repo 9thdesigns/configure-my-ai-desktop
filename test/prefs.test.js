@@ -10,10 +10,11 @@ test('keep running in background is on by default on macOS only', () => {
   assert.equal(defaults('win32').keepRunningInBackground, false)
   assert.equal(defaults('linux').keepRunningInBackground, false)
   assert.equal(defaults('linux').showWidget, true)
+  assert.equal(defaults('darwin').showIsland, true)
 })
 
 test('only known keys of the right type are read back', () => {
-  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true })
+  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true })
   assert.deepEqual(sanitize(null, 'darwin'), defaults('darwin'))
 })
 

@@ -11,6 +11,8 @@
 //                             off elsewhere, where closing the last window has
 //                             always quit.
 //   showWidget              — the floating bot dock is shown.
+//   showIsland              — the status pill at the top of the screen is
+//                             shown.
 
 const fs = require('node:fs')
 const path = require('node:path')
@@ -19,6 +21,7 @@ function defaults (platform = process.platform) {
   return {
     keepRunningInBackground: platform === 'darwin',
     showWidget: true,
+    showIsland: true,
   }
 }
 

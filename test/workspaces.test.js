@@ -35,6 +35,10 @@ test('the dock shows the current workspace mark', () => {
 test('after a switch the app window follows: home from a record page, reload elsewhere, nothing off the app', () => {
   assert.deepEqual(afterSwitch('https://configuremyai.com/autopilot/bots/abc'), { action: 'load', url: 'https://configuremyai.com/home' })
   assert.deepEqual(afterSwitch('https://configuremyai.com/autopilot/bots/abc/sessions/1'), { action: 'load', url: 'https://configuremyai.com/home' })
+  for (const page of ['/manager/threads/t1', '/chats/c1', '/workspaces/w1/ai_configurations/a1/chats/c1', '/workspaces/w1/settings']) {
+    assert.deepEqual(afterSwitch(`https://configuremyai.com${page}`), { action: 'load', url: 'https://configuremyai.com/home' }, page)
+  }
+  assert.deepEqual(afterSwitch('https://configuremyai.com/chats'), { action: 'reload' }, 'the chats index is not one record')
   assert.deepEqual(afterSwitch('https://configuremyai.com/home'), { action: 'reload' })
   assert.deepEqual(afterSwitch('https://configuremyai.com/settings'), { action: 'reload' })
   assert.deepEqual(afterSwitch('https://accounts.google.com/o/oauth2'), { action: 'none' })
