@@ -87,7 +87,7 @@ test('unknown moods, waits and keys fall back or drop; counts are clamped', () =
   assert.equal(seat.pinned, false)
   assert.equal(seat.needs_count, 0)
   assert.equal(seat.extra, undefined)
-  assert.deepEqual(seat.state, { status: null, face: null, waiting: null, detail: 'x', url: null, session_id: null, message_id: null, run_id: null, thread_id: null, options: [], allow_other: false, multiple: false })
+  assert.deepEqual(seat.state, { status: null, face: null, waiting: null, detail: 'x', url: null, session_id: null, message_id: null, run_id: null, thread_id: null, options: [], allow_other: false, multiple: false, questions_count: 1 })
   assert.equal(state.needs_you, 0)
   assert.equal(state.manager, null)
   assert.equal(state.enabled, false)
