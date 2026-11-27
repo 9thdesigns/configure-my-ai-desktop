@@ -25,6 +25,15 @@ const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require(
 const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
 const { defaultColors, colorsFromPage, overlayOptions } = require('./window-chrome')
 const { applyBadge } = require('./badge')
+const { createPrefs } = require('./prefs')
+const { createTray } = require('./tray')
+const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
+const { validId, botById } = require('./widget-state')
+const { createWidgetController } = require('./widget-window')
+const { afterSwitch } = require('./workspaces')
+const { createIslandController } = require('./island-window')
+const { createCable, electronCookieHeader } = require('./widget-cable')
+const { installNativeFeel } = require('./native-feel')
 const { initLocalTools } = require('./local-tools-main')
 
 // Height of the strip at the top of the window that the user drags it by, and
@@ -35,6 +44,19 @@ const { initLocalTools } = require('./local-tools-main')
 const TITLEBAR_HEIGHT = 40
 
 let mainWindow = null
+let isQuitting = false
+
+// The menu bar item and the widget state behind it (src/tray.js,
+// src/widget-feed.js). The store is fed by the page (cmaiDesktop.widget.
+// publish) and by main's own fetch of /desktop/widget.json; prefs are the
+// shell's own switches (src/prefs.js). Created once the app is ready.
+let prefs = null
+let widgetStore = null
+let widgetFeed = null
+let trayHandle = null
+let widget = null
+let island = null
+let cable = null
 
 // The windows drawn without a native title bar — the app's own, but not the
 // OAuth popups, which keep a standard frame. Only these need the page to
@@ -235,7 +257,13 @@ function createMainWindow () {
   })
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    // The widget window keeps "all windows closed" from ever firing, so the
+    // keep-running pref is applied here too: off, closing the app window
+    // quits, widget and all.
+    if (!isQuitting && prefs && !prefs.get().keepRunningInBackground) app.quit()
+  })
 
   mainWindow.loadURL(START_URL)
   return mainWindow
@@ -290,6 +318,24 @@ function registerIpc () {
   ipcMain.on('cfa:set-badge', (event, n) => {
     if (!fromAppFrame(event)) return
     applyBadge(app, n)
+  })
+
+  // The widget state from the page (cmaiDesktop.widget.publish): the
+  // focused bot, the needs-you count, the seats. Same origin gate; the shape
+  // is rebuilt field by field in widget-state.js before it reaches the menu
+  // bar, and anything that isn't a widget state is dropped.
+  ipcMain.on('cfa:widget-publish', (event, input) => {
+    if (!fromAppFrame(event) || !widgetStore) return
+    widgetStore.apply(input, 'page')
+  })
+
+  // A widget command the page had no handler for (an older site, or a page
+  // between loads): do it the slow way.
+  ipcMain.on('cfa:widget-command-unhandled', (event, command) => {
+    if (!fromAppFrame(event) || !command || command.type !== 'open-bot') return
+    const id = validId(command.bot_id)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (id && win && win === mainWindow) win.loadURL(botById(widgetStore?.get(), id)?.url || botUrl(id))
   })
 
   // The OS theme changed: windows the page has not coloured yet follow it.
@@ -430,6 +476,10 @@ if (process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 }
 
+// No pinch zoom, a native text-field menu with spelling suggestions, for
+// every window as it is created (src/native-feel.js).
+installNativeFeel(app)
+
 app.whenReady().then(() => {
   restrictPermissions()
   registerIpc()
@@ -448,10 +498,149 @@ app.whenReady().then(() => {
   // signed build has downloaded. See src/updater.js.
   updater.initAutoUpdates({ getWindow: () => mainWindow })
 
+  startWidgetFeedAndTray()
+
+  // The Dock icon: bring the app window back. Keyed on the main window, not
+  // on "no windows at all" — other windows (an OAuth popup, the widget) don't
+  // stand in for it.
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createMainWindow()
+    if (!mainWindow) createMainWindow()
   })
 })
+
+// Show the app window, creating it if it was closed. From the tray the app
+// isn't frontmost, so macOS needs it brought forward too.
+function openApp () {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow()
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+  if (process.platform === 'darwin') app.focus({ steal: true })
+}
+
+// Where a bot lives when the widget state has no url for it: the manager's
+// home, or the bot's autopilot page.
+function botUrl (id) {
+  return id === 'manager' ? `${APP_URL}/home` : `${APP_URL}/autopilot/bots/${encodeURIComponent(id)}`
+}
+
+// Open a bot in the app window: the page does it as a Turbo visit when it has
+// registered for widget commands (cmaiDesktop.widget.onCommand); otherwise —
+// an older site, the offline page, a window still loading — the preload
+// bounces the command back (cfa:widget-command-unhandled) and main loads the
+// bot's URL.
+function openBot (botId) {
+  const id = validId(botId)
+  if (!id) return
+  const known = botById(widgetStore?.get(), id)
+  const wasOpen = Boolean(mainWindow && !mainWindow.isDestroyed())
+  openApp()
+  const contents = mainWindow.webContents
+  if (wasOpen && isAppUrl(contents.getURL()) && !contents.isLoading()) {
+    contents.send('cfa:widget-command', { type: 'open-bot', bot_id: id, url: known?.url || botUrl(id) })
+  } else {
+    mainWindow.loadURL(known?.url || botUrl(id))
+  }
+}
+
+
+// Switch workspace (tray or dock): the server switches, the widget state is
+// refetched with the new workspace's seats, and the app window — if it is
+// showing the app — follows (workspaces.js decides reload vs. home).
+async function switchWorkspace (id) {
+  widget?.collapse()
+  const ok = await widgetFeed.switchWorkspace(id).catch(() => false)
+  if (!ok || !mainWindow || mainWindow.isDestroyed()) return ok
+  const next = afterSwitch(mainWindow.webContents.getURL())
+  if (next.action === 'reload') mainWindow.webContents.reload()
+  if (next.action === 'load') mainWindow.loadURL(next.url)
+  return ok
+}
+
+function startWidgetFeedAndTray () {
+  prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
+  widgetStore = createWidgetStore()
+  // Push: the server pings the widget's signed stream over ActionCable and
+  // the feed refetches (src/widget-cable.js); the feed's poll is the fallback.
+  cable = typeof WebSocket === 'function'
+    ? createCable({ WebSocketImpl: WebSocket, getCookieHeader: electronCookieHeader, onRefetch: () => widgetFeed.refresh().catch(() => {}) })
+    : null
+  widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
+  widgetFeed.start()
+
+  // The manager is the default focus on launch: the first state this run
+  // sees puts the focus back on it, whatever the last session left.
+  const offFirstState = widgetStore.onChange((state) => {
+    if (!state) return
+    offFirstState()
+    if (state.manager && state.focused_bot_id !== state.manager.id) widgetFeed.setFocus(state.manager.id).catch(() => {})
+  })
+
+  const actions = {
+    openApp,
+    openBot,
+    switchWorkspace,
+    setPinned: (id, on) => { widgetFeed.setPinned(id, on).catch(() => {}) },
+    setShowWidget: (on) => {
+      prefs.set({ showWidget: Boolean(on) })
+      widgetFeed.setEnabled(Boolean(on)).catch(() => {})
+    },
+    setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
+    setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
+    setOpenAtLogin: (on) => {
+      try {
+        app.setLoginItemSettings({ openAtLogin: Boolean(on) })
+      } catch {}
+      trayHandle?.render()
+    },
+    quit: () => app.quit(),
+  }
+
+  // The floating dock (src/widget-window.js): its own window, its own
+  // lifecycle — shown while the pref is on and someone is signed in,
+  // whatever the main window is doing.
+  widget = createWidgetController({
+    store: widgetStore,
+    prefs,
+    feed: widgetFeed,
+    getMainWindow: () => mainWindow,
+    openBot,
+    switchWorkspace: (id) => switchWorkspace(id),
+    positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
+  })
+  widget.registerIpc(ipcMain)
+  widget.sync()
+
+  // The status pill by the notch (src/island-window.js): shown while the
+  // pref is on and some bot has something to say.
+  island = createIslandController({
+    store: widgetStore,
+    prefs,
+    feed: widgetFeed,
+    getMainWindow: () => mainWindow,
+    openBot,
+  })
+  island.registerIpc(ipcMain)
+  island.sync()
+
+  try {
+    trayHandle = createTray({
+      store: widgetStore,
+      prefs,
+      actions,
+      getOpenAtLogin: () => {
+        try { return app.getLoginItemSettings().openAtLogin } catch { return false }
+      },
+    })
+  } catch {
+    // Some Linux desktops have no status-icon host (no AppIndicator); the app
+    // works the same without the tray.
+    trayHandle = null
+  }
+}
 
 // Chromium writes cookies to disk on a lazy timer (~30s). A quit that lands
 // between flushes loses whatever changed since the last one — most painfully
@@ -461,12 +650,18 @@ app.whenReady().then(() => {
 // app's user agent); this makes sure that cookie actually reaches disk.
 // Fire-and-forget: quit must never hang on it.
 app.on('before-quit', () => {
+  isQuitting = true
+  cable?.stop()
   try {
     session.defaultSession.cookies.flushStore().catch(() => {})
   } catch {}
 })
 
-// macOS convention: closing the window leaves the app in the Dock.
+// Closing the last window: with "Keep Running in Background" on (the default
+// on macOS, where leaving the app in the Dock is the convention) the app stays
+// up — the menu bar item / tray icon keeps the bot status and the widget stays
+// on screen — and the tray's Open brings the window back. Off, it quits.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (isQuitting) return
+  if (!prefs || !prefs.get().keepRunningInBackground) app.quit()
 })

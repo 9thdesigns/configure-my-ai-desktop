@@ -1,0 +1,181 @@
+/* The island: a dark pill by the notch, in the app's ink, that opens into
+   the pending question card. */
+
+:root {
+  --pill: #0a0a0a;
+  --pill-2: #1d1c1b;
+  --ink: #f5f4f2;
+  --muted: #a39e9a;
+  --line: rgba(255, 255, 255, 0.12);
+  --waiting: #f08a24;
+  --working: #2f6feb;
+  --failed: #e5484d;
+  --ok: #30a46c;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--ink);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+.island {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 360px;
+  background: var(--pill);
+  border-radius: 22px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  transition: border-radius 0.2s ease;
+  animation: island-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.island.is-expanded { border-radius: 20px; }
+
+@keyframes island-in {
+  from { transform: scale(0.85); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.island-bar {
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 8px;
+  border: 0;
+  background: none;
+  text-align: left;
+}
+
+.avatar {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--pill-2);
+  font-size: 11px;
+  font-weight: 700;
+}
+.avatar[data-shape="square"] { border-radius: 7px; }
+.avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
+.avatar[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.island[data-chip="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
+
+@keyframes thinking {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 235, 0); }
+  50% { box-shadow: 0 0 0 3px rgba(47, 111, 235, 0.45); }
+}
+
+.island-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chip {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--pill-2);
+  color: var(--muted);
+}
+.island[data-chip="question"] .chip,
+.island[data-chip="approval"] .chip,
+.island[data-chip="waiting"] .chip { background: rgba(240, 138, 36, 0.18); color: var(--waiting); }
+.island[data-chip="working"] .chip { background: rgba(47, 111, 235, 0.18); color: #8fb3ff; }
+.island[data-chip="responded"] .chip { background: rgba(48, 164, 108, 0.18); color: #6fd3a0; }
+.island[data-chip="failed"] .chip { background: rgba(229, 72, 77, 0.18); color: #ff8a8d; }
+
+/* The card */
+.card {
+  padding: 2px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: card-in 0.18s ease-out;
+}
+.card[hidden] { display: none; }
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.card-prompt { margin: 0; font-weight: 600; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.card-options { display: flex; flex-direction: column; gap: 6px; }
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--pill-2);
+  border-radius: 10px;
+  padding: 7px 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.option:hover { border-color: rgba(255, 255, 255, 0.3); }
+.option.is-selected { border-color: var(--ink); }
+.option-key {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+.card-other {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--pill-2);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.card-other:focus { border-color: rgba(255, 255, 255, 0.35); }
+.card-other[hidden] { display: none; }
+.card-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn {
+  border: 1px solid var(--line);
+  background: var(--pill-2);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-weight: 600;
+  transition: opacity 0.15s ease;
+}
+.btn-primary { background: var(--ink); color: var(--pill); border-color: var(--ink); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn-link { border: 0; background: none; color: var(--muted); padding: 6px 4px; margin-right: auto; }
+.btn-link:hover { color: var(--ink); }
+.card-error { margin: 0; color: #ff8a8d; font-size: 12px; }
+.card-error[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

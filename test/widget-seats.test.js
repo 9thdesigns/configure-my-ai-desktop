@@ -1,0 +1,88 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const fixture = require('./fixtures/widget.json')
+const { ADA, LIN, OPS } = require('./ids')
+const { widgetStateFrom } = require('../src/widget-state')
+const S = require('../src/widget-seats')
+
+const state = widgetStateFrom(fixture)
+const byId = (template, id) => template.find((i) => i.id === id)
+
+function recorder () {
+  const calls = []
+  return { calls, actions: new Proxy({}, { get: (_t, name) => (...args) => calls.push([name, ...args]) }) }
+}
+
+test('the dock order is the manager, then the pinned seats', () => {
+  assert.deepEqual(S.seatOrder(state), ['manager', ADA, LIN])
+  assert.deepEqual(S.seatOrder(null), [])
+})
+
+test('moving a seat keeps the manager first', () => {
+  assert.deepEqual(S.reorder(state, LIN, -1), ['manager', LIN, ADA])
+  assert.deepEqual(S.reorder(state, ADA, 1), ['manager', LIN, ADA])
+  assert.equal(S.reorder(state, ADA, -1), null, 'nothing goes above the manager')
+  assert.equal(S.reorder(state, LIN, 1), null, 'already last')
+  assert.equal(S.reorder(state, 'manager', 1), null, 'the manager does not move')
+  assert.equal(S.reorder(state, OPS, -1), null, 'not in the dock')
+  assert.equal(S.reorder(state, LIN, 2), null)
+})
+
+test('a seat\'s right-click menu: open, active, move up/down, remove', () => {
+  const { calls, actions } = recorder()
+  const template = S.seatContextMenuTemplate(state, ADA, actions)
+  assert.deepEqual(template.map((i) => i.id || i.type), ['open', 'separator', 'active', 'separator', 'move-up', 'move-down', 'separator', 'remove'])
+  assert.equal(byId(template, 'open').label, 'Open Ada')
+  assert.equal(byId(template, 'active').checked, true)
+  assert.equal(byId(template, 'move-up').enabled, false)
+  assert.equal(byId(template, 'move-down').enabled, true)
+  for (const id of ['open', 'active', 'move-down', 'remove']) byId(template, id).click()
+  assert.deepEqual(calls, [['open', ADA], ['setActive', ADA, false], ['move', ADA, 1], ['remove', ADA]])
+})
+
+test("the manager's menu has no move or remove", () => {
+  const { actions } = recorder()
+  assert.deepEqual(S.seatContextMenuTemplate(state, 'manager', actions).map((i) => i.id || i.type), ['open', 'separator', 'active'])
+  assert.deepEqual(S.seatContextMenuTemplate(state, OPS, actions), [], 'not in the dock: no menu')
+})
+
+test('a paused bot shows Active unchecked, and clicking resumes it', () => {
+  const paused = widgetStateFrom({ ...fixture, seats: fixture.seats.map((s) => (s.bot_id === ADA ? { ...s, state: { ...s.state, status: 'paused' } } : s)) })
+  const { calls, actions } = recorder()
+  const active = byId(S.seatContextMenuTemplate(paused, ADA, actions), 'active')
+  assert.equal(active.checked, false)
+  active.click()
+  assert.deepEqual(calls, [['setActive', ADA, true]])
+})
+
+test('the picker lists bots not in the dock, those needing attention first, filtered by name', () => {
+  const many = widgetStateFrom({
+    ...fixture,
+    seats: [
+      ...fixture.seats,
+      { bot_id: 'q1', name: 'Quiet', pinned: false, needs_count: 0 },
+      { bot_id: 'p1', name: 'Pager', pinned: false, needs_count: 0, state: { status: 'paused' } },
+    ],
+  })
+  assert.deepEqual(S.pickerBots(many).map((b) => [b.name, b.label]), [['Ops', 'Questions'], ['Quiet', 'Idle'], ['Pager', 'Paused']])
+  assert.deepEqual(S.pickerBots(many, 'qu').map((b) => b.name), ['Quiet'])
+  assert.deepEqual(S.pickerBots(many, 'OPS').map((b) => b.id), [OPS])
+  assert.deepEqual(S.pickerBots(null), [])
+})
+
+test("the manager's Active switch is shown on and disabled (the server refuses to pause it)", () => {
+  const { calls, actions } = recorder()
+  const active = byId(S.seatContextMenuTemplate(state, 'manager', actions), 'active')
+  assert.equal(active.checked, true)
+  assert.equal(active.enabled, false)
+  assert.deepEqual(calls, [])
+})
+
+test('the dock holds 12 pinned seats (the manager is not one)', () => {
+  assert.equal(S.MAX_PINNED, 12)
+  assert.equal(S.dockFull(state), false)
+  const seats = Array.from({ length: 14 }, (_, i) => ({ bot_id: `b${i}`, name: `B${i}`, pinned: i < 12 }))
+  const full = widgetStateFrom({ ...fixture, seats })
+  assert.equal(S.dockFull(full), true)
+  assert.equal(S.dockFull(null), false)
+})

@@ -1,0 +1,413 @@
+/* The floating dock and its quick-chat popover, in the app's own tones:
+   the main column's surface and ink (--shell-main-bg in the Rails app, the
+   same values src/window-chrome.js uses), soft borders, a gentle shadow. */
+
+:root {
+  --surface: #ffffff;
+  --surface-2: #f8f7f5;
+  --ink: #231d1b;
+  --muted: #6f6763;
+  --line: rgba(35, 29, 27, 0.1);
+  --shadow: 0 8px 28px rgba(35, 29, 27, 0.18), 0 1px 3px rgba(35, 29, 27, 0.12);
+  --bubble-user: #231d1b;
+  --bubble-user-ink: #ffffff;
+  --waiting: #f08a24;
+  --failed: #e5484d;
+  --radius: 16px;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19;
+    --surface-2: #262624;
+    --ink: #f5f4f2;
+    --muted: #a39e9a;
+    --line: rgba(255, 255, 255, 0.1);
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+    --bubble-user: #f5f4f2;
+    --bubble-user-ink: #0a0a0a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--ink);
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* The dock --------------------------------------------------------------- */
+
+.dock {
+  position: absolute;
+  right: 4px;
+  top: 0;
+  width: 60px;
+  margin: 6px 0;
+  padding: 4px 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  box-shadow: var(--shadow);
+}
+
+.dock-grip {
+  width: 24px;
+  height: 12px;
+  cursor: ns-resize;
+  position: relative;
+  flex: none;
+}
+.dock-grip::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 5px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background 0.15s ease;
+}
+.dock-grip:hover::after { background: var(--muted); }
+
+.dock-bots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dock-bot {
+  position: relative;
+  border: 0;
+  padding: 0;
+  background: none;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+}
+.dock-bot:hover { transform: scale(1.06); }
+.dock-bot:active { transform: scale(0.96); }
+.dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+
+/* Mood rings: working pulses softly (the web avatar's thinking glow),
+   waiting wears an orange count, failed a red ring, a fresh reply a dot,
+   paused goes quiet. */
+.dock-bot[data-mood="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
+.dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--failed); }
+.dock-bot[data-paused] .avatar { filter: grayscale(1); opacity: 0.55; animation: none; }
+
+@keyframes thinking {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 235, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.28); }
+}
+
+.dock-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--waiting);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--surface);
+  animation: badge-in 0.2s ease-out;
+}
+.dock-badge.is-dot { min-width: 10px; width: 10px; height: 10px; padding: 0; top: 0; right: 0; }
+.dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
+
+@keyframes badge-in {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.dock-add {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px dashed var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.dock-add:hover { border-color: var(--muted); color: var(--ink); transform: scale(1.06); }
+
+/* The "+" picker */
+.picker-search { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.picker-search input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: none;
+  padding: 7px 8px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+.picker-item:hover, .picker-item:focus-visible { background: var(--surface-2); outline: none; }
+.picker-item .avatar { width: 32px; height: 32px; font-size: 12px; }
+.picker-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.picker-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-count { background: var(--waiting); color: #fff; border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
+
+/* The workspace mark at the top of the dock */
+.dock-workspace {
+  border: 0;
+  padding: 0 0 8px;
+  margin-bottom: -2px;
+  background: none;
+  border-bottom: 1px solid var(--line);
+  transition: transform 0.15s ease;
+}
+.dock-workspace[hidden] { display: none; }
+.dock-workspace:hover { transform: scale(1.06); }
+.dock-workspace:disabled { cursor: default; transform: none; }
+.workspace-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.workspace-mark[data-shape="circle"] { border-radius: 50%; }
+.workspace-mark[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
+.workspace-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* Avatars ---------------------------------------------------------------- */
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  flex: none;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  transition: box-shadow 0.2s ease;
+}
+.avatar[data-shape="square"] { border-radius: 10px; }
+.avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
+.avatar[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
+.avatar-sm[data-shape="square"] { border-radius: 7px; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-sm { width: 28px; height: 28px; font-size: 11px; }
+
+/* The popover ------------------------------------------------------------ */
+
+.popover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 380px;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  transform-origin: right top;
+  animation: popover-in 0.16s ease-out;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.popover[hidden] { display: none; }
+
+@keyframes popover-in {
+  from { opacity: 0; transform: translateX(8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.popover-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.popover-title strong, .popover-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.muted { color: var(--muted); font-size: 12px; }
+
+.btn-ghost, .btn-icon {
+  border: 0;
+  background: none;
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: var(--muted);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.btn-ghost:hover, .btn-icon:hover { background: var(--surface-2); color: var(--ink); }
+.btn-icon { font-size: 18px; line-height: 1; padding: 3px 8px; }
+
+.messages {
+  list-style: none;
+  margin: 0;
+  padding: 12px 14px;
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.message {
+  max-width: 85%;
+  padding: 8px 11px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  animation: message-in 0.18s ease-out;
+}
+.message.is-user { align-self: flex-end; background: var(--bubble-user); color: var(--bubble-user-ink); }
+.message.is-system { align-self: center; background: none; color: var(--muted); font-size: 12px; }
+.messages-empty { color: var(--muted); text-align: center; margin: auto; }
+
+@keyframes message-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The pending question / approval card */
+.pending {
+  margin: 0 12px 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--waiting);
+  border-radius: 12px;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pending[hidden] { display: none; }
+.pending-prompt { font-weight: 600; white-space: pre-wrap; }
+.pending-detail { color: var(--muted); white-space: pre-wrap; }
+.pending-options { display: flex; flex-direction: column; gap: 6px; }
+.option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 7px 10px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.option:hover { border-color: var(--muted); }
+.option.is-selected { border-color: var(--ink); }
+.option-key {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--surface-2);
+}
+.pending-other {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+.pending-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.btn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-weight: 500;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.btn-primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+
+/* The composer */
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+.composer textarea {
+  flex: 1;
+  resize: none;
+  max-height: 120px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 11px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.composer textarea:focus { border-color: var(--muted); }
+.btn-send {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 16px;
+  transition: opacity 0.15s ease;
+}
+.btn-send:disabled { opacity: 0.4; cursor: default; }
+
+.error-line { color: var(--failed); font-size: 12px; padding: 0 14px 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}

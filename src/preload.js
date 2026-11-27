@@ -30,6 +30,8 @@ function onAppOrigin () {
   return location.hostname === info.appHost || location.hostname.endsWith(`.${info.appHost}`)
 }
 
+let widgetCommandHandler = null
+
 if (info && info.chromeless && onAppOrigin()) {
   contextBridge.exposeInMainWorld('cmaiDesktop', {
     version: info.version,
@@ -58,6 +60,27 @@ if (info && info.chromeless && onAppOrigin()) {
     // (the site's bot_alerts_controller; 0 clears it). main clamps the number
     // and checks the sender's frame, src/badge.js.
     setBadge: (n) => ipcRenderer.send('cfa:set-badge', Number(n) || 0),
+    // The menu bar item and the desktop widget (src/tray.js). publish(state)
+    // hands main the same object GET /desktop/widget.json returns — call it
+    // whenever the needs-you count, the focus or the seats change; main
+    // checks the sender's frame and validates the shape (widget-state.js).
+    // onCommand(fn) registers the page's handler for what the tray asks of
+    // it, e.g. { type: 'open-bot', bot_id } — a Turbo visit to that bot;
+    // without a handler main falls back to loading the bot's URL.
+    widget: {
+      publish: (state) => ipcRenderer.send('cfa:widget-publish', state),
+      onCommand: (fn) => { widgetCommandHandler = typeof fn === 'function' ? fn : null },
+    },
+  })
+
+  ipcRenderer.on('cfa:widget-command', (_event, command) => {
+    if (widgetCommandHandler) {
+      try {
+        widgetCommandHandler(command)
+        return
+      } catch {}
+    }
+    ipcRenderer.send('cfa:widget-command-unhandled', command)
   })
 }
 
