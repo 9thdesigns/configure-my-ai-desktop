@@ -4,22 +4,28 @@
 // question or approval, and the replies the user sends from the widget. Pure,
 // so it is unit-testable without Electron (test/widget-chat.test.js).
 //
-// The endpoints are session-cookie wrappers under /desktop/widget (the
-// /mobile-api ones take a mobile token the desktop shell doesn't hold); main
-// calls them with the default session's cookies, and only the validated
-// conversation below ever reaches the widget renderer.
+// Answers and approvals go to the same endpoints the web app's question and
+// plan cards submit to (docs/desktop-widget.md in the Rails app), addressed
+// by the session / message ids in the bot's widget state — main builds the
+// path from the validated state, never from what the renderer says:
+//
+//   POST /autopilot/bots/:bot_id/sessions/:session_id/messages/:message_id/answer
+//   POST /autopilot/bots/:bot_id/sessions/:session_id/approve_plan | decline_plan
+//
+// The message history and the composer use session-cookie wrappers (the
+// /mobile-api endpoints take a mobile token the shell doesn't hold); until
+// the server has them the popover shows the pending card from the widget
+// state and "Open in app":
 //
 //   GET  /desktop/widget/bots/:id/messages?limit=20
 //   POST /desktop/widget/bots/:id/messages   { body }
-//   POST /desktop/widget/bots/:id/answer     { pending_id, option_ids, text }
-//   POST /desktop/widget/bots/:id/approval   { pending_id, decision }
 //
-// Each answers with the conversation:
+// which answer with the conversation:
 //   { bot_id, url?, messages: [{ id, role, body, created_at }],
 //     pending: { id, kind: 'question' | 'approval', prompt, detail?,
 //                options: [{ id, label }], allow_other, multiple } | null }
 
-const { validId, cleanText, validAppUrl } = require('./widget-state')
+const { validId, cleanText, validAppUrl, botById, stateLabel } = require('./widget-state')
 
 const MESSAGE_LIMIT = 20
 const MAX_BODY = 8000
@@ -111,24 +117,75 @@ function composeFrom (input) {
   return { botId, path: botPath(botId, 'messages'), body: { body } }
 }
 
-function answerFrom (input) {
+// The bot the renderer named, if the widget state has it waiting for this
+// kind of reply with the ids the endpoint needs.
+function waitingBot (state, botId, kind) {
+  const bot = botById(state, validId(botId))
+  if (!bot || bot.isManager || bot.state.waiting !== kind || !bot.state.session_id) return null
+  return bot
+}
+
+function sessionPath (bot) {
+  return `/autopilot/bots/${encodeURIComponent(bot.id)}/sessions/${encodeURIComponent(bot.state.session_id)}`
+}
+
+// { bot_id, option_ids, text } or { bot_id, skip: true } → the answer POST.
+function answerFrom (input, state) {
   if (!input || typeof input !== 'object') return null
-  const botId = validId(input.bot_id)
-  const pendingId = validId(input.pending_id)
-  if (!botId || !pendingId) return null
+  const bot = waitingBot(state, input.bot_id, 'question')
+  if (!bot || !bot.state.message_id) return null
   const optionIds = Array.isArray(input.option_ids) ? [...new Set(input.option_ids.map(validId).filter(Boolean))].slice(0, MAX_OPTIONS) : []
   const text = cleanBody(input.text, MAX_COMPOSE)
   const skip = input.skip === true
   if (!skip && optionIds.length === 0 && !text) return null
-  return { botId, path: botPath(botId, 'answer'), body: skip ? { pending_id: pendingId, skip: true } : { pending_id: pendingId, option_ids: optionIds, text } }
+  return {
+    botId: bot.id,
+    path: `${sessionPath(bot)}/messages/${encodeURIComponent(bot.state.message_id)}/answer`,
+    body: skip ? { skip: true } : { option_ids: optionIds, text },
+  }
 }
 
-function decisionFrom (input) {
-  if (!input || typeof input !== 'object') return null
-  const botId = validId(input.bot_id)
-  const pendingId = validId(input.pending_id)
-  if (!botId || !pendingId || !DECISIONS.includes(input.decision)) return null
-  return { botId, path: botPath(botId, 'approval'), body: { pending_id: pendingId, decision: input.decision } }
+// { bot_id, decision: 'approve' | 'decline' } → the plan approve/decline POST.
+function decisionFrom (input, state) {
+  if (!input || typeof input !== 'object' || !DECISIONS.includes(input.decision)) return null
+  const bot = waitingBot(state, input.bot_id, 'approval')
+  if (!bot) return null
+  return { botId: bot.id, path: `${sessionPath(bot)}/${input.decision === 'approve' ? 'approve_plan' : 'decline_plan'}`, body: {} }
+}
+
+// The pending card when the server has no richer one: what the widget state
+// says the bot is waiting for. actionable is whether the widget can reply
+// itself (it has the ids) or only offer "Open in app".
+function pendingFromState (bot) {
+  if (!bot || !bot.state.waiting) return null
+  const kind = bot.state.waiting
+  const actionable = !bot.isManager && Boolean(bot.state.session_id) && (kind === 'approval' || Boolean(bot.state.message_id))
+  return {
+    id: bot.state.message_id || bot.state.session_id || bot.id,
+    kind,
+    prompt: bot.state.detail || stateLabel(bot),
+    detail: '',
+    options: [],
+    allow_other: kind === 'question',
+    multiple: false,
+    actionable,
+  }
+}
+
+// What the popover is sent: the server's conversation when there is one,
+// with the pending card from the widget state when the conversation has none
+// (or there is no conversation endpoint yet).
+function popoverConversation (botId, conversation, state) {
+  const bot = botById(state, validId(botId))
+  const fromState = pendingFromState(bot)
+  let pending = conversation?.pending ? { ...conversation.pending, actionable: Boolean(fromState?.actionable) } : fromState
+  if (pending && fromState && pending.kind !== fromState.kind) pending = fromState
+  return {
+    bot_id: validId(botId),
+    messages: conversation ? conversation.messages : [],
+    history: Boolean(conversation),
+    pending,
+  }
 }
 
 // "A", "B", … for the lettered options (and their keyboard shortcuts).
@@ -145,5 +202,7 @@ module.exports = {
   composeFrom,
   answerFrom,
   decisionFrom,
+  pendingFromState,
+  popoverConversation,
   optionLetter,
 }

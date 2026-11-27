@@ -74,7 +74,7 @@ function trayMenuTemplate (state, options, actions) {
       enabled: state.workspaces.length > 0,
       submenu: state.workspaces.map((w) => ({
         id: `workspace-${w.id}`,
-        label: w.mark ? `${w.mark}  ${w.name}` : w.name,
+        label: w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
         type: 'radio',
         checked: w.id === state.workspace.id,
         click: () => { if (w.id !== state.workspace.id) actions.switchWorkspace(w.id) },
