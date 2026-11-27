@@ -1,8 +1,29 @@
 {
-  "workspace": { "id": "4f6c2a0e-1d2b-4c3a-9e8f-0a1b2c3d4e5f", "name": "9th Designs" },
+  "workspace": {
+    "id": "4f6c2a0e-1d2b-4c3a-9e8f-0a1b2c3d4e5f",
+    "name": "9th Designs"
+  },
   "workspaces": [
-    { "id": "4f6c2a0e-1d2b-4c3a-9e8f-0a1b2c3d4e5f", "name": "9th Designs", "mark": { "initials": "9D", "color": "#2f6feb", "shape": "squircle", "logo_url": "https://configuremyai.com/rails/active_storage/logo.png" } },
-    { "id": "8a7b6c5d-4e3f-4a2b-8c1d-0e9f8a7b6c5d", "name": "Side Project", "mark": { "initials": "SP", "color": "#e5484d", "shape": "circle", "logo_url": null } }
+    {
+      "id": "4f6c2a0e-1d2b-4c3a-9e8f-0a1b2c3d4e5f",
+      "name": "9th Designs",
+      "mark": {
+        "initials": "9D",
+        "color": "#2f6feb",
+        "shape": "squircle",
+        "logo_url": "https://configuremyai.com/rails/active_storage/logo.png"
+      }
+    },
+    {
+      "id": "8a7b6c5d-4e3f-4a2b-8c1d-0e9f8a7b6c5d",
+      "name": "Side Project",
+      "mark": {
+        "initials": "SP",
+        "color": "#e5484d",
+        "shape": "circle",
+        "logo_url": null
+      }
+    }
   ],
   "manager": {
     "id": "manager",
@@ -13,13 +34,117 @@
     "mood": "waiting",
     "needs_count": 1,
     "url": "/home",
-    "state": { "status": "waiting", "face": "curious", "waiting": "question", "detail": "Which repo should I ship first?", "run_id": "0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a", "thread_id": "1e2f3a4b-5c6d-4e7f-9a8b-9c0d1e2f3a4b", "url": "/home" }
+    "state": {
+      "status": "waiting",
+      "face": "curious",
+      "waiting": "question",
+      "detail": "Which repo should I ship first?",
+      "run_id": "0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a",
+      "thread_id": "1e2f3a4b-5c6d-4e7f-9a8b-9c0d1e2f3a4b",
+      "url": "/home",
+      "options": [],
+      "allow_other": false,
+      "multiple": false
+    }
   },
   "seats": [
-    { "bot_id": "manager", "manager": true, "pinned": true, "name": "Max", "avatar_url": null, "mood": "waiting", "needs_count": 1, "state": null },
-    { "bot_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "manager": false, "name": "Ada", "avatar_url": null, "avatar_color": "#f2c94c", "avatar_shape": "squircle", "mood": "working", "needs_count": 0, "pinned": true, "url": "/autopilot/bots/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d", "state": { "status": "running", "face": "focused", "waiting": null, "detail": "", "session_id": null, "message_id": null, "url": "/autopilot/bots/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d" } },
-    { "bot_id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e", "manager": false, "name": "Lin", "avatar_url": null, "avatar_color": "#6e56cf", "avatar_shape": "hexagon", "mood": "waiting", "needs_count": 1, "pinned": true, "url": "/autopilot/bots/b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e", "state": { "status": "awaiting_approval", "face": "hopeful", "waiting": "approval", "detail": "Deploy to production?", "session_id": "c3d4e5f6-a7b8-4c9d-8e0f-2a3b4c5d6e7f", "message_id": null, "url": "/autopilot/bots/b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e" } },
-    { "bot_id": "d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a", "manager": false, "name": "Ops", "avatar_url": null, "avatar_color": "#30a46c", "avatar_shape": "circle", "mood": "waiting", "needs_count": 1, "pinned": false, "url": "/autopilot/bots/d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a", "state": { "status": "awaiting_answer", "face": "curious", "waiting": "question", "detail": "Which region?", "session_id": "e5f6a7b8-c9d0-4e1f-8a2b-4c5d6e7f8a9b", "message_id": "f6a7b8c9-d0e1-4f2a-9b3c-5d6e7f8a9b0c", "url": "/autopilot/bots/d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a" } }
+    {
+      "bot_id": "manager",
+      "manager": true,
+      "pinned": true,
+      "name": "Max",
+      "avatar_url": null,
+      "mood": "waiting",
+      "needs_count": 1,
+      "state": null
+    },
+    {
+      "bot_id": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "manager": false,
+      "name": "Ada",
+      "avatar_url": null,
+      "avatar_color": "#f2c94c",
+      "avatar_shape": "squircle",
+      "mood": "working",
+      "needs_count": 0,
+      "pinned": true,
+      "url": "/autopilot/bots/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      "state": {
+        "status": "running",
+        "face": "focused",
+        "waiting": null,
+        "detail": "",
+        "session_id": null,
+        "message_id": null,
+        "url": "/autopilot/bots/a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+      }
+    },
+    {
+      "bot_id": "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "manager": false,
+      "name": "Lin",
+      "avatar_url": null,
+      "avatar_color": "#6e56cf",
+      "avatar_shape": "hexagon",
+      "mood": "waiting",
+      "needs_count": 1,
+      "pinned": true,
+      "url": "/autopilot/bots/b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+      "state": {
+        "status": "awaiting_approval",
+        "face": "hopeful",
+        "waiting": "approval",
+        "detail": "Deploy to production?",
+        "session_id": "c3d4e5f6-a7b8-4c9d-8e0f-2a3b4c5d6e7f",
+        "message_id": null,
+        "url": "/autopilot/bots/b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e",
+        "options": [
+          {
+            "id": "approve",
+            "label": "Approve"
+          },
+          {
+            "id": "decline",
+            "label": "Decline"
+          }
+        ],
+        "allow_other": false,
+        "multiple": false
+      }
+    },
+    {
+      "bot_id": "d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a",
+      "manager": false,
+      "name": "Ops",
+      "avatar_url": null,
+      "avatar_color": "#30a46c",
+      "avatar_shape": "circle",
+      "mood": "waiting",
+      "needs_count": 1,
+      "pinned": false,
+      "url": "/autopilot/bots/d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a",
+      "state": {
+        "status": "awaiting_answer",
+        "face": "curious",
+        "waiting": "question",
+        "detail": "Which region?",
+        "session_id": "e5f6a7b8-c9d0-4e1f-8a2b-4c5d6e7f8a9b",
+        "message_id": "f6a7b8c9-d0e1-4f2a-9b3c-5d6e7f8a9b0c",
+        "url": "/autopilot/bots/d4e5f6a7-b8c9-4d0e-9f1a-3b4c5d6e7f8a",
+        "options": [
+          {
+            "id": "us-east-1",
+            "label": "US East"
+          },
+          {
+            "id": "eu-west-1",
+            "label": "EU West"
+          }
+        ],
+        "allow_other": true,
+        "multiple": false
+      }
+    }
   ],
   "needs_you": 3,
   "focused_bot_id": "manager",

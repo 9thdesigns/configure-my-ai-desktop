@@ -30,6 +30,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
+const { isPaused, reorder, seatContextMenuTemplate, pickerBots } = require('./widget-seats')
 
 const DOCK_WIDTH = 72 // the dock column, including room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -182,9 +183,12 @@ function widgetView (state) {
       waiting: bot.state.waiting,
       detail: bot.state.detail,
       needs_count: bot.needs_count,
-      label: stateLabel(bot),
+      label: isPaused(bot) ? 'Paused' : stateLabel(bot),
+      paused: isPaused(bot),
       isManager: bot.isManager,
     })),
+    // The "+" picker's list: the workspace's bots not in the dock.
+    candidates: pickerBots(state),
   }
 }
 
@@ -220,6 +224,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
   let win = null
   let expanded = false
   let openBotId = null
+  let mode = 'chat' // what the expanded window shows: 'chat' or 'picker'
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
   let offsetY = loadOffset(positionFile)
@@ -252,7 +257,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
     const workArea = display().workArea
     const layout = layoutFor({ workArea, dockHeight, offsetY, expanded })
     win.setBounds(layout.bounds)
-    send('cma-widget:layout', { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId })
+    send('cma-widget:layout', { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode })
   }
 
   function setIgnore (ignore) {
@@ -288,6 +293,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
   function expand (botId) {
     if (!alive()) return
     openBotId = botId
+    mode = 'chat'
     expanded = true
     win.setFocusable(true)
     place()
@@ -297,12 +303,49 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
     conversationTimer = setInterval(loadConversation, CONVERSATION_POLL_MS)
   }
 
+  // The "+" picker: the same expanded window, showing the bot list instead
+  // of a conversation.
+  function openPicker () {
+    if (!alive()) return
+    clearInterval(conversationTimer)
+    conversationTimer = null
+    openBotId = null
+    mode = 'picker'
+    expanded = true
+    win.setFocusable(true)
+    place()
+    win.focus()
+  }
+
+  // Pause / resume a bot in the dock (never the manager: the server
+  // refuses, and its menu item is disabled).
+  function setActive (botId, active) {
+    const bot = dockBots(store.get()).find((b) => b.id === botId)
+    if (!bot || bot.isManager) return
+    feed.setActive(botId, active).catch(() => {})
+  }
+
+  function showSeatMenu (botId) {
+    const { Menu } = require('electron')
+    const template = seatContextMenuTemplate(store.get(), botId, {
+      open: (id) => openBot(id),
+      remove: (id) => { feed.setPinned(id, false).catch(() => {}) },
+      move: (id, delta) => {
+        const order = reorder(store.get(), id, delta)
+        if (order) feed.setSeatOrder(order).catch(() => {})
+      },
+      setActive: (id, on) => { setActive(id, on) },
+    })
+    if (template.length && alive()) Menu.buildFromTemplate(template).popup({ window: win })
+  }
+
   function collapse () {
     clearInterval(conversationTimer)
     conversationTimer = null
     if (!expanded || !alive()) return
     expanded = false
     openBotId = null
+    mode = 'chat'
     place()
     win.setFocusable(false)
   }
@@ -407,6 +450,26 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
       expand(id)
     })
 
+    ipcMain.on('cma-widget:context-menu', (event, botId) => {
+      const id = validId(botId)
+      if (!fromWidget(event) || !id) return
+      showSeatMenu(id)
+    })
+
+    ipcMain.on('cma-widget:picker', (event) => {
+      if (!fromWidget(event)) return
+      if (expanded && mode === 'picker') return collapse()
+      openPicker()
+    })
+
+    // Pin a bot from the picker; it must be one the picker offered.
+    ipcMain.on('cma-widget:pin', (event, botId) => {
+      const id = validId(botId)
+      if (!fromWidget(event) || !id || !pickerBots(store.get()).some((b) => b.id === id)) return
+      collapse()
+      feed.setPinned(id, true).catch(() => {})
+    })
+
     ipcMain.on('cma-widget:collapse', (event) => {
       if (fromWidget(event)) collapse()
     })
@@ -420,20 +483,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
 
     // Each answers with the popover's refreshed view, or null when the server
     // didn't take it (the renderer keeps what the user typed and says so).
-    ipcMain.handle('cma-widget:send', async (event, input) => {
+    const reply = (run) => async (event, input) => {
       if (!fromWidget(event)) return null
-      const conversation = await feed.sendMessage(input).catch(() => null)
+      const conversation = await run(input).catch(() => null)
       return conversation ? popoverFor(conversation.bot_id, conversation) : null
-    })
-    const action = (run) => async (event, input) => {
-      if (!fromWidget(event) || !input || typeof input !== 'object') return null
-      const ok = await run(input).catch(() => false)
-      if (!ok) return null
-      await feed.refresh().catch(() => {})
-      return popoverFor(input.bot_id)
     }
-    ipcMain.handle('cma-widget:answer', action((input) => feed.answer(input)))
-    ipcMain.handle('cma-widget:decide', action((input) => feed.decide(input)))
+    ipcMain.handle('cma-widget:send', reply((input) => feed.sendMessage(input)))
+    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
+    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input)))
   }
 
   return {
