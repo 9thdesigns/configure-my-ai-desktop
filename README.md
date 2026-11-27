@@ -106,9 +106,10 @@ look as on Windows, with the window buttons drawn over the top-right corner.
 - **Sign-in that works**, including Google, GitHub, Apple, Microsoft, Facebook, LinkedIn, X, and Slack — those open inside the app; every other link opens in your normal browser.
 - **Always current** — the app updates itself with an in-app “Restart Now” prompt, and because the product lives on the server, every website feature is here instantly.
 - **Offline-aware** — a friendly retry screen when the network drops.
+- **Bots that can use your computer — only when you say so.** A bot can ask to run a command, read a file, list a folder or take a screenshot on this machine. Every request shows a card with the bot and the exact command or path: **Allow once**, **Always allow** (for that bot and command or folder), or **Deny** — and an unanswered card is a Deny after two minutes. Review or revoke standing grants, and see every request, under **Computer → Local Computer Access…**, or switch it off there entirely.
 
-Nothing new to trust: it's configuremyai.com in a dedicated window — same
-sign-in, same security.
+Apart from that opt-in, nothing new to trust: it's configuremyai.com in a
+dedicated window — same sign-in, same security.
 
 ---
 
@@ -210,6 +211,40 @@ build/                app icons (mac .icns, Windows .ico, Linux PNGs) + entitlem
 scripts/make-icon.py  regenerates the app icons from the mobile app icon
 scripts/icon-source.png  the mobile light icon (assets/icon.png in the RN app)
 ```
+
+### Local computer tools
+
+`src/local-tools*.js` give bots four tools on the user's own machine —
+`run_command`, `read_file`, `list_dir`, `take_screenshot` — and nothing else.
+
+- **Transport.** The shell long-polls `GET https://configuremyai.com/desktop/tool_calls?wait=25`
+  with the app's own session cookie and posts each outcome to
+  `POST /desktop/tool_calls/:id/result` (`src/local-tools-client.js`). Both send
+  `X-CMA-Desktop-Tools: 1`, never follow redirects, and act only on responses
+  from our own https origin. Payloads are validated field by field; unknown
+  tools and args are dropped. The server side (queueing, the ask-first gate in
+  the agentic loop, scoping to the signed-in user's device and the requesting
+  run) lives in the web repo — see its `docs/desktop-local-tools.md`.
+- **Approval** (`src/local-tools-approval.js`). Every call needs a standing
+  grant or a fresh answer on the card; no answer in 2 minutes is a Deny.
+  Grants are per bot: a command prefix matched by whole tokens
+  (`git status`), or a folder matched after resolving symlinks.
+- **No shell by default.** Commands are split into argv and spawned with
+  `shell: false`. A command containing shell metacharacters (pipes, globs,
+  `$VARS`, redirects, `;`, `~` …) is refused unless the user approved that exact
+  string on the card — it is never covered by an "Always allow".
+- **Limits.** 30 s default / 300 s max per command, 64 KiB per output stream,
+  256 KiB per file read, 1000 entries per listing, screenshots ≤1920 px wide.
+- **Files in `app.getPath('userData')`**: `local-tools-grants.json`,
+  `local-tools-audit.jsonl` (each call, its decision and exit status — never
+  its output; newest 1000 kept) and `local-tools-settings.json`, all mode 0600.
+- **macOS.** `NSScreenCaptureUsageDescription` is set in
+  `electron-builder.yml`; the first screenshot request without the permission
+  shows a one-time helper that opens System Settings → Privacy & Security →
+  Screen Recording.
+- The approval card is a small always-on-top window of its own
+  (`src/local-tools-card.html`) until the floating widget / island windows
+  land; moving it there means swapping the broker's `prompt`.
 
 ## License
 

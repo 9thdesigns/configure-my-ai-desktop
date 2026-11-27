@@ -25,6 +25,7 @@ const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require(
 const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
 const { defaultColors, colorsFromPage, overlayOptions } = require('./window-chrome')
 const { applyBadge } = require('./badge')
+const { initLocalTools } = require('./local-tools-main')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -432,7 +433,11 @@ if (process.platform === 'linux') {
 app.whenReady().then(() => {
   restrictPermissions()
   registerIpc()
+  // Bots' local computer access: shell, files and screenshot on THIS machine,
+  // every call approved by the user (src/local-tools-main.js).
+  const localAccess = initLocalTools()
   installMenu({
+    localAccess,
     appUrl: APP_URL,
     startUrl: START_URL,
     getWindow: () => mainWindow,

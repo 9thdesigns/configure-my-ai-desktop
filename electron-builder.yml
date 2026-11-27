@@ -42,8 +42,12 @@ mac:
   entitlementsInherit: build/entitlements.mac.plist
   # Usage string the OS shows on the microphone TCC prompt. Without it,
   # getUserMedia fails silently on macOS even with the audio-input entitlement.
+  # NSScreenCaptureUsageDescription is the text for the Screen Recording
+  # permission a bot's take_screenshot needs (src/local-tools-main.js); every
+  # capture is still approved per call in the app's own card.
   extendInfo:
     NSMicrophoneUsageDescription: Configure My AI uses the microphone so you can dictate messages.
+    NSScreenCaptureUsageDescription: Configure My AI captures your screen only when you approve a bot's screenshot request.
   artifactName: "ConfigureMyAI-${arch}.${ext}"
   # dmg is what people download; zip is what electron-updater applies.
   target:

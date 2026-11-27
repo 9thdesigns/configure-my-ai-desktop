@@ -7,7 +7,7 @@ const { goBack, goHome } = require('./menu-actions')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
-function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates }) {
+function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAccess }) {
   const contents = () => getWindow()?.webContents
   // Home goes to the app's entry point (the sign-in screen, which Devise
   // bounces to the app when already signed in) rather than the marketing root.
@@ -52,6 +52,21 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates }) {
         { role: 'togglefullscreen' },
       ],
     },
+    ...(localAccess
+      ? [{
+          // Bots asking to use this computer (src/local-tools-main.js).
+          label: 'Computer',
+          submenu: [
+            {
+              label: 'Allow Bots to Ask to Use This Computer',
+              type: 'checkbox',
+              checked: localAccess.isEnabled(),
+              click: (item) => localAccess.setEnabled(item.checked),
+            },
+            { label: 'Local Computer Access…', click: () => localAccess.openSettings() },
+          ],
+        }]
+      : []),
     { role: 'windowMenu' },
     {
       role: 'help',
