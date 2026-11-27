@@ -233,7 +233,7 @@ scripts/icon-source.png  the mobile light icon (assets/icon.png in the RN app)
   `shell: false`. A command containing shell metacharacters (pipes, globs,
   `$VARS`, redirects, `;`, `~` …) is refused unless the user approved that exact
   string on the card — it is never covered by an "Always allow".
-- **Limits.** 30 s default / 300 s max per command, 64 KiB per output stream,
+- **Limits.** 30 s default / 90 s max per command (the server's cap too), 64 KiB per output stream,
   256 KiB per file read, 1000 entries per listing, screenshots ≤1920 px wide.
 - **Files in `app.getPath('userData')`**: `local-tools-grants.json`,
   `local-tools-audit.jsonl` (each call, its decision and exit status — never
@@ -243,8 +243,10 @@ scripts/icon-source.png  the mobile light icon (assets/icon.png in the RN app)
   shows a one-time helper that opens System Settings → Privacy & Security →
   Screen Recording.
 - The approval card is a small always-on-top window of its own
-  (`src/local-tools-card.html`) until the floating widget / island windows
-  land; moving it there means swapping the broker's `prompt`.
+  (`src/local-tools-card.html`), placed top-centre where the island sits. It
+  is not an island card on purpose: the island is fed by the server's widget
+  state and its Approve / Decline answer the server, whereas a local-tools
+  decision must be made and kept on this machine (and offers three choices).
 
 ## License
 

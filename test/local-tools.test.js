@@ -127,3 +127,7 @@ test('take_screenshot encodes the captured image and falls back to JPEG when lar
   assert.equal(c.status, 'error')
   assert.equal((await lt.takeScreenshot({}, {})).status, 'error')
 })
+
+test('the command timeout cap matches the server (90 s)', () => {
+  assert.equal(lt.LIMITS.maxCommandTimeoutMs, 90000)
+})

@@ -136,3 +136,20 @@ test('a server without the endpoint (404) is checked back rarely', async () => {
   const poller = client.createPoller({ fetch, broker: {} })
   assert.ok((await poller.tick()) >= 10 * 60000)
 })
+
+test('result statuses reaching the server are ok | denied | error | refused | timeout', () => {
+  const allowed = ['ok', 'denied', 'error', 'refused', 'timeout']
+  const cases = [
+    client.resultPayload({ allow: false, via: 'deny' }),
+    client.resultPayload({ allow: false, via: 'timeout' }),
+    client.resultPayload({ allow: false, via: 'error' }),
+    client.resultPayload({ allow: true, via: 'once' }, { status: 'ok' }),
+    client.resultPayload({ allow: true, via: 'once' }, { status: 'refused' }),
+    client.resultPayload({ allow: true, via: 'once' }, { status: 'timeout' }),
+    client.resultPayload({ allow: true, via: 'once' }, { status: 'error' }),
+    client.resultPayload({ allow: true, via: 'once' }, null),
+  ]
+  for (const p of cases) assert.ok(allowed.includes(p.status), p.status)
+  assert.equal(cases[4].approval, 'once')
+  assert.ok(cases[4].result, 'the tool result rides in result: {...}')
+})

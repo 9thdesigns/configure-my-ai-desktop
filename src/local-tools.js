@@ -25,7 +25,7 @@ const TOOL_NAMES = Object.freeze(['run_command', 'read_file', 'list_dir', 'take_
 
 const LIMITS = Object.freeze({
   commandTimeoutMs: 30_000,
-  maxCommandTimeoutMs: 300_000,
+  maxCommandTimeoutMs: 90_000, // the server caps timeout_ms at 90 s too
   maxOutputBytes: 64 * 1024, // per stream, stdout and stderr each
   maxFileBytes: 256 * 1024,
   maxDirEntries: 1000,

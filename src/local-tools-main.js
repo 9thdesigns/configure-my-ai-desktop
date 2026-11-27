@@ -4,9 +4,8 @@
 // live in the pure modules (local-tools*.js); this file only wires them to
 // windows and the OS.
 //
-// The approval card is its own small always-on-top window. The floating
-// widget / island windows (desktop PRs 3 and 6) were not on main when this
-// landed; once they are, the card can move into them by swapping `prompt`.
+// The approval card is its own small always-on-top window, placed where the
+// island sits. It is deliberately not an island card: see ensureApprovalWindow.
 
 const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell, systemPreferences } = require('electron')
 const fs = require('node:fs')
@@ -63,7 +62,20 @@ function lockDown (win) {
 
 function ensureApprovalWindow () {
   if (approvalWindow && !approvalWindow.isDestroyed()) return approvalWindow
-  approvalWindow = smallWindow({ width: 460, height: 340, alwaysOnTop: true, title: 'Allow this action?' })
+  // Top-centre, where the island sits, so a request appears where the user
+  // already looks for "a bot needs you". It stays its own window rather than
+  // an island card: the island is fed by the server's widget state and
+  // answers to the server, while this decision must stay on this machine.
+  const area = screen.getPrimaryDisplay().workArea
+  const width = 460
+  approvalWindow = smallWindow({
+    width,
+    height: 340,
+    x: Math.round(area.x + (area.width - width) / 2),
+    y: area.y + 64,
+    alwaysOnTop: true,
+    title: 'Allow this action?',
+  })
   approvalWindow.setAlwaysOnTop(true, 'floating')
   lockDown(approvalWindow)
   approvalWindow.loadFile(path.join(__dirname, 'local-tools-card.html'))
