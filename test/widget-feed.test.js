@@ -68,7 +68,7 @@ test('pinning is add_seat / remove_seat; the manager cannot be unpinned; order i
   assert.equal(await feed.setPinned('manager', false), false)
   assert.equal(server.calls.length, before)
   await feed.setSeatOrder(['manager', LIN, LIN, '../x', ADA])
-  assert.deepEqual(server.calls.at(-1).body, { seats: ['manager', LIN, ADA] })
+  assert.deepEqual(server.calls.at(-1).body, { seats: [LIN, ADA] }, 'pinned seats only: no manager')
 })
 
 test('a stale CSRF token (422) is refreshed and the write retried once', async () => {
@@ -166,4 +166,14 @@ test('pause / resume: optimistic status, POST to the wrapper, then refresh', asy
   assert.deepEqual(server.calls.find((c) => c.path.endsWith('/pause')).body, {})
   assert.equal(await feed.setActive(ADA, true), false, 'a server error is false')
   assert.equal(await feed.setActive('../x', true), false)
+})
+
+test('a refused settings write refetches, so the optimistic guess is undone', async () => {
+  const store = createWidgetStore()
+  const server = fakeServer({ [`PATCH ${WIDGET_PATH}`]: { status: 422, json: { error: 'Too many seats', code: 'unprocessable' } } })
+  const feed = createWidgetFeed({ store, request: server.request })
+  await feed.refresh()
+  assert.equal(await feed.setPinned(OPS, true), false)
+  assert.equal(store.get().seats.find((s) => s.bot_id === OPS).pinned, false, 'back to what the server says')
+  assert.deepEqual(server.calls.slice(-2).map((c) => `${c.method} ${c.path}`), [`PATCH ${WIDGET_PATH}`, `GET ${WIDGET_JSON_PATH}`])
 })

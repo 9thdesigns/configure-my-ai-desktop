@@ -174,6 +174,11 @@
     const q = pickerQuery.value.trim().toLowerCase()
     const bots = (view.candidates || []).filter((b) => !q || b.name.toLowerCase().includes(q))
     pickerList.textContent = ''
+    pickerQuery.disabled = Boolean(view.dock_full)
+    if (view.dock_full) {
+      pickerList.append(el('li', 'messages-empty', `The dock holds up to ${view.max_pinned} bots. Remove one (right-click it) to add another.`))
+      return
+    }
     if (!bots.length) {
       pickerList.append(el('li', 'messages-empty', view.candidates?.length ? 'No bots match.' : 'Every bot is already in the dock.'))
       return

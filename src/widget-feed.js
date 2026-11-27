@@ -140,8 +140,13 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
     return request({ method, path, body, csrfToken })
   }
 
+  // A settings write. The store was already updated optimistically; if the
+  // server refuses (422: a 13th seat, a bot the person lost) or can't be
+  // reached, refetch so the guess doesn't linger until the next poll.
   async function send (method, path, body) {
-    return takeResponse(await write(method, path, body))
+    const ok = takeResponse(await write(method, path, body))
+    if (!ok) await refresh().catch(() => {})
+    return ok
   }
 
   // The popover's conversation calls answer with the conversation, not the
@@ -210,7 +215,9 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
     async setSeatOrder (ids) {
       const state = store.get()
       if (!state || !Array.isArray(ids)) return false
-      const seats = [...new Set(ids.map(validId).filter(Boolean))].slice(0, 50)
+      // The pinned seats only: the manager is always docked and is not one.
+      const managerId = state.manager?.id || 'manager'
+      const seats = [...new Set(ids.map(validId).filter((id) => id && id !== managerId && id !== 'manager'))]
       return send('PATCH', WIDGET_PATH, { seats })
     },
 
