@@ -177,3 +177,41 @@ test('the same face in two states has the same key; bad fields are dropped', () 
   assert.equal(odd.initials, 'BAB')
   assert.equal(validAvatar('nope'), null)
 })
+
+// The real partial's structure (configure-my-ai #1588): spans and <i>s, one
+// svg with a ~14KB brand-mark path, role / aria-label, xmlns, fill-rule and
+// the state on data-cfa-state.
+test('the real CFA partial survives intact, long path and all', () => {
+  const real = fs.readFileSync(path.join(__dirname, 'fixtures/cfa-avatar-real.html'), 'utf8')
+  const d = /<path d="([^"]+)"/.exec(real)[1]
+  assert.ok(d.length > 13000, 'the fixture carries a long path')
+  const { tree, stateful } = sanitizeAvatarHtml(real)
+  assert.equal(stateful, true)
+  const [root] = tree
+  assert.equal(root.t, 'span')
+  assert.equal(root.a.class, 'cfa-avatar')
+  assert.equal(root.a.role, 'img')
+  assert.equal(root.a['aria-label'], 'Configure My AI')
+  assert.equal(root.a['data-cfa-shape'], 'samurai')
+  assert.equal(root.a['data-cfa-tone'], 'light')
+  assert.equal(root.a['data-cfa-state'], STATE_TOKEN)
+  assert.deepEqual(root.s, { '--cfa-tint': '#5b8def' })
+  const nodes = [...walk(tree)]
+  const classes = nodes.map((n) => n.a.class)
+  for (const part of ['cfa-avatar__aura', 'cfa-avatar__body', 'cfa-avatar__orb', 'cfa-avatar__skin', 'cfa-avatar__circuit', 'cfa-avatar__rim', 'cfa-avatar__face', 'cfa-avatar__brows', 'cfa-avatar__eyes', 'cfa-avatar__mouth']) {
+    assert.ok(classes.includes(part), part)
+  }
+  assert.equal(nodes.filter((n) => n.t === 'i').length, 4, 'two brows and two irises')
+  const svg = nodes.find((n) => n.t === 'svg')
+  assert.deepEqual(svg.a, { class: 'cfa-avatar__mark', viewBox: '0 0 420.1 512.0', xmlns: 'http://www.w3.org/2000/svg', fill: 'currentColor', 'fill-rule': 'evenodd', role: 'img', 'aria-label': 'Configure My AI' })
+  const p = nodes.find((n) => n.t === 'path')
+  assert.equal(p.a.d, d, 'the path is not truncated or dropped')
+  // The same partial in another state is the same face.
+  assert.equal(validAvatar({ html: real, state: 'working' }, { trusted: true }).key, validAvatar({ html: real.replace('data-cfa-state="working"', 'data-cfa-state="idle"'), state: 'idle' }, { trusted: true }).key)
+})
+
+test('geometry may be long but only numbers and path commands', () => {
+  assert.equal(safeValue('M0 0 '.repeat(5000), 'd'), true)
+  assert.equal(safeValue('M0 0 url(https://e.test)', 'd'), false)
+  assert.equal(safeValue('x'.repeat(3000), 'fill'), false)
+})

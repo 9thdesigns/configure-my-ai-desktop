@@ -55,3 +55,32 @@ test('a failed fetch is not remembered, and foreign URLs are never fetched', asy
   assert.equal(await cache.get('http://configuremyai.com/a.css'), null)
   assert.deepEqual(asked, [URL_A, URL_A])
 })
+
+test('the real sheet keeps its data: SVG masks, @property and keyframes', () => {
+  const real = fs.readFileSync(path.join(__dirname, 'fixtures/cfa-avatar-real.css'), 'utf8')
+  const out = sanitizeAvatarCss(real)
+  const masks = (s) => s.match(/url\((["'])data:image\/svg\+xml[^]*?\1\)/g) || []
+  assert.equal(masks(real).length, 8)
+  assert.deepEqual(masks(out), masks(real), 'every data: mask kept byte for byte, quotes, <svg> and parentheses inside')
+  assert.equal((out.match(/@property/g) || []).length, 3)
+  assert.equal((out.match(/@keyframes/g) || []).length, 5)
+  assert.match(out, /var\(--app-brand, #2563eb\)/)
+  assert.match(out, /@media \(prefers-reduced-motion: reduce\)/)
+})
+
+test('external URLs go, inline images and fragments stay, whatever the quoting', () => {
+  const css = `.a { mask: url( "https://evil.test/m.svg" ); }
+.b { mask: url(//evil.test/m.svg); }
+.c { mask: url('data:text/html,<script>1</script>'); }
+.d { mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E"); }
+.e { fill: url(#grad); }
+.f { background: url("data:image/svg+xml;utf8,<svg xmlns=\\"http://www.w3.org/2000/svg\\"><path d=\\"M0 0\\" transform=\\"rotate(45)\\"/></svg>"); }`
+  const out = sanitizeAvatarCss(css)
+  assert.doesNotMatch(out, /evil\.test|data:text\/html|<script/)
+  assert.match(out, /\.a \{ mask: none; \}/)
+  assert.match(out, /\.b \{ mask: none; \}/)
+  assert.match(out, /\.c \{ mask: none; \}/)
+  assert.match(out, /url\("data:image\/svg\+xml,%3Csvg xmlns='http:\/\/www\.w3\.org\/2000\/svg'%3E%3C\/svg%3E"\)/)
+  assert.match(out, /url\(#grad\)/)
+  assert.match(out, /rotate\(45\)\\"\/><\/svg>"\)/, 'escaped quotes and parentheses inside the data URL are kept')
+})

@@ -24,23 +24,70 @@ const MAX_CSS_BYTES = 256 * 1024
 const REQUEST_TIMEOUT_MS = 10_000
 const KEEP_FILES = 4
 
-// The sheet with anything that could load something taken out.
+// Images the sheet may embed inline: the shapes are data:image/svg+xml
+// masks (cloud, triangle, samurai, astronaut), and raster data is harmless.
+const INLINE_IMAGE = /^data:image\/(svg\+xml|png|gif|webp|jpeg)[;,]/i
+
+// One url(…) token from position i (just after "url("), honouring quotes and
+// escapes, so a data: SVG with quotes and parentheses inside stays whole.
+// → { target, end } where end is the index after the closing ")".
+function readUrl (css, i) {
+  while (/\s/.test(css[i] || '')) i++
+  let target = ''
+  const quote = css[i] === '"' || css[i] === "'" ? css[i] : null
+  if (quote) {
+    i++
+    while (i < css.length && css[i] !== quote) {
+      if (css[i] === '\\' && i + 1 < css.length) { target += css[i] + css[i + 1]; i += 2; continue }
+      target += css[i++]
+    }
+    i++ // the closing quote
+    while (i < css.length && css[i] !== ')') i++
+  } else {
+    while (i < css.length && css[i] !== ')') target += css[i++]
+  }
+  return { target: target.trim(), end: Math.min(i + 1, css.length) }
+}
+
+// The sheet with anything that could load something taken out: @import,
+// @namespace, @font-face, every url() but a same-document #fragment or an
+// inline image, and the other ways to name a resource. Inline images are
+// set aside first, so nothing below can damage them.
 function sanitizeAvatarCss (text) {
   if (typeof text !== 'string' || !text || Buffer.byteLength(text) > MAX_CSS_BYTES) return null
-  let css = text.replace(/\/\*[\s\S]*?\*\//g, '')
+  // eslint-disable-next-line no-control-regex
+  let css = text.replace(/[\u0000-\u0008\u000b\u000e-\u001f]/g, '')
+  const kept = []
+  let out = ''
+  for (let i = 0; i < css.length;) {
+    if (css.startsWith('/*', i)) {
+      const end = css.indexOf('*/', i + 2)
+      i = end < 0 ? css.length : end + 2
+      continue
+    }
+    if (/^url\(/i.test(css.slice(i, i + 4))) {
+      const { target, end } = readUrl(css, i + 4)
+      if (/^#[\w-]+$/.test(target) || INLINE_IMAGE.test(target)) {
+        kept.push(css.slice(i, end))
+        out += `\u0001${kept.length - 1}\u0001`
+      } else {
+        out += 'none'
+      }
+      i = end
+      continue
+    }
+    out += css[i++]
+  }
+  css = out
   css = css.replace(/@import[^;]*;?/gi, '')
   css = css.replace(/@namespace[^;]*;?/gi, '')
   // A @font-face can only fetch: none of it is kept.
   css = css.replace(/@font-face\s*\{[^}]*\}/gi, '')
-  css = css.replace(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi, (all, _q, target) => {
-    const t = target.trim()
-    if (/^#[\w-]+$/.test(t) || /^data:image\/(png|gif|webp|svg\+xml)[;,]/i.test(t)) return all
-    return 'none'
-  })
   // Other ways to name a resource, the whole call dropped.
   css = css.replace(/(-webkit-image-set|image-set|image|src|expression|element)\s*\((?:[^()]|\([^()]*\))*\)/gi, 'none')
   // Markup has no business in a stylesheet.
   css = css.replace(/<\/?[a-z][^>]*>/gi, '')
+  css = css.replace(/\u0001(\d+)\u0001/g, (_all, n) => kept[Number(n)])
   return css.trim() ? css : null
 }
 
@@ -140,4 +187,4 @@ function electronFetchText (url) {
   })
 }
 
-module.exports = { MAX_CSS_BYTES, sanitizeAvatarCss, cacheName, createAvatarCssCache, electronFetchText }
+module.exports = { MAX_CSS_BYTES, sanitizeAvatarCss, readUrl, cacheName, createAvatarCssCache, electronFetchText }

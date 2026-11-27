@@ -40,11 +40,16 @@ const { isAppUrl } = require('./url-policy')
 const STATES = Object.freeze(['idle', 'ack', 'thinking', 'working', 'waiting', 'blocked', 'done', 'sleeping'])
 const SHAPES = Object.freeze(['circle', 'square', 'triangle', 'cloud', 'samurai', 'astronaut'])
 
-const MAX_HTML = 32 * 1024
+// The real partial carries a ~14KB brand-mark path; room to spare.
+const MAX_HTML = 256 * 1024
 const MAX_NODES = 400
 const MAX_DEPTH = 16
 const MAX_TEXT = 200
 const MAX_ATTR = 2000
+// Path data (d, points) can be long: the brand mark alone is ~14KB.
+const MAX_GEOMETRY = 128 * 1024
+const GEOMETRY = new Set(['d', 'points'])
+const GEOMETRY_VALUE = /^[0-9eE.,+\-\s MmLlHhVvCcSsQqTtAaZz]*$/
 const MAX_URL = 2048
 
 // The marker the renderer replaces with the live state.
@@ -87,8 +92,11 @@ const FRAGMENT = /^#[A-Za-z_][\w.-]{0,63}$/
 
 // Anything that could load, run or escape: no url() but a #fragment, no
 // script-ish schemes, no CSS escapes, no markup.
-function safeValue (value) {
-  if (typeof value !== 'string' || value.length > MAX_ATTR) return false
+function safeValue (value, name = null) {
+  if (typeof value !== 'string') return false
+  // Geometry is numbers and path commands only, so it may be long.
+  if (name && GEOMETRY.has(name)) return value.length <= MAX_GEOMETRY && GEOMETRY_VALUE.test(value)
+  if (value.length > MAX_ATTR) return false
   // eslint-disable-next-line no-control-regex
   if (/[<>\\\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value)) return false
   const lower = value.toLowerCase().replace(/\s+/g, '')
@@ -239,7 +247,7 @@ function cleanAttrs (attrs, ns, ctx) {
     let name = null
     if (DATA_ATTR.test(rawName) || ARIA_ATTR.test(rawName)) name = rawName
     else if (ATTRIBUTES.has(rawName)) name = ATTRIBUTES.get(rawName)
-    if (!name || !safeValue(value)) continue
+    if (!name || !safeValue(value, name)) continue
     // A data attribute that carries the state is templated too.
     if ((name === 'data-state' || name === 'data-cfa-state' || name === 'data-mood') && STATES.includes(value.trim())) {
       ctx.stateful = true
@@ -330,7 +338,7 @@ function validTree (nodes, depth = 0, budget = { n: 0 }) {
     for (const [k, v] of Object.entries(node.a || {})) {
       if (typeof v !== 'string') continue
       if (k === 'class') a.class = cleanClass(v).join(' ')
-      else if (k === 'href') { if (FRAGMENT.test(v)) a.href = v } else if (k === 'xmlns') { if (v === 'http://www.w3.org/2000/svg') a.xmlns = v } else if ((DATA_ATTR.test(k) || ARIA_ATTR.test(k) || ATTRIBUTES.get(k.toLowerCase()) === k) && !k.startsWith('on') && safeValue(v)) a[k] = v
+      else if (k === 'href') { if (FRAGMENT.test(v)) a.href = v } else if (k === 'xmlns') { if (v === 'http://www.w3.org/2000/svg') a.xmlns = v } else if ((DATA_ATTR.test(k) || ARIA_ATTR.test(k) || ATTRIBUTES.get(k.toLowerCase()) === k) && !k.startsWith('on') && safeValue(v, k)) a[k] = v
     }
     const s = {}
     for (const [k, v] of Object.entries(node.s || {})) {
