@@ -38,8 +38,9 @@ function currentWorkspace (state) {
 }
 
 // Pages that belong to a single record of the old workspace — they would be
-// a 404 (or the wrong thing) in the new one.
-const RECORD_PAGES = /^\/(autopilot\/bots|bots|bot_sessions|configurations|threads)\/[^/]+/
+// a 404 (or the wrong thing) in the new one: one bot, session, configuration
+// or chat, the manager's threads, and anything under /workspaces/:id/.
+const RECORD_PAGES = /^\/(?:(?:autopilot\/bots|bots|bot_sessions|configurations|threads|manager\/threads|chats)\/[^/]+|workspaces\/[^/]+\/)/
 
 // What the main window should do after a switch: { action: 'reload' },
 // { action: 'load', url }, or { action: 'none' } when it isn't on the app.

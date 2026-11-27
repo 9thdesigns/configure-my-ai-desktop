@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Local, sandboxed, offline: avatar images only, no inline script. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Configure My AI island</title>
+  <link rel="stylesheet" href="island.css">
+</head>
+<body>
+  <div id="island" class="island" data-chip="">
+    <button type="button" class="island-bar" data-role="bar">
+      <span class="avatar" data-role="avatar"></span>
+      <span class="island-name" data-role="name"></span>
+      <span class="chip" data-role="chip"></span>
+    </button>
+    <section class="card" data-role="card" hidden>
+      <p class="card-prompt" data-role="prompt"></p>
+      <div class="card-options" data-role="options"></div>
+      <input type="text" class="card-other" data-role="other" placeholder="Something else…" aria-label="Something else" hidden>
+      <div class="card-actions" data-role="actions"></div>
+      <p class="card-error" data-role="error" hidden></p>
+    </section>
+  </div>
+  <script src="island-view.js"></script>
+</body>
+</html>

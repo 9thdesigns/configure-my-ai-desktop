@@ -31,6 +31,7 @@ const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widg
 const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
+const { createIslandController } = require('./island-window')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -51,6 +52,7 @@ let widgetStore = null
 let widgetFeed = null
 let trayHandle = null
 let widget = null
+let island = null
 
 // The windows drawn without a native title bar — the app's own, but not the
 // OAuth popups, which keep a standard frame. Only these need the page to
@@ -569,6 +571,7 @@ function startWidgetFeedAndTray () {
       prefs.set({ showWidget: Boolean(on) })
       widgetFeed.setEnabled(Boolean(on)).catch(() => {})
     },
+    setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
     setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
     setOpenAtLogin: (on) => {
       try {
@@ -593,6 +596,18 @@ function startWidgetFeedAndTray () {
   })
   widget.registerIpc(ipcMain)
   widget.sync()
+
+  // The status pill by the notch (src/island-window.js): shown while the
+  // pref is on and some bot has something to say.
+  island = createIslandController({
+    store: widgetStore,
+    prefs,
+    feed: widgetFeed,
+    getMainWindow: () => mainWindow,
+    openBot,
+  })
+  island.registerIpc(ipcMain)
+  island.sync()
 
   try {
     trayHandle = createTray({
