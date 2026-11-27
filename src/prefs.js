@@ -13,15 +13,28 @@
 //   showWidget              — the floating bot dock is shown.
 //   showIsland              — the status pill at the top of the screen is
 //                             shown.
+//   widgetPositions         — where the user dragged the dock, per display
+//   islandPositions           (and the island): [{ id, bounds, pos }], newest
+//                             first (widget-placement.js validates them).
 
 const fs = require('node:fs')
 const path = require('node:path')
+const { validEntries, validWidgetPos, validIslandPos } = require('./widget-placement')
+
+// Keys whose values are structures, each with its own validator; the rest
+// are plain values checked by type.
+const STRUCTURED = {
+  widgetPositions: (v) => validEntries(v, validWidgetPos),
+  islandPositions: (v) => validEntries(v, validIslandPos),
+}
 
 function defaults (platform = process.platform) {
   return {
     keepRunningInBackground: platform === 'darwin',
     showWidget: true,
     showIsland: true,
+    widgetPositions: [],
+    islandPositions: [],
   }
 }
 
@@ -29,10 +42,13 @@ function sanitize (input, platform) {
   const base = defaults(platform)
   if (!input || typeof input !== 'object') return base
   for (const key of Object.keys(base)) {
-    if (typeof input[key] === typeof base[key]) base[key] = input[key]
+    if (STRUCTURED[key]) base[key] = STRUCTURED[key](input[key])
+    else if (typeof input[key] === typeof base[key]) base[key] = input[key]
   }
   return base
 }
+
+const same = (a, b) => a === b || (typeof a === 'object' && typeof b === 'object' && JSON.stringify(a) === JSON.stringify(b))
 
 // A tiny store: get() returns a copy, set() merges known keys, persists, and
 // tells subscribers. The file path is injected so tests need no Electron.
@@ -48,10 +64,10 @@ function createPrefs ({ file, platform = process.platform } = {}) {
   const listeners = new Set()
 
   return {
-    get: () => ({ ...current }),
+    get: () => JSON.parse(JSON.stringify(current)),
     set (patch) {
       const next = sanitize({ ...current, ...patch }, platform)
-      const changed = Object.keys(next).some((k) => next[k] !== current[k])
+      const changed = Object.keys(next).some((k) => !same(next[k], current[k]))
       current = next
       if (!changed) return this.get()
       if (file) {

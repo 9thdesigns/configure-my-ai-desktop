@@ -179,6 +179,15 @@
   })
   card.addEventListener('mousedown', () => { if (!layout.focused) api.activate() })
 
+  // Drag the pill by its bar: main moves the window and snaps it home to
+  // top-centre when dropped near there. A tap stays a click
+  // (drag-gesture.js); the card, with its text and options, never drags.
+  if (window.DragGesture && typeof api.drag === 'function') {
+    window.DragGesture.attach(bar, (phase, x, y) => api.drag(phase, x, y), {
+      onDragChange: (on) => document.documentElement.toggleAttribute('data-dragging', on),
+    })
+  }
+
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -212,6 +221,7 @@
   api.onLayout((next) => {
     if (!next) return
     layout = next
+    document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
     island.classList.toggle('is-expanded', next.expanded)
     card.hidden = !next.expanded
     reportHeight()

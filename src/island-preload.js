@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('cmaIsland', {
   onLayout: listen('cma-island:layout'),
   onAvatarCss: listen('cma-island:avatar-css'),
   ready: () => ipcRenderer.send('cma-island:ready'),
+  drag: (phase, screenX, screenY) => ipcRenderer.send('cma-island:drag', { phase, screenX, screenY }),
   reportHeight: (height) => ipcRenderer.send('cma-island:height', height),
   hover: (inside) => ipcRenderer.send('cma-island:hover', inside === true),
   activate: () => ipcRenderer.send('cma-island:activate'),

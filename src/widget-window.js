@@ -1,20 +1,24 @@
 'use strict'
 
-// The floating bot dock: a column of bot avatars on the right edge of the
-// screen, above every app and on every Space, that stays put while the main
-// window is minimised, hidden or closed. Clicking an avatar focuses that bot
-// and opens a quick-chat popover beside the dock.
+// The floating bot dock: a column of bot avatars on a side edge of the
+// screen (the right, until the user drags it), above every app and on every
+// Space, that stays put while the main window is minimised, hidden or closed.
+// Clicking an avatar focuses that bot and opens a quick-chat popover beside
+// the dock.
 //
 // One transparent, frameless, non-activating window (an NSPanel on macOS):
 //   * sized to the dock, or to dock + popover while the popover is open,
-//     growing inward from the right edge of the work area;
+//     growing inward from the edge the dock is on;
 //   * click-through everywhere but the dock and the popover — the renderer
 //     reports those rectangles, and main polls the cursor and turns mouse
 //     events on only while it is over one (setIgnoreMouseEvents);
 //   * never focusable, except while the popover is open (so typing works
 //     there and nowhere else steals focus);
-//   * vertically draggable by its grip, the offset kept across launches in
-//     userData/widget-position.json (window-state.js style).
+//   * draggable anywhere by the dock itself (drag-gesture.js tells a drag
+//     from a click; main moves the window), snapping to the nearer side edge
+//     of the display it is dropped on and remembered per display in the prefs
+//     store (widget-placement.js). Not on Wayland, which does not let an app
+//     place its windows: there the compositor decides, as before.
 //
 // The renderer (src/widget.html) is a local file in its own in-memory
 // session: it never holds the site's cookies, has no network access of its
@@ -32,6 +36,7 @@ const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
+const placement = require('./widget-placement')
 
 const DOCK_WIDTH = 56 // the dock column (44px, widget.css), with room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -97,21 +102,25 @@ function dockOffset (offsetY, workArea, dockHeight) {
 }
 
 // Where the window goes, and where the dock and the popover sit inside it.
-// Collapsed, the window is the dock. Expanded, it widens leftwards to hold
-// the popover, which lines up with the top of the dock unless that would run
-// off the bottom of the work area. The dock itself never moves on screen.
-function layoutFor ({ workArea, dockHeight, offsetY, expanded }) {
+// Collapsed, the window is the dock, against the left or right edge. Expanded,
+// it widens inward (away from that edge) to hold the popover, which lines up
+// with the top of the dock unless that would run off the bottom of the work
+// area. The dock itself never moves on screen.
+function layoutFor ({ workArea, dockHeight, offsetY, expanded, side = 'right' }) {
   const height = validDockHeight(dockHeight, workArea)
   const dockY = workArea.y + dockOffset(offsetY, workArea, height)
-  const right = workArea.x + workArea.width - EDGE_MARGIN
+  const left = side === 'left'
+  const edgeX = left ? workArea.x + EDGE_MARGIN : workArea.x + workArea.width - EDGE_MARGIN
+  const xFor = (width) => (left ? edgeX : edgeX - width)
 
   if (!expanded) {
     return {
-      bounds: { x: right - DOCK_WIDTH, y: dockY, width: DOCK_WIDTH, height },
+      bounds: { x: xFor(DOCK_WIDTH), y: dockY, width: DOCK_WIDTH, height },
       dockTop: 0,
       popoverTop: 0,
       popoverHeight: 0,
       expanded: false,
+      side: left ? 'left' : 'right',
     }
   }
 
@@ -120,11 +129,12 @@ function layoutFor ({ workArea, dockHeight, offsetY, expanded }) {
   const top = Math.min(dockY, popoverY)
   const bottom = Math.max(dockY + height, popoverY + popoverHeight)
   return {
-    bounds: { x: right - EXPANDED_WIDTH, y: top, width: EXPANDED_WIDTH, height: bottom - top },
+    bounds: { x: xFor(EXPANDED_WIDTH), y: top, width: EXPANDED_WIDTH, height: bottom - top },
     dockTop: dockY - top,
     popoverTop: popoverY - top,
     popoverHeight,
     expanded: true,
+    side: left ? 'left' : 'right',
   }
 }
 
@@ -157,14 +167,9 @@ function cursorOverRects (cursor, bounds, rects) {
   return rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)
 }
 
-// The drag protocol from the renderer: { phase: start | move | end, screenY }.
-function validDrag (input) {
-  if (!input || typeof input !== 'object') return null
-  if (!['start', 'move', 'end'].includes(input.phase)) return null
-  const screenY = Number(input.screenY)
-  if (!Number.isFinite(screenY) || Math.abs(screenY) > 100000) return null
-  return { phase: input.phase, screenY }
-}
+// The drag protocol from the renderer: { phase: start | move | end,
+// screenX, screenY } (widget-placement.js).
+const { validDrag } = placement
 
 // What the widget renderer is sent: the dock's bots in order, each with its
 // one-line state, and which one is focused. Already-validated data only;
@@ -198,7 +203,10 @@ function widgetView (state) {
   }
 }
 
-// The saved vertical offset: a finite number, or null for "centred".
+// The vertical offset older versions saved (userData/widget-position.json,
+// right edge only): a finite number, or null for "centred". Read once, as
+// the starting point until the dock is first dragged; positions now live in
+// the prefs store, per display.
 function loadOffset (file) {
   try {
     const saved = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -208,14 +216,9 @@ function loadOffset (file) {
   }
 }
 
-function saveOffset (file, offsetY) {
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file, JSON.stringify({ offsetY }))
-  } catch {
-    // A failed save costs the position at next launch, nothing more.
-  }
-}
+// After this many moves in a row that did not land where asked, the platform
+// is taken not to allow moving windows, and dragging stops.
+const MAX_MISSED_MOVES = 3
 
 // ---------------------------------------------------------------------------
 // The Electron half
@@ -224,8 +227,8 @@ function saveOffset (file, offsetY) {
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, platform = process.platform }) {
-  const { BrowserWindow, screen, session } = require('electron')
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
+  const { BrowserWindow, screen, session } = electron
 
   let win = null
   let expanded = false
@@ -233,8 +236,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let mode = 'chat' // what the expanded window shows: 'chat' or 'picker'
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
-  let offsetY = loadOffset(positionFile)
+  // Where the dock is: the display, the side, the offset down the work area.
   let displayId = null
+  let side = 'right'
+  let offsetY = null
+  const legacyOffset = positionFile ? loadOffset(positionFile) : null
+  // Wayland: the compositor places windows, so the dock does not drag.
+  let draggable = !placement.likelyWayland(platform, env)
+  let missedMoves = 0
   let ignoring = null
   let drag = null
   let pointerTimer = null
@@ -248,22 +257,78 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   const alive = () => Boolean(win && !win.isDestroyed())
   const send = (channel, payload) => { if (alive()) win.webContents.send(channel, payload) }
 
+  // The display the dock is on: the one it was last on while that is still
+  // connected; else the newest remembered display that is; else the default
+  // (the main window's display, or the primary) at the default position.
   function display () {
     const displays = screen.getAllDisplays()
     const kept = displays.find((d) => d.id === displayId)
     if (kept) return kept
+    const saved = placement.findSaved(prefs.get().widgetPositions, displays)
+    if (saved) {
+      displayId = saved.display.id
+      side = saved.pos.side
+      offsetY = saved.pos.offsetY
+      return saved.display
+    }
     const main = getMainWindow()
     const chosen = main && !main.isDestroyed() ? screen.getDisplayMatching(main.getBounds()) : screen.getPrimaryDisplay()
     displayId = chosen.id
+    side = 'right'
+    offsetY = legacyOffset
     return chosen
   }
 
   function place () {
-    if (!alive()) return
+    if (!alive() || drag) return
     const workArea = display().workArea
-    const layout = layoutFor({ workArea, dockHeight, offsetY, expanded })
+    const layout = layoutFor({ workArea, dockHeight, offsetY, expanded, side })
     win.setBounds(layout.bounds)
-    send('cma-widget:layout', { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode })
+    send('cma-widget:layout', { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode, side: layout.side, draggable })
+  }
+
+  // --- Dragging: the renderer says where the pointer is; the window follows,
+  // kept inside the work area of the display under the pointer, and snaps to
+  // the nearer side edge when dropped.
+  function dragStart (point) {
+    if (!draggable || !alive()) return
+    if (expanded) collapse()
+    drag = { startBounds: win.getBounds(), startPoint: point, bounds: win.getBounds() }
+    missedMoves = 0
+    setIgnore(false)
+  }
+
+  function dragMove (point) {
+    if (!drag || !alive()) return
+    const at = placement.dragPosition(drag.startBounds, drag.startPoint, point)
+    const d = placement.displayNearest(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
+    const next = d ? placement.clampToArea({ ...drag.startBounds, ...at }, d.workArea) : { ...drag.startBounds, ...at }
+    win.setBounds(next)
+    drag.bounds = next
+    // A platform that ignores client positioning (some Wayland setups behind
+    // XWayland): stop trying, and put the dock back.
+    if (placement.landed(next, win.getBounds())) missedMoves = 0
+    else if (++missedMoves >= MAX_MISSED_MOVES) {
+      draggable = false
+      drag = null
+      place()
+    }
+  }
+
+  function dragEnd (point) {
+    if (!drag || !alive()) return
+    dragMove(point)
+    if (!drag) return
+    const bounds = drag.bounds
+    drag = null
+    const d = placement.displayNearest(screen.getAllDisplays(), { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 })
+    if (!d) return place()
+    const pos = placement.snapWidget(bounds, d.workArea)
+    displayId = d.id
+    side = pos.side
+    offsetY = pos.offsetY
+    prefs.set({ widgetPositions: placement.remember(prefs.get().widgetPositions, d, pos) })
+    place()
   }
 
   function setIgnore (ignore) {
@@ -393,6 +458,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     win.on('blur', collapse)
     win.on('closed', () => {
       win = null
+      drag = null
       sentCssUrl = null
       expanded = false
       openBotId = null
@@ -422,6 +488,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     else if (expanded && openBotId) loadConversation()
   }
 
+  // A display added, removed or changed (resolution, scale, a moved taskbar):
+  // place again — display() falls back if the dock's display is gone, and
+  // layoutFor clamps the offset to the new work area.
   const onDisplays = () => place()
   screen.on('display-metrics-changed', onDisplays)
   screen.on('display-added', onDisplays)
@@ -459,18 +528,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     ipcMain.on('cma-widget:drag', (event, input) => {
       const d = validDrag(input)
       if (!fromWidget(event) || !d) return
-      const workArea = display().workArea
-      if (d.phase === 'start') {
-        drag = { startY: d.screenY, startOffset: dockOffset(offsetY, workArea, dockHeight) }
-        return
-      }
-      if (!drag) return
-      offsetY = dockOffset(drag.startOffset + d.screenY - drag.startY, workArea, dockHeight)
-      place()
-      if (d.phase === 'end') {
-        drag = null
-        saveOffset(positionFile, offsetY)
-      }
+      if (d.phase === 'start') dragStart(d)
+      else if (d.phase === 'move') dragMove(d)
+      else dragEnd(d)
     })
 
     ipcMain.on('cma-widget:open', (event, botId) => {
@@ -557,12 +617,12 @@ module.exports = {
   widgetWindowOptions,
   validDockHeight,
   dockOffset,
+  MAX_MISSED_MOVES,
   layoutFor,
   validRects,
   cursorOverRects,
   validDrag,
   widgetView,
   loadOffset,
-  saveOffset,
   createWidgetController,
 }
