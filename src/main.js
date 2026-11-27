@@ -487,8 +487,12 @@ app.whenReady().then(() => {
   // Bots' local computer access: shell, files and screenshot on THIS machine,
   // every call approved by the user (src/local-tools-main.js).
   const localAccess = initLocalTools()
+  // The shell's own switches (src/prefs.js), read before the menu so its
+  // "Show Island" checkbox starts from the saved value.
+  prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
   installMenu({
     localAccess,
+    prefs,
     appUrl: APP_URL,
     startUrl: START_URL,
     getWindow: () => mainWindow,
@@ -562,7 +566,7 @@ async function switchWorkspace (id) {
 }
 
 function startWidgetFeedAndTray () {
-  prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
+  if (!prefs) prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
   widgetStore = createWidgetStore()
   // Push: the server pings the widget's signed stream over ActionCable and
   // the feed refetches (src/widget-cable.js); the feed's poll is the fallback.
@@ -622,13 +626,14 @@ function startWidgetFeedAndTray () {
   widget.sync()
 
   // The status pill by the notch (src/island-window.js): shown while the
-  // pref is on and some bot has something to say.
+  // pref is on — the bot that needs the user, or a calm idle pill.
   island = createIslandController({
     store: widgetStore,
     prefs,
     feed: widgetFeed,
     getMainWindow: () => mainWindow,
     openBot,
+    openApp,
   })
   island.registerIpc(ipcMain)
   island.sync()

@@ -5,7 +5,9 @@
 // chip (Questions, Working…, New message, Needs approval, Failed). Hovering
 // or clicking it opens the pending question card right there: lettered
 // options with A–D shortcuts, "Something else", Skip and Done, or Approve and
-// Decline for an approval. Idle, it hides.
+// Decline for an approval. Idle, it stays up as a calm pill — the manager's
+// mark and "All quiet" — so "Show Island" visibly means something; only the
+// pref hides it.
 //
 // A second non-activating panel with the dock's flags (widget-window.js),
 // at the 'status' level so it sits above ordinary floating windows. It is
@@ -70,24 +72,93 @@ function islandBot (state) {
   return [...docked, ...rest].find((b) => b.state?.waiting && islandChip(b)) || null
 }
 
-// What the island renderer is sent, or null to hide.
-function islandView (state) {
+const botView = (bot) => ({ id: bot.id, name: bot.name, avatar_url: bot.avatar_url, avatar_color: bot.avatar_color, avatar_shape: bot.avatar_shape })
+
+// The calm pill shown when nobody needs the user: the manager's mark and a
+// one-word status. With no widget state yet (signed out, or the first fetch
+// still in flight) it shows the app's initials and says which.
+function islandIdleView (state, { signedIn = null } = {}) {
+  const manager = state?.manager
+  const bot = manager
+    ? botView(manager)
+    : { id: null, name: 'Configure My AI', avatar_url: null, avatar_color: null, avatar_shape: 'rounded' }
+  let label = 'All quiet'
+  if (!state) label = signedIn === false ? 'Signed out' : 'Connecting…'
+  else if (manager?.state?.status === 'paused') label = 'Paused'
+  return { idle: true, bot, chip: { kind: state ? 'idle' : 'offline', label }, detail: '', pending: null }
+}
+
+// What the island renderer is sent: the bot that needs the user, or the idle
+// pill. Never null — whether the island shows at all is the pref's call.
+function islandView (state, options) {
   const bot = islandBot(state)
   const chip = islandChip(bot)
-  if (!bot || !chip) return null
+  if (!bot || !chip) return islandIdleView(state, options)
   return {
-    bot: { id: bot.id, name: bot.name, avatar_url: bot.avatar_url, avatar_color: bot.avatar_color, avatar_shape: bot.avatar_shape },
+    idle: false,
+    bot: botView(bot),
     chip,
     detail: bot.state.detail,
     pending: pendingFromState(bot),
   }
 }
 
-// Centred at the top of the work area (under the menu bar, by the notch).
+// Centred at the top of the work area. The work area is the display minus
+// the menu bar (macOS — the notch lives inside the menu bar, so this is just
+// under it), the taskbar (Windows, when docked at the top) or the panel
+// (Linux): the pill never hides behind any of them. Kept inside the work
+// area on a narrow or portrait display.
 function islandBounds (workArea, height) {
   const h = Math.min(Math.max(Math.round(Number(height)) || COMPACT_HEIGHT, COMPACT_HEIGHT), Math.min(MAX_HEIGHT, workArea.height)) + SHADOW * 2
   const w = ISLAND_WIDTH + SHADOW * 2
-  return { x: workArea.x + Math.round((workArea.width - w) / 2), y: workArea.y + TOP_MARGIN - SHADOW, width: w, height: h }
+  const centred = workArea.x + Math.round((workArea.width - w) / 2)
+  const x = Math.max(workArea.x - SHADOW, Math.min(centred, workArea.x + workArea.width - w + SHADOW))
+  return { x, y: workArea.y + TOP_MARGIN - SHADOW, width: w, height: h }
+}
+
+const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
+  Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
+
+// Which display the island goes on: the one the main window is mostly on,
+// while it is on any display at all; otherwise the primary. A display that
+// was unplugged is no longer in the list, so the island follows the main
+// window (which the OS moves) or falls back to the primary — never off
+// screen.
+function islandDisplay ({ displays = [], primary, mainBounds }) {
+  if (mainBounds) {
+    let best = null
+    let bestArea = 0
+    for (const d of displays) {
+      const area = overlap(d.bounds, mainBounds)
+      if (area > bestArea) { best = d; bestArea = area }
+    }
+    if (best) return best
+  }
+  return primary || displays[0] || null
+}
+
+// The "Show Island" checkbox for the app menu (menu.js), wired straight to
+// the pref, and the reverse sync: the tray (or anything else) changing the
+// pref ticks or unticks it here.
+const ISLAND_MENU_ID = 'show-island'
+function islandMenuItem (prefs) {
+  return {
+    id: ISLAND_MENU_ID,
+    label: 'Show Island',
+    type: 'checkbox',
+    checked: Boolean(prefs.get().showIsland),
+    // Electron flips the item before calling click, so item.checked is what
+    // the user asked for.
+    click: (item) => prefs.set({ showIsland: Boolean(item?.checked) }),
+  }
+}
+function syncIslandMenuItem (menu, prefs) {
+  const apply = (p) => {
+    const item = menu && typeof menu.getMenuItemById === 'function' ? menu.getMenuItemById(ISLAND_MENU_ID) : null
+    if (item) item.checked = Boolean(p.showIsland)
+  }
+  apply(prefs.get())
+  return prefs.onChange(apply)
 }
 
 // ---------------------------------------------------------------------------
@@ -97,9 +168,10 @@ function islandBounds (workArea, height) {
 const HTML_PATH = path.join(__dirname, 'island.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 const HOVER_COLLAPSE_MS = 600
+const DISPLAY_SETTLE_MS = 300
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, platform = process.platform }) {
-  const { BrowserWindow, screen, session } = require('electron')
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, platform = process.platform, electron = require('electron') }) {
+  const { BrowserWindow, screen, session } = electron
 
   let win = null
   let expanded = false
@@ -107,6 +179,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
   let height = COMPACT_HEIGHT
   let view = null
   let collapseTimer = null
+  let settleTimer = null
 
   const islandSession = session.fromPartition(PARTITION)
   islandSession.setPermissionRequestHandler((_c, _p, callback) => callback(false))
@@ -117,12 +190,15 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
 
   function display () {
     const main = getMainWindow()
-    return main && !main.isDestroyed() ? screen.getDisplayMatching(main.getBounds()) : screen.getPrimaryDisplay()
+    const mainBounds = main && !main.isDestroyed() && !main.isMinimized?.() ? main.getBounds() : null
+    return islandDisplay({ displays: screen.getAllDisplays(), primary: screen.getPrimaryDisplay(), mainBounds })
   }
 
   function place () {
     if (!alive()) return
-    win.setBounds(islandBounds(display().workArea, expanded ? height : COMPACT_HEIGHT))
+    const d = display()
+    if (!d) return
+    win.setBounds(islandBounds(d.workArea, expanded ? height : COMPACT_HEIGHT))
     send('cma-island:layout', { expanded, focused })
   }
 
@@ -138,7 +214,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
 
   function expand ({ focus }) {
     clearTimeout(collapseTimer)
-    if (!alive() || !view) return
+    if (!alive() || !view || view.idle) return
     expanded = true
     if (focus && !focused) {
       focused = true
@@ -162,17 +238,22 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
       focused = false
     })
     win.once('ready-to-show', () => {
+      if (!alive()) return
       place()
       if (view) win.showInactive()
     })
     win.loadFile(HTML_PATH)
   }
 
-  // Shown while the pref is on and some bot has something to say.
+  // Shown whenever the pref is on: the bot that needs the user, or the idle
+  // pill. (It used to show only while a bot had something to say, and only
+  // while the dock's server-side "enabled" flag was on, so with a quiet team
+  // — or the dock turned off — "Show Island" did nothing visible at all.)
   function sync () {
     const state = store.get()
-    const enabled = prefs.get().showIsland && Boolean(state?.enabled)
-    const next = enabled ? islandView(state) : null
+    const next = prefs.get().showIsland
+      ? islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null })
+      : null
     const pendingChanged = JSON.stringify(next?.pending) !== JSON.stringify(view?.pending) || next?.bot.id !== view?.bot.id
     view = next
     if (!view) {
@@ -183,7 +264,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
       return
     }
     if (!alive()) return create()
-    if (pendingChanged && expanded && !focused) collapse()
+    if ((pendingChanged || view.idle) && expanded && !focused) collapse()
     send('cma-island:view', view)
     if (!win.isVisible()) {
       place()
@@ -191,7 +272,14 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
     }
   }
 
-  const onDisplays = () => place()
+  // A display added, removed, rescaled, rotated, or its menu bar / taskbar
+  // moved: place now, and again once the OS has finished moving windows
+  // between displays (the main window may land somewhere else).
+  const onDisplays = () => {
+    place()
+    clearTimeout(settleTimer)
+    settleTimer = setTimeout(place, DISPLAY_SETTLE_MS)
+  }
   screen.on('display-metrics-changed', onDisplays)
   screen.on('display-added', onDisplays)
   screen.on('display-removed', onDisplays)
@@ -237,6 +325,13 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
       if (fromIsland(event)) collapse()
     })
 
+    // The idle pill's click: bring the app forward.
+    ipcMain.on('cma-island:open-app', (event) => {
+      if (!fromIsland(event)) return
+      collapse()
+      openApp()
+    })
+
     ipcMain.on('cma-island:open-in-app', (event, botId) => {
       const id = validId(botId)
       if (!fromIsland(event) || !id) return
@@ -260,7 +355,10 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, p
   return {
     sync,
     registerIpc,
+    isVisible: () => alive() && win.isVisible(),
     destroy () {
+      clearTimeout(collapseTimer)
+      clearTimeout(settleTimer)
       offStore()
       offPrefs()
       screen.removeListener('display-metrics-changed', onDisplays)
@@ -283,6 +381,11 @@ module.exports = {
   islandChip,
   islandBot,
   islandView,
+  islandIdleView,
   islandBounds,
+  islandDisplay,
+  ISLAND_MENU_ID,
+  islandMenuItem,
+  syncIslandMenuItem,
   createIslandController,
 }

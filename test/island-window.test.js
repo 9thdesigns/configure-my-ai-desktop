@@ -45,11 +45,18 @@ test('an idle focus gives way to the first bot waiting on the user, docked first
   assert.equal(I.islandBot({ ...onlyOps, focused_bot_id: 'manager' }).id, OPS)
 })
 
-test('nothing to say anywhere: the island hides', () => {
+test('nothing to say anywhere: the island shows the calm idle pill, not nothing', () => {
   const quiet = withState({ manager: idleManager, seats: [] })
   assert.equal(I.islandBot(quiet), null)
-  assert.equal(I.islandView(quiet), null)
-  assert.equal(I.islandView(null), null)
+  const idle = I.islandView(quiet)
+  assert.equal(idle.idle, true)
+  assert.equal(idle.bot.id, 'manager', "the manager's mark")
+  assert.deepEqual(idle.chip, { kind: 'idle', label: 'All quiet' })
+  assert.equal(idle.pending, null)
+  assert.deepEqual(I.islandView(null).chip, { kind: 'offline', label: 'Connecting…' })
+  assert.deepEqual(I.islandView(null, { signedIn: false }).chip, { kind: 'offline', label: 'Signed out' })
+  assert.equal(I.islandView(null).bot.name, 'Configure My AI')
+  assert.equal(I.islandView(state).idle, false)
 })
 
 test('the view: bot, chip, and the pending card with lettered options from the feed', () => {
@@ -84,7 +91,7 @@ test('the island sits centred at the top of the work area, growing downward', ()
 test('every island IPC is gated to the island page in the island window; the page is offline', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/island-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
-  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 8)
+  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 9)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromIsland\(event\)|, reply\(/, handler.slice(0, 40))
   }
