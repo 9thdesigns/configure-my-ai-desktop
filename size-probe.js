@@ -1,0 +1,17 @@
+const REPO = '/home/user/configure-my-ai-desktop'
+const fs = require('fs')
+const { chromium } = require('playwright')
+const { sanitizeAvatarCss } = require(REPO + '/src/avatar-css')
+const { sanitizeAvatarHtml } = require(REPO + '/src/cfa-avatar')
+const CSS = sanitizeAvatarCss(fs.readFileSync(__dirname + '/live/live.css', 'utf8'))
+;(async () => {
+  const b = await chromium.launch(); const p = await b.newPage()
+  await p.addInitScript(() => { window.__cb = {}; const on = (k) => (fn) => { window.__cb[k] = fn }; const n = () => {}; window.cmaWidget = { onState: on('state'), onLayout: on('layout'), onConversation: on('conversation'), onAvatarCss: on('css'), ready: n, reportHitRects: n, drag: n, open: n, collapse: n, contextMenu: n, picker: n, workspaceMenu: n, pin: n, openInApp: n } })
+  await p.goto('file://' + REPO + '/src/widget.html')
+  const { html } = require('./gen-fixture')
+  const { validAvatar } = require(REPO + '/src/cfa-avatar')
+  const av = validAvatar({ html: html('cloud', 'idle'), state: 'idle' }, { trusted: true })
+  await p.evaluate(({ css, av }) => { window.__cb.css({ css }); window.__cb.state({ bots: [{ id: 'manager', name: 'Max', avatar: av, mood: 'idle', label: 'Idle', isManager: true }], candidates: [], focused_bot_id: 'manager' }); window.__cb.layout({ expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null, mode: 'chat' }) }, { css: CSS, av })
+  console.log(await p.evaluate(() => { const f = document.querySelector('.dock-bot .cfa-avatar'); return { box: document.querySelector('.dock-bot .avatar').getBoundingClientRect().width, face: f.getBoundingClientRect().width, size: getComputedStyle(f).getPropertyValue('--cfa-size') } }))
+  await b.close()
+})()
