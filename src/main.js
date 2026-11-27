@@ -32,6 +32,7 @@ const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
 const { createIslandController } = require('./island-window')
+const { createCable, electronCookieHeader } = require('./widget-cable')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -53,6 +54,7 @@ let widgetFeed = null
 let trayHandle = null
 let widget = null
 let island = null
+let cable = null
 
 // The windows drawn without a native title bar — the app's own, but not the
 // OAuth popups, which keep a standard frame. Only these need the page to
@@ -551,7 +553,12 @@ async function switchWorkspace (id) {
 function startWidgetFeedAndTray () {
   prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
   widgetStore = createWidgetStore()
-  widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest })
+  // Push: the server pings the widget's signed stream over ActionCable and
+  // the feed refetches (src/widget-cable.js); the feed's poll is the fallback.
+  cable = typeof WebSocket === 'function'
+    ? createCable({ WebSocketImpl: WebSocket, getCookieHeader: electronCookieHeader, onRefetch: () => widgetFeed.refresh().catch(() => {}) })
+    : null
+  widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
   widgetFeed.start()
 
   // The manager is the default focus on launch: the first state this run
@@ -634,6 +641,7 @@ function startWidgetFeedAndTray () {
 // Fire-and-forget: quit must never hang on it.
 app.on('before-quit', () => {
   isQuitting = true
+  cable?.stop()
   try {
     session.defaultSession.cookies.flushStore().catch(() => {})
   } catch {}

@@ -97,7 +97,7 @@ function createWidgetStore ({ now = Date.now } = {}) {
 
 // request({ method, path, body, csrfToken }) → Promise<{ status, json }>;
 // status 0 means it never got an answer.
-function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
+function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn = setInterval, clearIntervalFn = clearInterval }) {
   let csrfToken = null
   let timer = null
   let signedIn = null
@@ -118,9 +118,14 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
       signedIn = false
       csrfToken = null
       store.clear()
+      onStream(null)
     }
     const ok = takeResponse(res)
-    if (ok) signedIn = true
+    if (ok) {
+      signedIn = true
+      // The signed push stream for this user's widget (widget-cable.js).
+      if (res.stream) onStream(res.stream)
+    }
     return ok
   }
 
@@ -292,7 +297,8 @@ function electronRequest ({ method, path, body, csrfToken }) {
       res.on('end', () => {
         let json = null
         try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch {}
-        done({ status: res.statusCode, json })
+        const stream = res.headers['x-cma-widget-stream']
+        done({ status: res.statusCode, json, stream: Array.isArray(stream) ? stream[0] : stream })
       })
       res.on('error', () => done({ status: 0 }))
     })

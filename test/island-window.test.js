@@ -96,3 +96,12 @@ test('every island IPC is gated to the island page in the island window; the pag
   const view = fs.readFileSync(path.join(__dirname, '../src/island-view.js'), 'utf8')
   assert.doesNotMatch(view, /innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\(|new Function|fetch\(|XMLHttpRequest/)
 })
+
+test('a multi-question card hands over to the app; without questions_count, the first question is answered here', () => {
+  const opsSeat = fixture.seats.find((x) => x.name === 'Ops')
+  const multi = widgetStateFrom({ ...fixture, focused_bot_id: OPS, seats: fixture.seats.map((x) => (x === opsSeat ? { ...x, state: { ...x.state, questions_count: 3 } } : x)) })
+  const view = I.islandView(multi)
+  assert.equal(view.pending.questions_count, 3)
+  assert.equal(view.pending.actionable, false)
+  assert.equal(I.islandView({ ...state, focused_bot_id: OPS }).pending.actionable, true, 'absent: one question')
+})

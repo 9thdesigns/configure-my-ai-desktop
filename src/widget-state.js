@@ -160,6 +160,7 @@ function validBotState (input) {
     options: [],
     allow_other: false,
     multiple: false,
+    questions_count: 1,
   }
   if (!input || typeof input !== 'object') return state
   state.status = validKeyword(input.status)
@@ -172,6 +173,10 @@ function validBotState (input) {
     state.options = validOptions(input.options)
     state.allow_other = input.allow_other === true
     state.multiple = input.multiple === true
+    // How many questions the card holds; the feed's options are the first
+    // one's. Absent means one.
+    const questions = Math.trunc(Number(input.questions_count))
+    state.questions_count = Number.isFinite(questions) && questions > 1 ? Math.min(questions, 20) : 1
   }
   return state
 }
