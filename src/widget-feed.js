@@ -124,10 +124,11 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     return ok
   }
 
-  // A write with the CSRF token. A 422 is a stale token (the session
-  // rotated it): fetch a fresh one and retry, once.
+  // A write. Every request carries X-CMA-Desktop: 1, which the server
+  // accepts in place of a CSRF token (electronRequest), so there is nothing
+  // to fetch first; the token from widget.json rides along when we have one.
+  // A 422 may still be a stale token: refresh and retry, once.
   async function write (method, path, body) {
-    if (!csrfToken) await refresh()
     const res = await request({ method, path, body, csrfToken })
     if (res.status !== 422) return res
     await refresh()
@@ -218,7 +219,6 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)
       if (!path) return false
-      if (!csrfToken) await refresh()
       const res = await request({ method: 'POST', path, body: {}, csrfToken })
       if (res.status !== 200 || res.json?.ok !== true) return false
       return refresh()

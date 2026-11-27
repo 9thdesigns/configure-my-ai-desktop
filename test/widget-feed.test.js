@@ -77,8 +77,11 @@ test('a stale CSRF token (422) is refreshed and the write retried once', async (
   const server = fakeServer({ [`PATCH ${WIDGET_PATH}`]: () => (++patches === 1 ? { status: 422 } : { status: 200, json: fixture }) })
   const feed = createWidgetFeed({ store, request: server.request })
   assert.equal(await feed.setEnabled(false), true)
-  assert.deepEqual(server.calls.map((c) => `${c.method} ${c.path}`), [`GET ${WIDGET_JSON_PATH}`, `PATCH ${WIDGET_PATH}`, `GET ${WIDGET_JSON_PATH}`, `PATCH ${WIDGET_PATH}`])
-  assert.deepEqual(server.calls[1].body, { enabled: false })
+  assert.deepEqual(server.calls.map((c) => `${c.method} ${c.path}`), [`PATCH ${WIDGET_PATH}`, `GET ${WIDGET_JSON_PATH}`, `PATCH ${WIDGET_PATH}`],
+    'no token fetch first (X-CMA-Desktop covers it); a 422 refreshes and retries once')
+  assert.deepEqual(server.calls[0].body, { enabled: false })
+  assert.equal(server.calls[0].csrfToken, null)
+  assert.equal(server.calls[2].csrfToken, fixture.csrf_token)
 })
 
 test('switching workspace POSTs the switch and refetches', async () => {
@@ -86,7 +89,7 @@ test('switching workspace POSTs the switch and refetches', async () => {
   const server = fakeServer({ [`POST /workspaces/${WS2}/switch`]: { status: 200, json: { ok: true, workspace: { id: WS2, name: 'Side Project' } } } })
   const feed = createWidgetFeed({ store, request: server.request })
   assert.equal(await feed.switchWorkspace(WS2), true)
-  assert.deepEqual(server.calls.map((c) => `${c.method} ${c.path}`), [`GET ${WIDGET_JSON_PATH}`, `POST /workspaces/${WS2}/switch`, `GET ${WIDGET_JSON_PATH}`])
+  assert.deepEqual(server.calls.map((c) => `${c.method} ${c.path}`), [`POST /workspaces/${WS2}/switch`, `GET ${WIDGET_JSON_PATH}`])
   const refused = createWidgetFeed({ store, request: fakeServer({ [`POST /workspaces/${WS2}/switch`]: { status: 422, json: { error: 'no' } } }).request })
   assert.equal(await refused.switchWorkspace(WS2), false)
   assert.equal(await feed.switchWorkspace('../admin'), false)
@@ -122,6 +125,7 @@ test('the popover conversation: GET and compose through the wrappers', async () 
     [`POST /desktop/widget/bots/${LIN}/messages`]: { status: 201, json: conversation },
   })
   const feed = createWidgetFeed({ store, request: server.request })
+  await feed.refresh()
   assert.equal((await feed.conversation(LIN)).messages[0].body, 'hi')
   assert.equal((await feed.sendMessage({ bot_id: LIN, body: 'hi' })).bot_id, LIN)
   const post = server.calls.find((c) => c.method === 'POST')
