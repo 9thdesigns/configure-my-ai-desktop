@@ -42,10 +42,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
   animation: island-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .island.is-expanded { border-radius: 20px; }
-/* The bar drags the window (drag-gesture.js): no touch panning on it, and
-   a grabbing hand while it moves. */
-.island-bar { touch-action: none; }
-:root[data-dragging], :root[data-dragging] * { cursor: grabbing !important; }
 
 @keyframes island-in {
   from { transform: scale(0.85); opacity: 0; }
@@ -222,6 +218,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn-link:hover { color: var(--ink); }
 .card-error { margin: 0; color: #ff8a8d; font-size: 12px; }
 .card-error[hidden] { display: none; }
+
+/* The bar drags the window (drag-gesture.js): no touch panning on it, and
+   a grabbing hand while it moves. */
+.island-bar { touch-action: none; }
+:root[data-dragging], :root[data-dragging] * { cursor: grabbing !important; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
