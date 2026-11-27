@@ -223,7 +223,7 @@ function saveOffset (file, offsetY) {
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, positionFile, platform = process.platform }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, platform = process.platform }) {
   const { BrowserWindow, screen, session } = require('electron')
 
   let win = null
@@ -344,10 +344,11 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (template.length && alive()) Menu.buildFromTemplate(template).popup({ window: win })
   }
 
-  // The workspace mark's menu: the same radio list as the tray's.
+  // The workspace mark's menu: the same radio list as the tray's, under a
+  // "Workspaces" label, with each workspace's logo once it's cached.
   function showWorkspaceMenu () {
     const { Menu } = require('electron')
-    const items = workspaceMenuItems(store.get(), { switchWorkspace: (id) => switchWorkspace(id) })
+    const items = workspaceMenuItems(store.get(), { switchWorkspace: (id) => switchWorkspace(id) }, { iconFor: logos?.iconFor, header: true })
     if (items.length && alive()) Menu.buildFromTemplate(items).popup({ window: win })
   }
 

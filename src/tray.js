@@ -73,7 +73,7 @@ function trayMenuTemplate (state, options, actions) {
       id: 'workspaces',
       label: 'Workspaces',
       enabled: state.workspaces.length > 0,
-      submenu: workspaceMenuItems(state, actions),
+      submenu: workspaceMenuItems(state, actions, { iconFor: options?.iconFor, header: true }),
     })
 
     const bots = []
@@ -151,7 +151,7 @@ function trayIconPath (platform = process.platform) {
   return path.join(__dirname, 'assets', platform === 'darwin' ? 'trayTemplate.png' : 'tray.png')
 }
 
-function createTray ({ store, prefs, actions, getOpenAtLogin, platform = process.platform }) {
+function createTray ({ store, prefs, actions, getOpenAtLogin, logos = null, platform = process.platform }) {
   const { Tray, Menu, nativeImage } = require('electron')
   const image = nativeImage.createFromPath(trayIconPath(platform))
   if (platform === 'darwin') image.setTemplateImage(true)
@@ -160,7 +160,7 @@ function createTray ({ store, prefs, actions, getOpenAtLogin, platform = process
   const render = () => {
     if (tray.isDestroyed()) return
     const state = store.get()
-    const template = trayMenuTemplate(state, { prefs: prefs.get(), openAtLogin: getOpenAtLogin(), platform }, actions)
+    const template = trayMenuTemplate(state, { prefs: prefs.get(), openAtLogin: getOpenAtLogin(), platform, iconFor: logos?.iconFor }, actions)
     tray.setContextMenu(Menu.buildFromTemplate(template))
     tray.setToolTip(trayTooltip(state))
     if (platform === 'darwin') tray.setTitle(trayTitle(state), { fontType: 'monospacedDigit' })
@@ -170,7 +170,8 @@ function createTray ({ store, prefs, actions, getOpenAtLogin, platform = process
   // is on right click (setContextMenu). macOS shows the menu on any click.
   if (platform === 'win32') tray.on('click', () => actions.openApp())
 
-  const unsubscribe = [store.onChange(render), prefs.onChange(render)]
+  // A workspace logo finishing its download rebuilds the menu with it.
+  const unsubscribe = [store.onChange(render), prefs.onChange(render), ...(logos ? [logos.onChange(render)] : [])]
   render()
 
   return {
