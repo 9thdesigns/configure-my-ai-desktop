@@ -107,3 +107,23 @@ test('polling every 30s, skipped while the page is publishing', async () => {
   feed.stop()
   assert.equal(tick, null)
 })
+
+test('the popover conversation: GET, and writes that refresh the widget state', async () => {
+  const store = createWidgetStore()
+  const conversation = { bot_id: 22, messages: [{ id: 1, role: 'user', body: 'hi' }], pending: null }
+  const server = fakeServer({
+    'GET /desktop/widget/bots/22/messages?limit=20': { status: 200, json: conversation },
+    'POST /desktop/widget/bots/22/messages': { status: 201, json: conversation },
+    'POST /desktop/widget/bots/22/approval': { status: 200, json: conversation },
+    'POST /desktop/widget/bots/22/answer': { status: 500 },
+  })
+  const feed = createWidgetFeed({ store, request: server.request })
+  assert.equal((await feed.conversation(22)).messages[0].body, 'hi')
+  assert.equal((await feed.sendMessage({ bot_id: '22', body: 'hi' })).bot_id, '22')
+  const post = server.calls.find((c) => c.method === 'POST')
+  assert.deepEqual(post, { method: 'POST', path: '/desktop/widget/bots/22/messages', body: { body: 'hi' }, csrfToken: fixture.csrf_token })
+  assert.ok((await feed.decide({ bot_id: 22, pending_id: 9, decision: 'decline' })))
+  assert.equal(await feed.answer({ bot_id: 22, pending_id: 9, skip: true }), null, 'a server error is null, not a throw')
+  assert.equal(await feed.sendMessage({ bot_id: 22, body: '' }), null, 'invalid input never reaches the network')
+  assert.equal(await feed.conversation('../x'), null)
+})

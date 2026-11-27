@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Local, sandboxed, and offline by construction: no network but avatar
+       images, no inline script, no frames. Main does every fetch. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Configure My AI widget</title>
+  <link rel="stylesheet" href="widget.css">
+</head>
+<body>
+  <section id="popover" class="popover" hidden aria-label="Quick chat">
+    <header class="popover-head">
+      <span class="avatar avatar-sm" data-role="head-avatar"></span>
+      <div class="popover-title">
+        <strong data-role="head-name"></strong>
+        <span class="muted" data-role="head-state"></span>
+      </div>
+      <button type="button" class="btn-ghost" data-action="open-in-app">Open in app</button>
+      <button type="button" class="btn-icon" data-action="collapse" aria-label="Close">×</button>
+    </header>
+    <ol class="messages" data-role="messages" aria-live="polite"></ol>
+    <div class="pending" data-role="pending" hidden></div>
+    <form class="composer" data-role="composer">
+      <textarea rows="1" data-role="compose" placeholder="Message…" aria-label="Message"></textarea>
+      <button type="submit" class="btn-send" aria-label="Send">↑</button>
+    </form>
+  </section>
+  <nav id="dock" class="dock" aria-label="Bots">
+    <div class="dock-grip" data-role="grip" title="Drag to move"></div>
+    <div class="dock-bots" data-role="bots"></div>
+  </nav>
+  <script src="widget-view.js"></script>
+</body>
+</html>
