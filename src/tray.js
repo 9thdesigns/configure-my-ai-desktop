@@ -10,10 +10,9 @@
 // Electron (test/tray.test.js); createTray is the thin Electron half.
 
 const path = require('node:path')
-const { focusedBot, stateLabel, cleanText } = require('./widget-state')
+const { focusedBot, stateLabel } = require('./widget-state')
 const { workspaceMenuItems } = require('./workspaces')
 
-const TITLE_NAME_MAX = 18
 
 function needsText (n) {
   if (!n || n <= 0) return ''
@@ -23,12 +22,14 @@ function needsText (n) {
 // "Max · 2" — the focused bot's name and the needs-you count; just the name
 // when nothing is waiting; empty (icon only) before there is any state, so a
 // signed-out app shows no stale name.
+// The menu bar label is the app's name, not the focused bot's (t501u); the
+// bot icon stays beside it and the bot's name lives in the tooltip and menu.
+const TRAY_LABEL = 'Config My AI'
+
 function trayTitle (state) {
-  const bot = focusedBot(state)
-  if (!bot) return ''
-  const name = cleanText(bot.name, TITLE_NAME_MAX)
+  if (!state) return ''
   const needs = needsText(state.needs_you)
-  return needs ? `${name} · ${needs}` : name
+  return needs ? `${TRAY_LABEL} · ${needs}` : TRAY_LABEL
 }
 
 function trayTooltip (state) {
