@@ -14,13 +14,17 @@
   const botsEl = $('[data-role="bots"]', dock)
   const grip = $('[data-role="grip"]', dock)
   const popover = $('#popover')
+  const picker = $('#picker')
+  const pickerQuery = $('[data-role="picker-query"]', picker)
+  const pickerList = $('[data-role="picker-list"]', picker)
+  const addButton = $('[data-role="add"]', dock)
   const messagesEl = $('[data-role="messages"]', popover)
   const pendingEl = $('[data-role="pending"]', popover)
   const composer = $('[data-role="composer"]', popover)
   const compose = $('[data-role="compose"]', popover)
   const sendButton = $('.btn-send', composer)
 
-  let view = { bots: [], focused_bot_id: null }
+  let view = { bots: [], candidates: [], focused_bot_id: null }
   let layout = { expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null }
   let conversation = null
   // The pending card on screen: 'kind:id', null for none, undefined to force a
@@ -91,17 +95,75 @@
         button.dataset.botId = bot.id
         button.append(el('span', 'avatar'))
         button.addEventListener('click', () => api.open(bot.id))
+        button.addEventListener('contextmenu', (event) => {
+          event.preventDefault()
+          api.contextMenu(bot.id)
+        })
         buttons.set(bot.id, button)
       }
       if (botsEl.children[index] !== button) botsEl.insertBefore(button, botsEl.children[index] || null)
       paintAvatar(button.firstChild, bot)
       button.dataset.mood = bot.mood
+      button.toggleAttribute('data-paused', Boolean(bot.paused))
       button.classList.toggle('is-focused', bot.id === view.focused_bot_id)
+      paintBadge(button, bot)
       button.title = `${bot.name} — ${bot.label}`
       button.setAttribute('aria-label', `${bot.name}, ${bot.label}`)
     })
     reportLayout()
   }
+
+  // Waiting: an orange count (or dot); a fresh reply: a blue dot.
+  function paintBadge (button, bot) {
+    let badge = button.querySelector('.dock-badge')
+    const waiting = bot.mood === 'waiting' || Boolean(bot.waiting)
+    const show = !bot.paused && (waiting || bot.mood === 'responded')
+    if (!show) return badge?.remove()
+    if (!badge) {
+      badge = el('span', 'dock-badge')
+      badge.setAttribute('aria-hidden', 'true')
+      button.append(badge)
+    }
+    const n = waiting ? bot.needs_count : 0
+    badge.textContent = n > 0 ? (n > 9 ? '9+' : String(n)) : ''
+    badge.classList.toggle('is-dot', n === 0)
+  }
+
+  addButton.addEventListener('click', () => api.picker())
+
+  // --- The "+" picker ------------------------------------------------------
+
+  function renderPicker () {
+    const q = pickerQuery.value.trim().toLowerCase()
+    const bots = (view.candidates || []).filter((b) => !q || b.name.toLowerCase().includes(q))
+    pickerList.textContent = ''
+    if (!bots.length) {
+      pickerList.append(el('li', 'messages-empty', view.candidates?.length ? 'No bots match.' : 'Every bot is already in the dock.'))
+      return
+    }
+    for (const bot of bots) {
+      const li = el('li')
+      const button = el('button', 'picker-item')
+      button.type = 'button'
+      const avatar = el('span', 'avatar')
+      paintAvatar(avatar, bot)
+      const name = el('span', 'picker-name')
+      name.append(el('strong', '', bot.name), el('span', 'muted', bot.label))
+      button.append(avatar, name)
+      if (bot.needs_count > 0) button.append(el('span', 'picker-count', String(bot.needs_count)))
+      button.addEventListener('click', () => api.pin(bot.id))
+      li.append(button)
+      pickerList.append(li)
+    }
+  }
+
+  pickerQuery.addEventListener('input', renderPicker)
+  pickerQuery.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      const first = pickerList.querySelector('.picker-item')
+      if (first) first.click()
+    }
+  })
 
   // --- Hit rects: where the window takes the mouse -------------------------
 
@@ -111,7 +173,7 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
-      const rects = [dock, popover]
+      const rects = [dock, popover, picker]
         .filter((node) => !node.hidden)
         .map((node) => {
           const r = node.getBoundingClientRect()
@@ -126,6 +188,7 @@
     const observer = new ResizeObserver(reportLayout)
     observer.observe(dock)
     observer.observe(popover)
+    observer.observe(picker)
   }
 
   // --- Dragging the dock up and down ---------------------------------------
@@ -370,6 +433,10 @@
     }
   })
 
+  picker.addEventListener('click', (event) => {
+    if (event.target.closest('[data-action="collapse"]')) api.collapse()
+  })
+
   popover.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action
     if (action === 'collapse') api.collapse()
@@ -399,18 +466,27 @@
     if (!next || !Array.isArray(next.bots)) return
     view = next
     renderDock()
-    if (layout.expanded) renderHead()
+    if (layout.expanded && layout.mode === 'chat') renderHead()
+    if (layout.expanded && layout.mode === 'picker') renderPicker()
   })
 
   api.onLayout((next) => {
     if (!next) return
-    const opened = next.expanded && next.botId !== layout.botId
+    const opened = next.expanded && next.mode === 'chat' && next.botId !== layout.botId
+    const pickerOpened = next.expanded && next.mode === 'picker' && !(layout.expanded && layout.mode === 'picker')
     layout = next
     dock.style.top = `${next.dockTop}px`
-    popover.hidden = !next.expanded
-    if (next.expanded) {
-      popover.style.top = `${next.popoverTop}px`
-      popover.style.height = `${next.popoverHeight}px`
+    popover.hidden = !(next.expanded && next.mode === 'chat')
+    picker.hidden = !(next.expanded && next.mode === 'picker')
+    for (const panel of [popover, picker]) {
+      if (panel.hidden) continue
+      panel.style.top = `${next.popoverTop}px`
+      panel.style.height = `${next.popoverHeight}px`
+    }
+    if (pickerOpened) {
+      pickerQuery.value = ''
+      renderPicker()
+      pickerQuery.focus()
     }
     if (opened) {
       conversation = null
@@ -422,7 +498,7 @@
       renderPending()
       compose.focus()
     }
-    if (!next.expanded) {
+    if (!next.expanded || next.mode !== 'chat') {
       conversation = null
       pendingKey = undefined
     }

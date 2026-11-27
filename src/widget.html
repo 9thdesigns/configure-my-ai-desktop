@@ -26,9 +26,18 @@
       <button type="submit" class="btn-send" aria-label="Send">↑</button>
     </form>
   </section>
+  <section id="picker" class="popover picker" hidden aria-label="Add a bot">
+    <header class="popover-head">
+      <div class="popover-title"><strong>Add to dock</strong><span class="muted">Pick a bot to keep here</span></div>
+      <button type="button" class="btn-icon" data-action="collapse" aria-label="Close">×</button>
+    </header>
+    <div class="picker-search"><input type="search" data-role="picker-query" placeholder="Search bots…" aria-label="Search bots"></div>
+    <ul class="picker-list" data-role="picker-list"></ul>
+  </section>
   <nav id="dock" class="dock" aria-label="Bots">
     <div class="dock-grip" data-role="grip" title="Drag to move"></div>
     <div class="dock-bots" data-role="bots"></div>
+    <button type="button" class="dock-add" data-role="add" title="Add a bot" aria-label="Add a bot">+</button>
   </nav>
   <script src="widget-view.js"></script>
 </body>

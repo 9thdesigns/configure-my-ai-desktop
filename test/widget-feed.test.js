@@ -154,3 +154,17 @@ test('answers and approvals hit the autopilot endpoints; a redirect is success u
   assert.equal(redirectsToSignIn('https://configuremyai.com/login'), true)
   assert.equal(redirectsToSignIn('/autopilot/bots/1'), false)
 })
+
+test('pause / resume: optimistic status, POST to the wrapper, then refresh', async () => {
+  const store = createWidgetStore()
+  const server = fakeServer({ [`POST /desktop/widget/bots/${ADA}/pause`]: { status: 204 }, [`POST /desktop/widget/bots/${ADA}/resume`]: { status: 500 } })
+  const feed = createWidgetFeed({ store, request: server.request })
+  await feed.refresh()
+  const seen = []
+  store.onChange((s) => seen.push(s.seats[0].state.status))
+  assert.equal(await feed.setActive(ADA, false), true)
+  assert.equal(seen[0], 'paused', 'flipped at once')
+  assert.deepEqual(server.calls.find((c) => c.path.endsWith('/pause')).body, {})
+  assert.equal(await feed.setActive(ADA, true), false, 'a server error is false')
+  assert.equal(await feed.setActive('../x', true), false)
+})

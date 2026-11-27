@@ -194,6 +194,21 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
       return send('PATCH', WIDGET_PATH, pinned ? { add_seat: id } : { remove_seat: id })
     },
 
+    // Pause or resume a bot (the tray / dock "Active" switch). Optimistic:
+    // the status flips at once and the server's state replaces it.
+    async setActive (botId, active) {
+      const id = validId(botId)
+      if (!id || !store.get()) return false
+      store.update((s) => {
+        const bot = s.manager?.id === id ? s.manager : s.seats.find((seat) => seat.bot_id === id)
+        if (bot) bot.state.status = active ? null : 'paused'
+        return s
+      })
+      const res = await write('POST', `/desktop/widget/bots/${encodeURIComponent(id)}/${active ? 'resume' : 'pause'}`, {})
+      await refresh().catch(() => {})
+      return writeOk(res)
+    },
+
     // The dock's full order: seats is every pinned id, manager included.
     async setSeatOrder (ids) {
       const state = store.get()

@@ -538,6 +538,14 @@ function startWidgetFeedAndTray () {
   widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest })
   widgetFeed.start()
 
+  // The manager is the default focus on launch: the first state this run
+  // sees puts the focus back on it, whatever the last session left.
+  const offFirstState = widgetStore.onChange((state) => {
+    if (!state) return
+    offFirstState()
+    if (state.manager && state.focused_bot_id !== state.manager.id) widgetFeed.setFocus(state.manager.id).catch(() => {})
+  })
+
   const actions = {
     openApp,
     openBot,

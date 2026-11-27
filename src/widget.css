@@ -103,6 +103,87 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
 
+/* Mood rings: working pulses softly (the web avatar's thinking glow),
+   waiting wears an orange count, failed a red ring, a fresh reply a dot,
+   paused goes quiet. */
+.dock-bot[data-mood="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
+.dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--failed); }
+.dock-bot[data-paused] .avatar { filter: grayscale(1); opacity: 0.55; animation: none; }
+
+@keyframes thinking {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 235, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.28); }
+}
+
+.dock-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--waiting);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px var(--surface);
+  animation: badge-in 0.2s ease-out;
+}
+.dock-badge.is-dot { min-width: 10px; width: 10px; height: 10px; padding: 0; top: 0; right: 0; }
+.dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
+
+@keyframes badge-in {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.dock-add {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px dashed var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.dock-add:hover { border-color: var(--muted); color: var(--ink); transform: scale(1.06); }
+
+/* The "+" picker */
+.picker-search { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.picker-search input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.picker-list { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1; }
+.picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: none;
+  padding: 7px 8px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background 0.15s ease;
+}
+.picker-item:hover, .picker-item:focus-visible { background: var(--surface-2); outline: none; }
+.picker-item .avatar { width: 32px; height: 32px; font-size: 12px; }
+.picker-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.picker-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-count { background: var(--waiting); color: #fff; border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
+
 /* Avatars ---------------------------------------------------------------- */
 
 .avatar {
