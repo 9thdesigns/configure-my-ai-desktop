@@ -1,0 +1,994 @@
+/* The two shapes a border-radius cannot make, on :root because the bot
+     profile cuts the ring round a face from the same path (.pf-avatar). */
+  :root {
+    --cfa-mask-triangle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M43 13 Q50 3 57 13 L94 83 Q99 94 87 94 L13 94 Q1 94 6 83 Z' fill='%23000'/%3E%3C/svg%3E");
+    --cfa-mask-cloud: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M27 86 C12 86 2 74 2 60 C2 47 11 37 23 34 C27 21 39 11 54 11 C69 11 81 22 84 36 C94 39 99 48 99 59 C99 74 88 86 74 86 Z' fill='%23000'/%3E%3C/svg%3E");
+    /* A kabuto's crest, drawn in a box 92% of the face wide and 42% tall
+       that stands on the brow: the two kuwagata — flat blades that sweep up
+       and out and broaden toward the tip — the plate they are socketed in,
+       and the round maedate between them. The box is stretched, so the
+       ellipse is tall on purpose: it lands as a disc. */
+    --cfa-mask-crest: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M45.7 81 C44.6 52.4 32.6 23.8 19.6 9.5 Q12 7 6.5 16.7 C17.4 42.9 31.5 61.9 38 83.3 Z M54.3 81 C55.4 52.4 67.4 23.8 80.4 9.5 Q88 7 93.5 16.7 C82.6 42.9 68.5 61.9 62 83.3 Z' fill='%23000'/%3E%3Cellipse cx='50' cy='58' rx='6.3' ry='13.8' fill='%23000'/%3E%3Crect x='37' y='78' width='26' height='22' rx='5' fill='%23000'/%3E%3C/svg%3E");
+    /* Its shikoro: the neck guard of lacquered plates, flaring from the
+       temples to the jaw, with the fukigaeshi turned out at the top. It
+       hangs behind the face, so only the flare at each side shows. */
+    --cfa-mask-shikoro: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M14 0 L86 0 L98 4 L93 17 C97 40 100 66 100 84 Q100 100 88 100 L12 100 Q0 100 0 84 C0 66 3 40 7 17 L2 4 Z' fill='%23000'/%3E%3C/svg%3E");
+    /* The cord that ties it: a bow under the chin. */
+    --cfa-mask-bow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M50 42 C34 4 4 6 6 40 C8 70 36 62 50 42 Z M50 42 C66 4 96 6 94 40 C92 70 64 62 50 42 Z M44 50 L28 100 L41 100 L52 58 Z M56 50 L72 100 L59 100 L48 58 Z' fill='%23000'/%3E%3Cellipse cx='50' cy='46' rx='7.5' ry='15' fill='%23000'/%3E%3C/svg%3E");
+    /* An astronaut's sun shade, pushed up: a crescent over the visor. */
+    --cfa-mask-shade: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cpath d='M0 100 C6 28 94 28 100 100 C86 58 14 58 0 100 Z' fill='%23000'/%3E%3C/svg%3E");
+  }
+
+  /* Registered so they interpolate: a transition on an unregistered custom
+     property is a jump. Inherited, so the body and the eyes read the
+     in-between values the root is transitioning through. */
+  @property --cfa-gaze-x    { syntax: '<length>'; inherits: true; initial-value: 0px; }
+  @property --cfa-gaze-y    { syntax: '<length>'; inherits: true; initial-value: 0px; }
+  @property --cfa-glance    { syntax: '<number>'; inherits: true; initial-value: 0; }
+  @property --cfa-eye-s     { syntax: '<number>'; inherits: true; initial-value: 1; }
+  @property --cfa-eye-sy    { syntax: '<number>'; inherits: true; initial-value: 1; }
+  @property --cfa-blink-sy  { syntax: '<number>'; inherits: true; initial-value: 1; }
+  @property --cfa-bob       { syntax: '<length>'; inherits: true; initial-value: 1px; }
+  @property --cfa-breath-sy { syntax: '<number>'; inherits: true; initial-value: 1.012; }
+  @property --cfa-tilt      { syntax: '<angle>';  inherits: true; initial-value: 0deg; }
+  @property --cfa-sway      { syntax: '<angle>';  inherits: true; initial-value: 0deg; }
+  @property --cfa-droop     { syntax: '<length>'; inherits: true; initial-value: 0px; }
+  /* The idle life (see "Idle, alive" below): how far through each small
+     move the face is, −1…1. Plain numbers, so one transition carries any
+     size of face; the stylesheet turns them into degrees and pixels. */
+  @property --cfa-idle-lean { syntax: '<number>'; inherits: true; initial-value: 0; }
+  @property --cfa-idle-lift { syntax: '<number>'; inherits: true; initial-value: 0; }
+  @property --cfa-idle-turn { syntax: '<number>'; inherits: true; initial-value: 0; }
+  @property --cfa-idle-nod  { syntax: '<number>'; inherits: true; initial-value: 0; }
+
+  .cfa-avatar {
+    --cfa-size: 72px;
+    /* One colour in, the whole character out: the lit side, the body, the
+       shade under it and the glow are all mixed from --cfa-tint. */
+    --cfa-tint: var(--app-brand, #2563eb);
+    --cfa-skin-1: color-mix(in srgb, var(--cfa-tint) 82%, #fff);
+    --cfa-skin-2: var(--cfa-tint);
+    --cfa-skin-3: color-mix(in srgb, var(--cfa-tint) 74%, #000);
+    --cfa-glow: color-mix(in srgb, var(--cfa-tint) 45%, transparent);
+    /* The eyes are WHITE. Not derived from the tint: a face whose eyes flip
+       to black on five swatches out of ten is two different characters. A
+       light tint keeps them legible by darkening the body under them (see
+       data-cfa-tone below). The two characters — samurai, astronaut — wear
+       a costume around this same face; they do not get a different eye. */
+    --cfa-feature: #fff;
+
+    --cfa-morph: cubic-bezier(0.45, 0, 0.1, 1);
+    --cfa-settle: cubic-bezier(0.25, 0.8, 0.25, 1);
+    --cfa-breathe: cubic-bezier(.37, 0, .63, 1);
+    --cfa-ease: var(--cfa-morph);
+    /* Springs. Where linear() is missing these stand in (the @supports
+       below swaps in the real curves): a transition naming an easing the
+       browser cannot parse is dropped whole, and the face would jump. */
+    --cfa-spring: cubic-bezier(.3, 1.3, .5, 1);
+    --cfa-spring-soft: cubic-bezier(.3, 1.05, .45, 1);
+    --cfa-spring-pop: cubic-bezier(.3, 1.6, .45, 1);
+    --cfa-blink-dur: 80ms;
+    --cfa-glance-travel: 320ms;
+
+    /* idle — the resting values every state is a change from. One breath
+       is --cfa-period: a rise of --cfa-bob and a stretch to
+       --cfa-breath-sy. Travel is floored in pixels. */
+    --cfa-period: 4.2s;
+    --cfa-bob: max(1px, calc(var(--cfa-size) * .02));
+    --cfa-breath-sy: 1.012;
+    --cfa-tilt: 0deg;
+    --cfa-sway: 0deg;
+    --cfa-droop: 0px;
+    --cfa-gaze-x: 0px;
+    --cfa-gaze-y: 0px;
+    --cfa-glance-amp: max(1.5px, calc(var(--cfa-size) * .05));
+    --cfa-eye-s: 1;
+    --cfa-eye-sy: 1;
+    /* How far the idle moves travel at ±1: a lean of a few degrees, a lift,
+       a turn of the head and a nod of a twentieth of the face or so — and
+       never less than a pixel, or a list-size face would not move at all. */
+    --cfa-idle-lean-amp: 2.6deg;
+    --cfa-idle-lift-amp: max(1px, calc(var(--cfa-size) * .035));
+    --cfa-idle-turn-amp: max(1px, calc(var(--cfa-size) * .05));
+    --cfa-idle-nod-amp: max(1px, calc(var(--cfa-size) * .04));
+
+    /* Only what the loops read morphs here, and only when the state
+       changes. Gaze, eye scale, blink, glance and the idle moves are plain
+       values: the eyes, the orb, the face and the mark each transition
+       their own translate / rotate / scale (below), on the compositor. */
+    transition:
+      --cfa-bob 240ms var(--cfa-spring-soft), --cfa-breath-sy 240ms var(--cfa-spring-soft),
+      --cfa-tilt 280ms var(--cfa-spring-soft), --cfa-sway 240ms var(--cfa-spring-soft),
+      --cfa-droop 280ms var(--cfa-spring-soft);
+
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: var(--cfa-size);
+    height: var(--cfa-size);
+    flex: none;
+    isolation: isolate;
+    line-height: 0;
+    color: var(--cfa-feature);
+    /* The size tiers below are container queries on the face's own width,
+       so a face sized by a stylesheet (size: nil) still shows a compact
+       brain-and-eyes treatment when it is small, and drops only the parts
+       that would not read (brows, mouth, aura). Inline-size only: it
+       keeps the baseline. */
+    container-type: inline-size;
+  }
+  /* Damped springs, sampled: --cfa-spring overshoots ~8% (eyes, the look,
+     a turn of the head), --cfa-spring-soft ~1% (a lean, a state's pose),
+     --cfa-spring-pop ~23% (a hover action landing). */
+  @supports (transition-timing-function: linear(0, 1)) {
+    .cfa-avatar {
+      --cfa-spring: linear(0, 0.037, 0.13, 0.256, 0.397, 0.537, 0.667, 0.781, 0.876, 0.951, 1.007, 1.046, 1.069, 1.081, 1.083, 1.079, 1.071, 1.06, 1.048, 1.037, 1.026, 1.017, 1.009, 1.003, 0.999, 0.996, 0.994, 0.993, 0.993, 0.993, 0.994, 0.995, 1);
+      --cfa-spring-soft: linear(0, 0.024, 0.084, 0.166, 0.259, 0.356, 0.452, 0.541, 0.623, 0.695, 0.759, 0.813, 0.858, 0.895, 0.925, 0.949, 0.968, 0.982, 0.993, 1, 1.005, 1.008, 1.01, 1.011, 1.011, 1.011, 1.01, 1.009, 1.008, 1.007, 1.006, 1.005, 1);
+      --cfa-spring-pop: linear(0, 0.041, 0.149, 0.3, 0.472, 0.648, 0.813, 0.955, 1.07, 1.153, 1.206, 1.23, 1.232, 1.214, 1.184, 1.145, 1.104, 1.064, 1.028, 0.997, 0.974, 0.958, 0.949, 0.945, 0.947, 0.953, 0.961, 0.97, 0.98, 0.989, 0.997, 1.003, 1.008, 1.011, 1.013, 1.013, 1.012, 1.01, 1.008, 1.006, 1);
+    }
+  }
+
+  /* A face moves past its own box — it sways, hops and turns — and nothing
+     of it may be cut. Stated at this weight because list rows style every
+     span inside them (truncation: overflow hidden), and a face is spans. */
+  .cfa-avatar.cfa-avatar,
+  .cfa-avatar :is(.cfa-avatar__body, .cfa-avatar__orb, .cfa-avatar__face, .cfa-avatar__eyes, .cfa-avatar__eye) {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* A light tint (luminance over .2 — data-cfa-tone, set by the partial and
+     by the pickers' live preview) would wash white eyes out. The body goes
+     darker under them and each eye gets a thin ring of the tint's own shade. */
+  .cfa-avatar[data-cfa-tone="light"] {
+    --cfa-skin-1: var(--cfa-tint);
+    --cfa-skin-2: color-mix(in srgb, var(--cfa-tint) 85%, #000);
+    --cfa-skin-3: color-mix(in srgb, var(--cfa-tint) 65%, #000);
+  }
+
+  /* ── The glow, hero sizes only ───────────────────────────────────────
+     A plain radial gradient: no blur filter, no animation. Never under
+     96px (the tiers below). */
+  .cfa-avatar__aura {
+    position: absolute;
+    inset: -16%;
+    border-radius: 50%;
+    background: radial-gradient(closest-side, var(--cfa-glow), transparent);
+    opacity: .5;
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  /* ── The body: the one loop ───────────────────────────────────────────
+     The calm loop is two breaths a lap: it rises and stretches twice and,
+     where a state sways, sways once. Every value is read from the state's
+     properties, so the loop never changes — the properties morph under it. */
+  .cfa-avatar__body {
+    --cfa-breath: calc(1 + (var(--cfa-breath-sy) - 1) * var(--cfa-small, 1));
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    transform-origin: 50% 85%;
+    /* The pose at rest — what reduced motion (and a paused loop) keeps:
+       thinking's tilt, the waiting tilt and the blocked droop are shape,
+       not motion. Only the state's own values: the idle moves play on the
+       orb, so the loop's keyframes never change under it mid-breath. */
+    --cfa-rest-y: var(--cfa-droop);
+    --cfa-rest-turn: var(--cfa-tilt);
+    translate: 0 var(--cfa-rest-y);
+    rotate: var(--cfa-rest-turn);
+    animation: cfa-life calc(var(--cfa-period) * 2) var(--cfa-breathe) infinite;
+    animation-delay: calc(var(--cfa-phase, 0) * var(--cfa-period) * -2);
+  }
+  @keyframes cfa-life {
+    0%   { translate: 0 var(--cfa-rest-y); scale: 1 1; rotate: calc(var(--cfa-rest-turn) - var(--cfa-sway)); }
+    25%  { translate: 0 calc(var(--cfa-rest-y) - var(--cfa-bob)); scale: 1 var(--cfa-breath); }
+    50%  { translate: 0 var(--cfa-rest-y); scale: 1 1; rotate: calc(var(--cfa-rest-turn) + var(--cfa-sway)); }
+    75%  { translate: 0 calc(var(--cfa-rest-y) - var(--cfa-bob)); scale: 1 var(--cfa-breath); }
+    100% { translate: 0 var(--cfa-rest-y); scale: 1 1; rotate: calc(var(--cfa-rest-turn) - var(--cfa-sway)); }
+  }
+
+  /* ── The orb: where the one-shots and the idle moves play ─────────────
+     A box and nothing more — no fill, no clip. The skin under the face is
+     the only fill. An idle move is a plain number the scheduler sets; the
+     orb's own translate, rotate and scale carry it, so the breath on the
+     body underneath is never touched. */
+  .cfa-avatar__orb {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    transform-origin: 50% 100%;
+    /* a head that turns a little is a little narrower: 1 at rest, .965 at
+       a full idle turn either way (the square is the turn without its sign) */
+    scale: calc(1 - var(--cfa-idle-turn) * var(--cfa-idle-turn) * .035) 1;
+    /* a lean, from the base; a lift, straight up */
+    rotate: calc(var(--cfa-idle-lean) * var(--cfa-idle-lean-amp));
+    translate: 0 calc(var(--cfa-idle-lift) * var(--cfa-idle-lift-amp) * -1);
+    transition:
+      scale 460ms var(--cfa-spring), rotate 680ms var(--cfa-spring-soft),
+      translate 380ms var(--cfa-spring);
+  }
+
+  /* ── The skin: shape and fill ─────────────────────────────────────────
+     A squircle by default — it reads as a rounded app icon, which is the
+     shape people already file under "an app with a face". It clips only
+     itself (the mark, the rim): the face is its sibling, not its child. */
+  .cfa-avatar__skin {
+    position: absolute;
+    inset: 0;
+    display: block;
+    border-radius: 42%;
+    overflow: hidden;
+    background:
+      radial-gradient(120% 100% at 30% 18%, var(--cfa-skin-1), transparent 62%),
+      linear-gradient(155deg, var(--cfa-skin-2) 0%, var(--cfa-skin-3) 100%);
+    box-shadow: inset 0 calc(var(--cfa-size) * -.06) calc(var(--cfa-size) * .12) rgba(0, 0, 0, .22);
+  }
+  .cfa-avatar[data-cfa-shape="square"] .cfa-avatar__skin { border-radius: 24%; }
+  .cfa-avatar:is([data-cfa-shape="triangle"], [data-cfa-shape="cloud"]) .cfa-avatar__skin {
+    border-radius: 0;
+    box-shadow: none;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: 100% 100%;
+    mask-size: 100% 100%;
+  }
+  .cfa-avatar[data-cfa-shape="triangle"] .cfa-avatar__skin { -webkit-mask-image: var(--cfa-mask-triangle); mask-image: var(--cfa-mask-triangle); }
+  .cfa-avatar[data-cfa-shape="cloud"] .cfa-avatar__skin { -webkit-mask-image: var(--cfa-mask-cloud); mask-image: var(--cfa-mask-cloud); }
+
+  /* ── The mark, behind the face — the brain at every size ─────────── */
+  .cfa-avatar__circuit {
+    position: absolute;
+    inset: 2% 8% 14%;
+    display: grid;
+    place-items: center;
+    opacity: .28;
+    color: var(--cfa-feature);
+    -webkit-mask-image: linear-gradient(#000 52%, rgba(0, 0, 0, .3) 100%);
+    mask-image: linear-gradient(#000 52%, rgba(0, 0, 0, .3) 100%);
+    /* an idle turn: the mark is behind the face, so it travels half as far */
+    translate: calc(var(--cfa-idle-turn) * var(--cfa-idle-turn-amp) * .5) 0;
+    transition: translate 460ms var(--cfa-spring);
+  }
+  .cfa-avatar__mark { width: auto; height: 100%; display: block; }
+  .cfa-avatar[data-cfa-shape="triangle"] .cfa-avatar__circuit { inset: 26% 22% 12%; opacity: .2; }
+  .cfa-avatar[data-cfa-shape="cloud"] .cfa-avatar__circuit { inset: 12% 16% 22%; }
+  .cfa-avatar__rim {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 26%, transparent);
+    pointer-events: none;
+    z-index: 3;
+  }
+
+  /* ── The face ─────────────────────────────────────────────────────── */
+  .cfa-avatar__face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--cfa-size) * .085);
+    z-index: 2;
+    /* an idle turn slides the features to that side; a nod dips them */
+    translate: calc(var(--cfa-idle-turn) * var(--cfa-idle-turn-amp)) calc(var(--cfa-idle-nod) * var(--cfa-idle-nod-amp));
+    transition: translate 420ms var(--cfa-spring);
+  }
+  .cfa-avatar[data-cfa-shape="triangle"] .cfa-avatar__face { transform: translateY(16%) scale(.82); }
+  .cfa-avatar[data-cfa-shape="cloud"] .cfa-avatar__face { transform: translateY(4%); }
+
+  .cfa-avatar__brows {
+    display: flex;
+    gap: calc(var(--cfa-size) * .17);
+    height: calc(var(--cfa-size) * .045);
+    margin-bottom: calc(var(--cfa-size) * -.05);
+    opacity: 0;
+    transition: opacity 200ms linear;
+  }
+  .cfa-avatar__brow {
+    width: calc(var(--cfa-size) * .17);
+    height: 100%;
+    border-radius: 999px;
+    background: var(--cfa-feature);
+    opacity: .85;
+    transition: transform 320ms var(--cfa-spring);
+  }
+
+  /* The eyes move and scale as a pair: gaze and glance on translate, the
+     state's eye scale on scale — the pair's own transitions, on a spring.
+     The scheduler only sets a glance (−1, 0, 1). */
+  .cfa-avatar__eyes {
+    --cfa-eye-x: calc(var(--cfa-gaze-x) + var(--cfa-glance) * var(--cfa-glance-amp));
+    --cfa-eye-y: var(--cfa-gaze-y);
+    display: flex;
+    gap: calc(var(--cfa-size) * .17);
+    translate: var(--cfa-eye-x) var(--cfa-eye-y);
+    scale: calc(var(--cfa-eye-s) * var(--cfa-delight, 1)) calc(var(--cfa-eye-s) * var(--cfa-delight, 1) * var(--cfa-eye-sy));
+    transition: translate var(--cfa-glance-travel) var(--cfa-spring), scale 280ms var(--cfa-spring);
+  }
+  /* The blink is each eye's own scale: 60ms shut, 80ms open. */
+  .cfa-avatar[data-cfa-blink] { --cfa-blink-sy: .1; --cfa-blink-dur: 60ms; }
+  /* An eye is a box; what is drawn in it is two layers — the open oval
+     (::before) and the happy closed arc (::after) — so a change of shape
+     is a crossfade and a squash, never a height or a radius moving. */
+  .cfa-avatar__eye {
+    position: relative;
+    display: block;
+    width: calc(var(--cfa-size) * .13);
+    height: calc(var(--cfa-size) * .21);
+    scale: 1 var(--cfa-blink-sy);
+    transition: scale var(--cfa-blink-dur) linear;
+  }
+  .cfa-avatar__eye::before,
+  .cfa-avatar__eye::after {
+    content: "";
+    position: absolute;
+    background: var(--cfa-feature);
+    pointer-events: none;
+    transition: scale 280ms var(--cfa-spring), opacity 140ms linear;
+  }
+  .cfa-avatar__eye::before {
+    inset: 0;
+    border-radius: 46%;
+    box-shadow: 0 0 calc(var(--cfa-size) * .07) color-mix(in srgb, var(--cfa-feature) 55%, transparent);
+  }
+  /* the arc: as tall as the old squashed eye (.085 of the face), centred */
+  .cfa-avatar__eye::after {
+    left: 0;
+    right: 0;
+    top: 29.8%;
+    height: 40.5%;
+    border-radius: 999px 999px 20% 20%;
+    opacity: 0;
+    scale: 1 .5;
+  }
+  .cfa-avatar__iris {
+    position: absolute;
+    top: 18%;
+    left: 22%;
+    width: 34%;
+    height: 26%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--cfa-skin-3) 70%, transparent);
+    opacity: .55;
+    transition: opacity 160ms linear, translate 260ms var(--cfa-spring);
+  }
+  /* The mouth the same way: the line (::before) and the smile (::after).
+     The box keeps the line's size, so a smile changes nothing around it. */
+  .cfa-avatar__mouth {
+    position: relative;
+    display: block;
+    width: calc(var(--cfa-size) * .18);
+    height: calc(var(--cfa-size) * .05);
+    opacity: .9;
+    transition: opacity 200ms linear;
+  }
+  .cfa-avatar__mouth::before,
+  .cfa-avatar__mouth::after {
+    content: "";
+    position: absolute;
+    background: var(--cfa-feature);
+    pointer-events: none;
+    transition: scale 300ms var(--cfa-spring), opacity 140ms linear;
+  }
+  .cfa-avatar__mouth::before { inset: 0; border-radius: 999px; }
+  /* the smile: .2 wide and .1 deep, hanging from the line's top edge */
+  .cfa-avatar__mouth::after {
+    top: 0;
+    left: -5.6%;
+    width: 111.2%;
+    height: 200%;
+    border-radius: 20% 20% 999px 999px;
+    transform-origin: 50% 0;
+    opacity: 0;
+    scale: .7 .4;
+  }
+
+  /* ── Size tiers ──────────────────────────────────────────────────────
+     The brain and the eyes stay at every size — they are what make this
+     the Configure My AI character, not a generic orb. At 40px and under
+     the same mark is drawn as a slightly stronger silhouette (higher
+     opacity, a hairline stroke so traces don't dissolve, a milder fade
+     at the chin) and the eyes keep their iris, a little bolder so the
+     same oval cut still reads. Brows wait until the face is above 40px;
+     the mouth from 32px; the aura only from 96px. The breath's stretch
+     is a ratio, so the small tiers multiply it up to stay a pixel. */
+  @container (max-width: 40px) {
+    .cfa-avatar__brows { display: none; }
+    .cfa-avatar__circuit {
+      opacity: .4;
+      inset: 1% 7% 10%;
+      -webkit-mask-image: linear-gradient(#000 68%, rgba(0, 0, 0, .4) 100%);
+      mask-image: linear-gradient(#000 68%, rgba(0, 0, 0, .4) 100%);
+    }
+    .cfa-avatar__mark {
+      stroke: currentColor;
+      stroke-width: .8px;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      paint-order: stroke fill;
+    }
+    .cfa-avatar__eye { width: calc(var(--cfa-size) * .15); height: calc(var(--cfa-size) * .24); }
+    .cfa-avatar__eye::before { box-shadow: none; }
+    .cfa-avatar__iris {
+      width: max(1.5px, 34%);
+      height: max(1.25px, 26%);
+      opacity: .7;
+    }
+    .cfa-avatar__rim { box-shadow: inset 0 0 0 1px color-mix(in srgb, #fff 18%, transparent); }
+    .cfa-avatar__body { --cfa-small: 2.6; }
+  }
+  @container (max-width: 31.98px) {
+    .cfa-avatar__mouth { display: none; }
+    .cfa-avatar__circuit { opacity: .55; inset: 0% 6% 8%; }
+    .cfa-avatar__mark { stroke-width: 1.2px; }
+  }
+  @container (max-width: 20px) {
+    .cfa-avatar__body { --cfa-small: 4; }
+    .cfa-avatar__circuit { opacity: .7; inset: -2% 3% 6%; }
+    .cfa-avatar__mark { stroke-width: 1.6px; }
+    .cfa-avatar__iris { width: max(1.25px, 38%); height: max(1.25px, 30%); }
+  }
+  @container (max-width: 95.98px) { .cfa-avatar__aura { display: none; } }
+
+  /* The ring that keeps white eyes on a light tint. After the tiers: the
+     small tier drops the soft glow (it would smear a 16px eye), not this. */
+  .cfa-avatar[data-cfa-tone="light"] .cfa-avatar__eye::before {
+    box-shadow: 0 0 0 max(1px, calc(var(--cfa-size) * .03)) color-mix(in srgb, var(--cfa-tint) 55%, #000);
+  }
+
+  /* ── A pointer to look at (track: / look:) ───────────────────────────
+     The face leans a little toward it, the eyes travel further, and each
+     iris goes furthest — three depths, so the look reads as attention, not
+     a sticker sliding. All three on springs; the eyes a quick one. */
+  .cfa-avatar[data-cfa-look] .cfa-avatar__face {
+    transform: translate3d(calc(var(--cfa-look-x, 0) * 3.5%), calc(var(--cfa-look-y, 0) * 2.5%), 0);
+    transition: transform 520ms var(--cfa-spring-soft), translate 420ms var(--cfa-spring);
+  }
+  .cfa-avatar[data-cfa-look] .cfa-avatar__eyes {
+    --cfa-eye-x: calc(var(--cfa-look-x, 0) * 17%);
+    --cfa-eye-y: calc(var(--cfa-look-y, 0) * 10%);
+    translate: var(--cfa-eye-x) var(--cfa-eye-y);
+    transition: translate 240ms var(--cfa-spring), scale 280ms var(--cfa-spring);
+  }
+  .cfa-avatar[data-cfa-look] .cfa-avatar__iris {
+    translate: calc(var(--cfa-look-x, 0) * 45%) calc(var(--cfa-look-y, 0) * 40%);
+  }
+  .cfa-avatar[data-cfa-shape="triangle"][data-cfa-look] .cfa-avatar__face {
+    transform: translateY(16%) scale(.82) translate(calc(var(--cfa-look-x, 0) * 3.5%), calc(var(--cfa-look-y, 0) * 2.5%));
+  }
+  .cfa-avatar[data-cfa-shape="cloud"][data-cfa-look] .cfa-avatar__face {
+    transform: translateY(4%) translate(calc(var(--cfa-look-x, 0) * 3.5%), calc(var(--cfa-look-y, 0) * 2.5%));
+  }
+
+  /* ═══ STATES ═══════════════════════════════════════════════════════════
+     idle is the root's defaults: calm and slightly curious — a 4.2s breath,
+     a blink every 4–7s and a glance every 6–11s (the scheduler).
+
+     Idle, alive: every 3–7s (longer when the page is full of faces) the
+     scheduler also gives an idle face ONE small move, at random — a slight turn of the head (--cfa-idle-turn: the
+     features slide to that side, the mark half as far behind them, the
+     body a touch narrower, the eyes going with it), a lean
+     (--cfa-idle-lean), a lift (--cfa-idle-lift) or a nod (--cfa-idle-nod) —
+     holds it a moment and lets it go. Each is a number, −1…1, that the
+     root's transitions carry; the rules that read them are with the body,
+     the orb, the mark and the face above. Idle only: the scheduler clears
+     them the moment the state changes, and never sets them for a face held
+     still, off screen, or under reduced motion. */
+
+  /* ack — you sent something. One squash-and-stretch as it lands, eyes
+     down on what arrived. */
+  .cfa-avatar[data-cfa-state="ack"] { --cfa-gaze-y: max(1px, calc(var(--cfa-size) * .035)); }
+  .cfa-avatar[data-cfa-state="ack"] .cfa-avatar__orb { animation: cfa-ack 460ms var(--cfa-settle) 1; }
+  @keyframes cfa-ack {
+    0%    { scale: 1 1; }
+    19.6% { scale: 1.06 .94; }
+    43.5% { scale: .97 1.04; }
+    100%  { scale: 1 1; }
+  }
+
+  /* thinking — head cocked −8° and swaying ±6° on a slow 3s; every 1.4s it
+     gathers itself and lets go (shrink to .94, out to 1.04, home) with a
+     small lift; eyes up, trading sides (the scheduler), and every few
+     seconds a turn. Two periods that never line up, in ONE loop: the lap is
+     21s — seven sways, fifteen pulses — written out below. */
+  .cfa-avatar[data-cfa-state="thinking"] {
+    --cfa-tilt: -8deg; --cfa-sway: 6deg;
+    --cfa-bob: max(1.5px, calc(var(--cfa-size) * .05));
+    --cfa-gaze-y: calc(max(1.5px, calc(var(--cfa-size) * .045)) * -1);
+    --cfa-glance-travel: 380ms;
+  }
+  .cfa-avatar[data-cfa-state="thinking"] .cfa-avatar__body {
+    animation-name: cfa-think;
+    animation-duration: 21s;
+    animation-delay: calc(var(--cfa-phase, 0) * -3s);
+  }
+  @keyframes cfa-think {
+    0.0%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}7.1429%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}14.2857%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}21.4286%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}28.5714%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}35.7143%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}42.8571%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}50.0%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}57.1429%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}64.2857%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}71.4286%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}78.5714%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}85.7143%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}92.8571%{rotate:calc(var(--cfa-tilt) + var(--cfa-sway))}100%{rotate:calc(var(--cfa-tilt) - var(--cfa-sway))}
+    0.0%{scale:1;translate:0 0}1.3333%{scale:.94;translate:0 0}3.1429%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}4.7619%{scale:1;translate:0 0}6.6667%{scale:1;translate:0 0}8.0%{scale:.94;translate:0 0}9.8095%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}11.4286%{scale:1;translate:0 0}13.3333%{scale:1;translate:0 0}14.6667%{scale:.94;translate:0 0}16.4762%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}18.0952%{scale:1;translate:0 0}20.0%{scale:1;translate:0 0}21.3333%{scale:.94;translate:0 0}23.1429%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}24.7619%{scale:1;translate:0 0}26.6667%{scale:1;translate:0 0}28.0%{scale:.94;translate:0 0}29.8095%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}31.4286%{scale:1;translate:0 0}33.3333%{scale:1;translate:0 0}34.6667%{scale:.94;translate:0 0}36.4762%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}38.0952%{scale:1;translate:0 0}40.0%{scale:1;translate:0 0}41.3333%{scale:.94;translate:0 0}43.1429%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}44.7619%{scale:1;translate:0 0}46.6667%{scale:1;translate:0 0}48.0%{scale:.94;translate:0 0}49.8095%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}51.4286%{scale:1;translate:0 0}53.3333%{scale:1;translate:0 0}54.6667%{scale:.94;translate:0 0}56.4762%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}58.0952%{scale:1;translate:0 0}60.0%{scale:1;translate:0 0}61.3333%{scale:.94;translate:0 0}63.1429%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}64.7619%{scale:1;translate:0 0}66.6667%{scale:1;translate:0 0}68.0%{scale:.94;translate:0 0}69.8095%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}71.4286%{scale:1;translate:0 0}73.3333%{scale:1;translate:0 0}74.6667%{scale:.94;translate:0 0}76.4762%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}78.0952%{scale:1;translate:0 0}80.0%{scale:1;translate:0 0}81.3333%{scale:.94;translate:0 0}83.1429%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}84.7619%{scale:1;translate:0 0}86.6667%{scale:1;translate:0 0}88.0%{scale:.94;translate:0 0}89.8095%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}91.4286%{scale:1;translate:0 0}93.3333%{scale:1;translate:0 0}94.6667%{scale:.94;translate:0 0}96.4762%{scale:1.04;translate:0 calc(var(--cfa-bob) * -1)}98.0952%{scale:1;translate:0 0}100%{scale:1;translate:0 0}
+  }
+
+  /* working — it kicks into gear: a ±4° rock on a .65s beat, a hop of at
+     least a pixel and a half, and a squash (1.05 wide, .95 tall) as each
+     beat lands. Eyes narrowed and down on the work. Every 6–9s the face
+     goes all the way round (the scheduler's full turn). */
+  .cfa-avatar[data-cfa-state="working"] {
+    --cfa-sway: 4deg;
+    --cfa-bob: max(1.5px, calc(var(--cfa-size) * .06));
+    --cfa-eye-sy: .8;
+    --cfa-gaze-y: max(1px, calc(var(--cfa-size) * .03));
+  }
+  .cfa-avatar[data-cfa-state="working"] .cfa-avatar__body {
+    animation-name: cfa-work;
+    animation-duration: .65s;
+    animation-delay: calc(var(--cfa-phase, 0) * -.65s);
+  }
+  @keyframes cfa-work {
+    0%, 100% { rotate: calc(var(--cfa-tilt) - var(--cfa-sway)); translate: 0 0; scale: 1.05 .95; }
+    18%      { scale: 1 1; }
+    46%      { translate: 0 calc(var(--cfa-bob) * -1); scale: .98 1.03; }
+    50%      { rotate: calc(var(--cfa-tilt) + var(--cfa-sway)); }
+    82%      { translate: 0 0; scale: 1 1; }
+  }
+
+  /* waiting — it asked you something: eyes centred and a little wide, head
+     tilted −6° and held, a 3.4s breath. */
+  .cfa-avatar[data-cfa-state="waiting"] { --cfa-period: 3.4s; --cfa-eye-s: 1.1; --cfa-tilt: -6deg; }
+
+  /* blocked — stuck: eyes heavy, the body sunk and still, one small shake
+     as it arrives. */
+  .cfa-avatar[data-cfa-state="blocked"] {
+    --cfa-bob: 0px; --cfa-breath-sy: 1; --cfa-eye-sy: .55;
+    --cfa-droop: max(1.5px, calc(var(--cfa-size) * .06));
+  }
+  /* No bob means no loop at all: the body holds its sunk pose (the static
+     translate above), so a stuck face costs the page nothing. */
+  .cfa-avatar[data-cfa-state="blocked"] .cfa-avatar__body { animation: none; }
+  .cfa-avatar[data-cfa-state="blocked"] .cfa-avatar__orb { animation: cfa-shake 240ms linear 1; }
+  @keyframes cfa-shake {
+    0%, 100% { translate: 0 0; }
+    20%      { translate: 2px 0; }
+    45%      { translate: -2px 0; }
+    70%      { translate: 2px 0; }
+    90%      { translate: -2px 0; }
+  }
+
+  /* done — the reply landed: one settle (up 8%, under, home) and the happy
+     closed-arc eyes; the page puts it back to idle after 600ms. */
+  .cfa-avatar[data-cfa-state="done"] .cfa-avatar__orb { animation: cfa-done 520ms var(--cfa-settle) 1; }
+  @keyframes cfa-done {
+    0%, 100% { scale: 1; }
+    35%      { scale: 1.08; }
+    70%      { scale: .98; }
+  }
+
+  /* sleeping — lids down as lines, a slow breath on 6s. The one state that
+     stays nearly still on purpose. */
+  .cfa-avatar[data-cfa-state="sleeping"] { --cfa-period: 6s; --cfa-bob: max(.5px, calc(var(--cfa-size) * .005)); --cfa-breath-sy: 1.008; }
+  /* the lid: the open oval squashed to a line (.03 of the face; .15 of a
+     small tier's taller eye is still a pixel and a half), no glow, no iris */
+  .cfa-avatar[data-cfa-state="sleeping"] .cfa-avatar__eye::before {
+    scale: 1 .15;
+    border-radius: 999px;
+    box-shadow: none;
+  }
+  .cfa-avatar[data-cfa-state="sleeping"] .cfa-avatar__iris { opacity: 0; }
+  .cfa-avatar[data-cfa-state="sleeping"] .cfa-avatar__mouth { opacity: .4; }
+  .cfa-avatar[data-cfa-state="sleeping"] .cfa-avatar__mouth::before { scale: .5 1; }
+
+  /* The older moods (marketing's console, the persona). */
+  .cfa-avatar[data-cfa-state="listening"] { --cfa-period: 3s; --cfa-eye-s: 1.12; }
+  /* listening: a small round "o" — the line squashed to .07 square */
+  .cfa-avatar[data-cfa-state="listening"] .cfa-avatar__mouth::before { scale: .39 1.4; }
+  /* talking: the line opening and closing — scale, not a size */
+  .cfa-avatar[data-cfa-state="talking"] .cfa-avatar__mouth::before { animation: cfa-talk .42s ease-in-out infinite; }
+  @keyframes cfa-talk {
+    0%, 100% { scale: .94 1; }
+    35%      { scale: .72 2.8; }
+    70%      { scale: .83 1.6; }
+  }
+
+  /* Happy closed arcs — done's eyes, the old happy mood, and the smile an
+     idle face gives a pointer that rests on it. The oval squashes and fades
+     as the arc comes up in its place. A face that follows the pointer keeps
+     its eyes OPEN under it (it is looking at you — see THE HOVER PLAY) and
+     only smiles. */
+  .cfa-avatar:is([data-cfa-state="done"], [data-cfa-state="happy"]) .cfa-avatar__eye::before,
+  .cfa-avatar:is([data-cfa-state="idle"], [data-cfa-state="happy"]):not([data-cfa-look="pointer"]):is(:hover, :focus-visible) .cfa-avatar__eye::before {
+    opacity: 0;
+    scale: 1 .4;
+  }
+  .cfa-avatar:is([data-cfa-state="done"], [data-cfa-state="happy"]) .cfa-avatar__eye::after,
+  .cfa-avatar:is([data-cfa-state="idle"], [data-cfa-state="happy"]):not([data-cfa-look="pointer"]):is(:hover, :focus-visible) .cfa-avatar__eye::after {
+    opacity: 1;
+    scale: 1 1;
+  }
+  .cfa-avatar:is([data-cfa-state="done"], [data-cfa-state="happy"]) .cfa-avatar__iris,
+  .cfa-avatar:is([data-cfa-state="idle"], [data-cfa-state="happy"]):not([data-cfa-look="pointer"]):is(:hover, :focus-visible) .cfa-avatar__iris { opacity: 0; }
+  .cfa-avatar:is([data-cfa-state="done"], [data-cfa-state="happy"]) .cfa-avatar__mouth::before,
+  .cfa-avatar:is([data-cfa-state="idle"], [data-cfa-state="happy"], [data-cfa-state="listening"]):is(:hover, :focus-visible) .cfa-avatar__mouth::before {
+    opacity: 0;
+    scale: .8 1;
+  }
+  .cfa-avatar:is([data-cfa-state="done"], [data-cfa-state="happy"]) .cfa-avatar__mouth::after,
+  .cfa-avatar:is([data-cfa-state="idle"], [data-cfa-state="happy"], [data-cfa-state="listening"]):is(:hover, :focus-visible) .cfa-avatar__mouth::after {
+    opacity: 1;
+    scale: 1 1;
+  }
+  /* eyes a touch wider under the pointer, as if delighted to be found —
+     on top of whatever the state's eyes already are */
+  .cfa-avatar[data-cfa-look="pointer"]:not([data-cfa-state="sleeping"]):hover { --cfa-delight: 1.08; }
+  .cfa-avatar:not([data-cfa-state="sleeping"]):is(:hover, :focus-visible) { --cfa-glance: 0; }
+  .cfa-avatar:not([data-cfa-state="sleeping"]):is(:hover, :focus-visible) .cfa-avatar__brows { opacity: .75; }
+  .cfa-avatar:not([data-cfa-state="sleeping"]):is(:hover, :focus-visible) .cfa-avatar__brow:first-child { transform: translateY(-22%) rotate(-8deg); }
+  .cfa-avatar:not([data-cfa-state="sleeping"]):is(:hover, :focus-visible) .cfa-avatar__brow:last-child { transform: translateY(-22%) rotate(8deg); }
+
+  /* ═══ THE TURN ═════════════════════════════════════════════════════════
+     The scheduler sets data-cfa-turn — every 3–5s while thinking, every
+     6–9s while working, and once as either state begins — and takes it off
+     when the one-shot is over. --cfa-turn-dir (1 / −1) is which way.
+
+     half: a look over the shoulder. The body narrows to .82 and back while
+     the eyes slide 35% across and home, 600ms on the morph curve.
+
+     full: the face goes all the way round. It rides to the edge narrowing
+     as it goes (a face on a turning cylinder: x = sin, width = cos), is
+     gone for a beat behind the body, and comes back in from the other
+     side — so nothing ever leaves the silhouette, and nothing needs
+     clipping to hide it. */
+  .cfa-avatar[data-cfa-turn] .cfa-avatar__orb { animation: cfa-turn 600ms var(--cfa-morph) 1; }
+  .cfa-avatar[data-cfa-turn="half"] .cfa-avatar__eyes { animation: cfa-turn-eyes 600ms var(--cfa-morph) 1; }
+  @keyframes cfa-turn { 50% { scale: .82 1; } }
+  @keyframes cfa-turn-eyes {
+    50% { translate: calc(var(--cfa-eye-x) + var(--cfa-turn-dir, 1) * 35%) var(--cfa-eye-y); }
+  }
+  .cfa-avatar[data-cfa-turn="full"] .cfa-avatar__orb { animation: cfa-turn-full 720ms var(--cfa-morph) 1; }
+  .cfa-avatar[data-cfa-turn="full"] .cfa-avatar__face { animation: cfa-wrap 720ms linear 1; }
+  @keyframes cfa-turn-full { 50% { scale: .8 1; } }
+  @keyframes cfa-wrap {
+    0%   { translate: 0 0; scale: 1 1; opacity: 1; }
+    22%  { translate: calc(var(--cfa-turn-dir, 1) * 16%) 0; scale: .86 1; opacity: 1; }
+    38%  { translate: calc(var(--cfa-turn-dir, 1) * 27%) 0; scale: .5 1; opacity: .7; }
+    47%  { translate: calc(var(--cfa-turn-dir, 1) * 31%) 0; scale: .1 1; opacity: 0; }
+    53%  { translate: calc(var(--cfa-turn-dir, 1) * -31%) 0; scale: .1 1; opacity: 0; }
+    62%  { translate: calc(var(--cfa-turn-dir, 1) * -27%) 0; scale: .5 1; opacity: .7; }
+    78%  { translate: calc(var(--cfa-turn-dir, 1) * -16%) 0; scale: .86 1; opacity: 1; }
+    100% { translate: 0 0; scale: 1 1; opacity: 1; }
+  }
+
+  /* ═══ THE HOVER PLAY ══════════════════════════════════════════════════
+     A face that follows the pointer (track: — the homepage hero, the home
+     screen's face) plays when the pointer comes onto it, and every few
+     seconds while it stays: cfa_avatar_controller sets data-cfa-play to one
+     of these and --cfa-play-dir to which way, and takes it off when it is
+     over. Each is a one-shot on the orb's translate / rotate / scale and,
+     for a peek or a spin, the face's — compositor work. The eyes are never
+     animated: their translate is the pointer's (a second animation on the
+     same property would take it off the compositor and off the pointer),
+     so they keep following it through all of it. A click is a spin.
+
+       hop     crouch, spring up, land in a squash that rings out (780ms)
+       wiggle  a bobble from the base, dying away (720ms)
+       peek    a look round: the head narrows and the features slide to
+               that side as it turns (640ms)
+       spin    all the way round on a hop: the face rides to the edge and
+               comes in from the other side, as the scheduled full turn
+               does, then lands and rings out (900ms)
+     The rings are sampled from a damped spring (the lambdas at the top). */
+  .cfa-avatar { --cfa-play-dir: 1; --cfa-hop: max(5px, calc(var(--cfa-size) * .24)); }
+  .cfa-avatar[data-cfa-play="hop"] .cfa-avatar__orb { animation: cfa-play-hop 780ms linear 1; }
+  @keyframes cfa-play-hop {
+    0%  { translate: 0 0; scale: 1 1; animation-timing-function: cubic-bezier(.3, 0, .6, 1); }
+    12% { translate: 0 0; scale: 1.1 .88; animation-timing-function: cubic-bezier(.2, .75, .35, 1); }
+    40% { translate: 0 calc(var(--cfa-hop) * -1); scale: .95 1.07; animation-timing-function: ease-out; }
+    47% { translate: 0 calc(var(--cfa-hop) * -1); scale: 1 1; animation-timing-function: cubic-bezier(.55, 0, .85, .35); }
+    64% { translate: 0 0; scale: .96 1.05; }
+    66.0% { translate: 0 0; scale: 1.12 0.88; }
+68.83% { translate: 0 0; scale: 1.051 0.949; }
+71.67% { translate: 0 0; scale: 0.995 1.005; }
+74.5% { translate: 0 0; scale: 0.975 1.025; }
+77.33% { translate: 0 0; scale: 0.981 1.019; }
+80.17% { translate: 0 0; scale: 0.994 1.006; }
+83.0% { translate: 0 0; scale: 1.002 0.998; }
+85.83% { translate: 0 0; scale: 1.004 0.996; }
+88.67% { translate: 0 0; scale: 1.003 0.997; }
+91.5% { translate: 0 0; scale: 1.001 0.999; }
+94.33% { translate: 0 0; scale: 0.999 1.001; }
+97.17% { translate: 0 0; scale: 0.999 1.001; }
+100.0% { translate: 0 0; scale: 1.0 1.0; }
+  }
+  .cfa-avatar[data-cfa-play="wiggle"] .cfa-avatar__orb { animation: cfa-play-wiggle 720ms linear 1; }
+  @keyframes cfa-play-wiggle {
+    0% { rotate: 0deg; }
+    5.0% { rotate: calc(var(--cfa-play-dir) * 6.104deg); }
+10.0% { rotate: calc(var(--cfa-play-dir) * 7.213deg); }
+15.0% { rotate: calc(var(--cfa-play-dir) * 4.514deg); }
+20.0% { rotate: calc(var(--cfa-play-dir) * 0.595deg); }
+25.0% { rotate: calc(var(--cfa-play-dir) * -2.263deg); }
+30.0% { rotate: calc(var(--cfa-play-dir) * -3.065deg); }
+35.0% { rotate: calc(var(--cfa-play-dir) * -2.135deg); }
+40.0% { rotate: calc(var(--cfa-play-dir) * -0.51deg); }
+45.0% { rotate: calc(var(--cfa-play-dir) * 0.801deg); }
+50.0% { rotate: calc(var(--cfa-play-dir) * 1.281deg); }
+55.0% { rotate: calc(var(--cfa-play-dir) * 0.988deg); }
+60.0% { rotate: calc(var(--cfa-play-dir) * 0.326deg); }
+65.0% { rotate: calc(var(--cfa-play-dir) * -0.264deg); }
+70.0% { rotate: calc(var(--cfa-play-dir) * -0.526deg); }
+75.0% { rotate: calc(var(--cfa-play-dir) * -0.448deg); }
+80.0% { rotate: calc(var(--cfa-play-dir) * -0.184deg); }
+85.0% { rotate: calc(var(--cfa-play-dir) * 0.077deg); }
+90.0% { rotate: calc(var(--cfa-play-dir) * 0.212deg); }
+95.0% { rotate: calc(var(--cfa-play-dir) * 0.2deg); }
+100.0% { rotate: calc(var(--cfa-play-dir) * 0.097deg); }
+  }
+  .cfa-avatar[data-cfa-play="peek"] .cfa-avatar__orb { animation: cfa-play-peek 640ms var(--cfa-morph) 1; }
+  .cfa-avatar[data-cfa-play="peek"] .cfa-avatar__face { animation: cfa-play-peek-face 640ms var(--cfa-morph) 1; }
+  @keyframes cfa-play-peek {
+    0%   { scale: 1 1; rotate: 0deg; }
+    45%  { scale: .82 1; rotate: calc(var(--cfa-play-dir) * 4deg); }
+    72%  { scale: 1.03 .98; rotate: calc(var(--cfa-play-dir) * -1deg); }
+    100% { scale: 1 1; rotate: 0deg; }
+  }
+  @keyframes cfa-play-peek-face {
+    0%   { translate: 0 0; scale: 1 1; }
+    45%  { translate: calc(var(--cfa-play-dir) * 17%) 0; scale: .9 1; }
+    72%  { translate: calc(var(--cfa-play-dir) * -3%) 0; scale: 1.02 1; }
+    100% { translate: 0 0; scale: 1 1; }
+  }
+  .cfa-avatar[data-cfa-play="spin"] .cfa-avatar__orb { animation: cfa-play-spin 900ms linear 1; }
+  .cfa-avatar[data-cfa-play="spin"] .cfa-avatar__face { animation: cfa-play-wrap 900ms linear 1; --cfa-turn-dir: var(--cfa-play-dir); }
+  @keyframes cfa-play-spin {
+    0.0% { translate: 0 calc(var(--cfa-hop) * -0.0); scale: 1.0 1; }
+    4.0% { translate: 0 calc(var(--cfa-hop) * -0.139); scale: 0.965 1; }
+    8.0% { translate: 0 calc(var(--cfa-hop) * -0.274); scale: 0.932 1; }
+    12.0% { translate: 0 calc(var(--cfa-hop) * -0.4); scale: 0.9 1; }
+    16.0% { translate: 0 calc(var(--cfa-hop) * -0.514); scale: 0.871 1; }
+    20.0% { translate: 0 calc(var(--cfa-hop) * -0.613); scale: 0.847 1; }
+    24.0% { translate: 0 calc(var(--cfa-hop) * -0.693); scale: 0.827 1; }
+    28.0% { translate: 0 calc(var(--cfa-hop) * -0.752); scale: 0.812 1; }
+    32.0% { translate: 0 calc(var(--cfa-hop) * -0.788); scale: 0.803 1; }
+    36.0% { translate: 0 calc(var(--cfa-hop) * -0.8); scale: 0.8 1; }
+    40.0% { translate: 0 calc(var(--cfa-hop) * -0.788); scale: 0.803 1; }
+    44.0% { translate: 0 calc(var(--cfa-hop) * -0.752); scale: 0.812 1; }
+    48.0% { translate: 0 calc(var(--cfa-hop) * -0.693); scale: 0.827 1; }
+    52.0% { translate: 0 calc(var(--cfa-hop) * -0.613); scale: 0.847 1; }
+    56.0% { translate: 0 calc(var(--cfa-hop) * -0.514); scale: 0.871 1; }
+    60.0% { translate: 0 calc(var(--cfa-hop) * -0.4); scale: 0.9 1; }
+    64.0% { translate: 0 calc(var(--cfa-hop) * -0.274); scale: 0.932 1; }
+    68.0% { translate: 0 calc(var(--cfa-hop) * -0.139); scale: 0.965 1; }
+    72% { translate: 0 0; scale: 1.1 .9; }
+    74.8% { translate: 0 0; scale: 1.031 0.969; }
+77.6% { translate: 0 0; scale: 0.986 1.014; }
+80.4% { translate: 0 0; scale: 0.981 1.019; }
+83.2% { translate: 0 0; scale: 0.993 1.007; }
+86.0% { translate: 0 0; scale: 1.002 0.998; }
+88.8% { translate: 0 0; scale: 1.004 0.996; }
+91.6% { translate: 0 0; scale: 1.002 0.998; }
+94.4% { translate: 0 0; scale: 1.0 1.0; }
+97.2% { translate: 0 0; scale: 0.999 1.001; }
+100.0% { translate: 0 0; scale: 1.0 1.0; }
+  }
+  /* the scheduled full turn's wrap (cfa-wrap), done in the first 72% */
+  @keyframes cfa-play-wrap {
+    0%    { translate: 0 0; scale: 1 1; opacity: 1; }
+    15.8% { translate: calc(var(--cfa-turn-dir, 1) * 16%) 0; scale: .86 1; opacity: 1; }
+    27.4% { translate: calc(var(--cfa-turn-dir, 1) * 27%) 0; scale: .5 1; opacity: .7; }
+    33.8% { translate: calc(var(--cfa-turn-dir, 1) * 31%) 0; scale: .1 1; opacity: 0; }
+    38.2% { translate: calc(var(--cfa-turn-dir, 1) * -31%) 0; scale: .1 1; opacity: 0; }
+    44.6% { translate: calc(var(--cfa-turn-dir, 1) * -27%) 0; scale: .5 1; opacity: .7; }
+    56.2% { translate: calc(var(--cfa-turn-dir, 1) * -16%) 0; scale: .86 1; opacity: 1; }
+    72%, 100% { translate: 0 0; scale: 1 1; opacity: 1; }
+  }
+
+  /* ═══ THE TWO CHARACTERS ═══════════════════════════════════════════════
+     Costumes around the standard brain-in-orb face. The mark and the eyes
+     are the same as every other face — white oval eyes with an iris, the
+     circuit-board brain behind them, on the bot's tint. What a character
+     wears is drawn on pseudo-elements (the skin's, the orb's, the body's),
+     so it bobs, turns and settles with the face and costs no markup. A
+     costume never replaces the face, hides the mark, or changes the eyes. */
+  .cfa-avatar:is([data-cfa-shape="samurai"], [data-cfa-shape="astronaut"]) {
+    --cfa-costume-ink: #111827;
+    --cfa-gold-1: #f9d667;
+    --cfa-gold-2: #f0b62e;
+    --cfa-gold-3: #b0700d;
+  }
+  .cfa-avatar:is([data-cfa-shape="samurai"], [data-cfa-shape="astronaut"]) :is(.cfa-avatar__skin, .cfa-avatar__orb, .cfa-avatar__body)::before,
+  .cfa-avatar:is([data-cfa-shape="samurai"], [data-cfa-shape="astronaut"]) :is(.cfa-avatar__skin, .cfa-avatar__orb, .cfa-avatar__body)::after {
+    position: absolute;
+    pointer-events: none;
+  }
+  /* A character never draws outside its own box. A costume reaches past
+     the face — the crest above it, the neck guard at its sides, the neck
+     ring below — so the whole figure is drawn a little smaller and set so
+     its furthest reach lands on the box's edge. No strip, list or clipped
+     pane can cut a crest off, and a hat never touches the name beside it.
+     `transform` is free for this: the loops drive translate, rotate and
+     scale, which apply before it and about the same origin. */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__body { transform: translateY(-1%) scale(.83); }
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__body { transform: translateY(-4.1%) scale(.92); }
+  /* …and an idle lean is smaller on a figure that fills its box. */
+  .cfa-avatar:is([data-cfa-shape="samurai"], [data-cfa-shape="astronaut"]) { --cfa-idle-lean-amp: 1.7deg; }
+
+  /* samurai — the standard orb wearing a kabuto, the helmet a samurai is
+     known by. Its crest stands on the forehead: two gold kuwagata sweeping
+     up and out, the round maedate between them. A lacquered rim with gold
+     piping runs along the top of the bowl, and the shikoro — the neck
+     guard of laced plates, in the bot's colour — flares out behind the
+     face from the temples to below the jaw. The brain shows through the
+     bowl and the eyes look out under the rim. */
+  .cfa-avatar[data-cfa-shape="samurai"] {
+    --cfa-lacquer: color-mix(in srgb, var(--cfa-tint) 34%, #0d111c);
+    --cfa-plate-1: color-mix(in srgb, var(--cfa-tint) 86%, #000);
+    --cfa-plate-2: color-mix(in srgb, var(--cfa-tint) 56%, #000);
+  }
+  /* the bowl's rim: thin at the brow, deeper at the temples */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__skin::before {
+    content: "";
+    inset: 0;
+    background: radial-gradient(150% 130% at 50% 128%,
+      transparent 0 92.4%, var(--cfa-gold-2) 92.4% 93.7%, var(--cfa-lacquer) 93.7%);
+  }
+  /* the shikoro, behind the face */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__body::before {
+    content: "";
+    z-index: -1;
+    left: -10%; right: -10%; top: 30%; height: 59%;
+    background:
+      repeating-linear-gradient(to bottom,
+        var(--cfa-plate-1) 0, var(--cfa-plate-2) 22.5%,
+        var(--cfa-gold-2) 22.5% 25%);
+    -webkit-mask: var(--cfa-mask-shikoro) no-repeat 0 0 / 100% 100%;
+    mask: var(--cfa-mask-shikoro) no-repeat 0 0 / 100% 100%;
+  }
+  /* the crest */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__orb::before {
+    content: "";
+    z-index: 3;
+    left: 4%; right: 4%; top: -16%; height: 38%;
+    background:
+      linear-gradient(to bottom, transparent 0 76%, color-mix(in srgb, var(--cfa-gold-3) 70%, #000) 76% 78%, transparent 78%),
+      linear-gradient(to bottom, var(--cfa-gold-1) 0, var(--cfa-gold-2) 48%, var(--cfa-gold-3) 100%);
+    -webkit-mask: var(--cfa-mask-crest) no-repeat 0 0 / 100% 100%;
+    mask: var(--cfa-mask-crest) no-repeat 0 0 / 100% 100%;
+  }
+  /* the cord that ties it under the chin */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__orb::after {
+    content: "";
+    z-index: 3;
+    left: 38%; right: 38%; bottom: -4%; height: 12%;
+    background: linear-gradient(to bottom, #fffaf0, #ead9ad);
+    -webkit-mask: var(--cfa-mask-bow) no-repeat 0 0 / 100% 100%;
+    mask: var(--cfa-mask-bow) no-repeat 0 0 / 100% 100%;
+  }
+  /* A set brow under the rim, where the face is large enough to have one. */
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__brows { opacity: .9; }
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__brow:first-child { transform: translateY(18%) rotate(13deg); }
+  .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__brow:last-child { transform: translateY(18%) rotate(-13deg); }
+
+  /* astronaut — the standard face inside a helmet. A white shell; a visor
+     set into it: a window of glass in a dark seal and a steel ring, with
+     the bot's face behind it — brain, eyes and all — and the glass's glare
+     across one corner. The gold sun shade is pushed up above the window,
+     the visor's pivots sit at the temples in the bot's colour, and the
+     helmet locks into a neck ring with a stripe of the same. */
+  .cfa-avatar[data-cfa-shape="astronaut"] {
+    --cfa-shell-1: #ffffff;
+    --cfa-shell-2: #f1f4f8;
+    --cfa-shell-3: #c5cdd9;
+    --cfa-steel: #8d98aa;
+    /* the visor window, as fractions of the face's box */
+    --cfa-visor: 15.5% 10.5% 21.5% 10.5%;
+    --cfa-visor-radius: 44% / 49%;
+  }
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__skin {
+    border-radius: 47%;
+    background:
+      radial-gradient(120% 100% at 30% 16%, var(--cfa-shell-1), transparent 58%),
+      linear-gradient(160deg, var(--cfa-shell-2) 0%, var(--cfa-shell-3) 100%);
+    box-shadow:
+      inset 0 0 0 max(1px, calc(var(--cfa-size) * .016)) color-mix(in srgb, var(--cfa-steel) 80%, transparent),
+      inset 0 calc(var(--cfa-size) * -.05) calc(var(--cfa-size) * .1) rgba(20, 30, 50, .2);
+  }
+  /* the window: the bot's own skin, seen through the glass */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__skin::before {
+    content: "";
+    inset: var(--cfa-visor);
+    border-radius: var(--cfa-visor-radius);
+    background:
+      radial-gradient(120% 100% at 30% 18%, var(--cfa-skin-1), transparent 62%),
+      linear-gradient(155deg, var(--cfa-skin-2) 0%, var(--cfa-skin-3) 100%);
+    box-shadow:
+      0 0 0 max(1.5px, calc(var(--cfa-size) * .03)) var(--cfa-costume-ink),
+      0 0 0 max(2.5px, calc(var(--cfa-size) * .052)) var(--cfa-steel),
+      inset 0 max(1px, calc(var(--cfa-size) * .035)) max(2px, calc(var(--cfa-size) * .07)) rgba(5, 10, 25, .45);
+  }
+  /* the gold sun shade, raised: a crescent hugging the top of the visor */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__skin::after {
+    content: "";
+    left: 9%; right: 9%; top: 2.5%; height: 22%;
+    background: linear-gradient(to bottom, var(--cfa-gold-1) 0, var(--cfa-gold-2) 42%, var(--cfa-gold-3) 82%);
+    -webkit-mask: var(--cfa-mask-shade) no-repeat 0 0 / 100% 100%;
+    mask: var(--cfa-mask-shade) no-repeat 0 0 / 100% 100%;
+  }
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__rim { display: none; }
+  /* the brain and the face sit in the window */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__circuit { inset: 17% 17% 30% 17%; }
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__face { transform: translateY(-2%) scale(.8); }
+  .cfa-avatar[data-cfa-shape="astronaut"][data-cfa-look] .cfa-avatar__face {
+    transform: translateY(-2%) scale(.8) translate(calc(var(--cfa-look-x, 0) * 3.5%), calc(var(--cfa-look-y, 0) * 2.5%));
+  }
+  /* the glass: glare across the top-left corner, a soft edge all round */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__body::after {
+    content: "";
+    z-index: 4;
+    inset: var(--cfa-visor);
+    border-radius: var(--cfa-visor-radius);
+    background:
+      linear-gradient(118deg, transparent 0 9%, rgba(255, 255, 255, .62) 9% 15%, transparent 15% 19%, rgba(255, 255, 255, .3) 19% 22.5%, transparent 22.5%),
+      radial-gradient(90% 60% at 50% 108%, rgba(255, 255, 255, .2), transparent 70%);
+    box-shadow: inset 0 0 max(2px, calc(var(--cfa-size) * .06)) rgba(6, 12, 28, .38);
+  }
+  /* the visor's pivots: one at each temple (the second is the first's shadow) */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__orb::after {
+    content: "";
+    z-index: 3;
+    left: -3%; top: 38%; width: 9.5%; height: 19%;
+    border-radius: 38%;
+    background: linear-gradient(to bottom, color-mix(in srgb, var(--cfa-tint) 82%, #fff), color-mix(in srgb, var(--cfa-tint) 78%, #000));
+    box-shadow:
+      calc(var(--cfa-size) * .965) 0 0 0 color-mix(in srgb, var(--cfa-tint) 88%, #000),
+      0 0 0 max(.5px, calc(var(--cfa-size) * .012)) color-mix(in srgb, var(--cfa-tint) 50%, #000);
+  }
+  /* the neck ring */
+  .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__orb::before {
+    content: "";
+    z-index: 3;
+    left: 17%; right: 17%; bottom: -4%; height: 14%;
+    border-radius: 42% / 60%;
+    background:
+      linear-gradient(to bottom, transparent 0 32%, var(--cfa-tint) 32% 68%, transparent 68%),
+      linear-gradient(to bottom, var(--cfa-shell-2), var(--cfa-steel));
+    box-shadow: 0 0 0 max(1px, calc(var(--cfa-size) * .016)) color-mix(in srgb, var(--cfa-steel) 70%, #1b2434);
+  }
+  /* What a list-size face cannot draw: the glare's fine lines, the pivots. */
+  @container (max-width: 20px) {
+    .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__orb::after { display: none; }
+    .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__orb::before { box-shadow: none; }
+    .cfa-avatar[data-cfa-shape="astronaut"] .cfa-avatar__body::after {
+      background: linear-gradient(118deg, transparent 0 10%, rgba(255, 255, 255, .6) 10% 20%, transparent 20%);
+    }
+  }
+  @container (max-width: 40px) {
+    .cfa-avatar[data-cfa-shape="samurai"] .cfa-avatar__orb::after { display: none; }
+  }
+
+  /* ── The mini: a 14px "working" mark beside a line of text ───────────
+     (a conversation row's busy slot). Same face, same loop. */
+  .cfa-avatar--mini { vertical-align: middle; }
+
+  /* ── Held still on purpose (a size ruler, a picker thumbnail) ───────── */
+  .cfa-avatar.cfa-avatar--still :is(.cfa-avatar__body, .cfa-avatar__orb, .cfa-avatar__face, .cfa-avatar__eyes, .cfa-avatar__mouth)::before,
+  .cfa-avatar.cfa-avatar--still :is(.cfa-avatar__body, .cfa-avatar__orb, .cfa-avatar__face, .cfa-avatar__eyes, .cfa-avatar__mouth) { animation: none; }
+
+  /* ── Offscreen, nothing runs ─────────────────────────────────────────
+     avatar_visibility_controller marks a face that has left the viewport
+     (with a 24px margin, so it is moving again before it is seen). Paused,
+     and its loop released outright: a paused animation still exists, and a
+     long list of faces nobody can see should cost the page nothing. */
+  .cfa-avatar[data-cfa-paused],
+  .cfa-avatar[data-cfa-paused] *,
+  .cfa-avatar[data-cfa-paused] *::before,
+  .cfa-avatar[data-cfa-paused] *::after { animation-play-state: paused !important; animation-name: none !important; }
+
+  /* ── Reduced motion: a still poster per state ───────────────────────
+     The shapes stay (thinking's cocked head and raised eyes, the waiting
+     tilt, the blocked droop) — a shape is not motion. Every loop, turn and
+     one-shot stops, and a state change is a cut, not a morph. */
+  @media (prefers-reduced-motion: reduce) {
+    .cfa-avatar, .cfa-avatar *, .cfa-avatar *::before, .cfa-avatar *::after { animation: none !important; transition: none !important; }
+  }

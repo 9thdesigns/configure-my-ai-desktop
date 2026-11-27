@@ -47,25 +47,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* The dock --------------------------------------------------------------- */
 
+/* Sizes, in whole pixels so the faces land on the pixel grid at 1x and 2x:
+   a 28px face in a 44px column (8px either side, 7px inside the border).
+   The gaps leave room for a face's bob and sway, which reach about 3px past
+   its box while it works (test/avatar-geometry.test.js measures it). */
+:root {
+  --dock-face: 28px;
+  --chat-face: 22px;
+}
+
 .dock {
   position: absolute;
   right: 4px;
   top: 0;
-  width: 60px;
+  width: 44px;
   margin: 6px 0;
-  padding: 4px 0 8px;
+  padding: 2px 0 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 30px;
+  border-radius: 22px;
   box-shadow: var(--shadow);
 }
 
 .dock-grip {
-  width: 24px;
+  width: 20px;
   height: 12px;
   cursor: ns-resize;
   position: relative;
@@ -87,19 +96,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dock-bots {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .dock-bot {
   position: relative;
+  display: block;
   border: 0;
   padding: 0;
   background: none;
   border-radius: 50%;
-  transition: transform 0.15s ease;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }
-.dock-bot:hover { transform: scale(1.06); }
-.dock-bot:active { transform: scale(0.96); }
+/* Hover is a soft halo, not a scale: a scaled face lands between pixels
+   and blurs. */
+.dock-bot:hover { background-color: var(--surface-2); box-shadow: 0 0 0 4px var(--surface-2); }
 .dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
 
@@ -117,22 +128,22 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .dock-badge {
   position: absolute;
-  top: -3px;
-  right: -3px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
+  top: -5px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
   background: var(--waiting);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  line-height: 18px;
+  line-height: 16px;
   text-align: center;
   box-shadow: 0 0 0 2px var(--surface);
   animation: badge-in 0.2s ease-out;
 }
-.dock-badge.is-dot { min-width: 10px; width: 10px; height: 10px; padding: 0; top: 0; right: 0; }
+.dock-badge.is-dot { min-width: 8px; width: 8px; height: 8px; padding: 0; top: -1px; right: -1px; }
 .dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
 
 @keyframes badge-in {
@@ -141,13 +152,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 
 .dock-add {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border-radius: 50%;
   border: 1px dashed var(--line);
   background: none;
   color: var(--muted);
-  font-size: 20px;
+  font-size: 17px;
   line-height: 1;
   transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
@@ -160,6 +172,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 7px 10px;
+  height: 34px;
+  line-height: 18px;
   background: var(--surface-2);
   color: var(--ink);
   font: inherit;
@@ -173,21 +187,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
   gap: 10px;
   border: 0;
   background: none;
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-radius: 10px;
   text-align: left;
   transition: background 0.15s ease;
 }
 .picker-item:hover, .picker-item:focus-visible { background: var(--surface-2); outline: none; }
-.picker-item .avatar { width: 32px; height: 32px; font-size: 12px; }
-.picker-name { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.picker-item .avatar { width: var(--dock-face); height: var(--dock-face); font-size: 11px; }
+.picker-name { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 17px; }
 .picker-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .picker-count { background: var(--waiting); color: #fff; border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
 /* The workspace mark at the top of the dock */
 .dock-workspace {
   border: 0;
-  padding: 0 0 8px;
+  padding: 0 0 7px;
   margin-bottom: -2px;
   background: none;
   border-bottom: 1px solid var(--line);
@@ -197,14 +211,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dock-workspace:hover { transform: scale(1.06); }
 .dock-workspace:disabled { cursor: default; transform: none; }
 .workspace-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
   display: grid;
   place-items: center;
   overflow: hidden;
   background: var(--surface-2);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -215,8 +229,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Avatars ---------------------------------------------------------------- */
 
 .avatar {
-  width: 44px;
-  height: 44px;
+  width: var(--dock-face);
+  height: var(--dock-face);
   border-radius: 50%;
   display: grid;
   place-items: center;
@@ -225,22 +239,23 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--surface-2);
   color: var(--ink);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 11px;
   letter-spacing: 0.02em;
   transition: box-shadow 0.2s ease;
 }
-.avatar[data-shape="square"] { border-radius: 10px; }
+.avatar[data-shape="square"] { border-radius: 7px; }
 .avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
 .avatar[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
-.avatar-sm[data-shape="square"] { border-radius: 7px; }
+.avatar-sm[data-shape="square"] { border-radius: 6px; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.avatar-sm { width: 28px; height: 28px; font-size: 11px; }
+.avatar-sm { width: var(--chat-face); height: var(--chat-face); font-size: 9px; }
 
 /* The web app's animated CFA face (src/avatar-render.js), sized to its slot
-   by --cfa-size; the face brings its own shape, colour and motion (the
-   avatar stylesheet main hands over). Paused while the window is hidden or
-   the box is off screen; static with reduced motion. */
-.avatar { --cfa-size: 44px; }
+   by --cfa-size — the same whole-pixel size as the box, always; the face
+   brings its own shape, colour and motion (the avatar stylesheet main hands
+   over). Paused while the window is hidden or the box is off screen; static
+   with reduced motion. */
+.avatar { --cfa-size: var(--dock-face); }
 /* The face's own stylesheet gives .cfa-avatar a default --cfa-size (72px);
    the slot's size must win, so the face takes it from its box. */
 .avatar[data-mode="cfa"] > .cfa-avatar { --cfa-size: inherit; }
@@ -255,8 +270,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .avatar[data-mode="cfa"][data-offscreen] * { animation-play-state: paused !important; }
 :root[data-motion="reduce"] .avatar[data-mode="cfa"],
 :root[data-motion="reduce"] .avatar[data-mode="cfa"] * { animation: none !important; transition: none !important; }
-.avatar-sm { --cfa-size: 28px; }
-.picker-item .avatar { --cfa-size: 32px; }
+.avatar-sm { --cfa-size: var(--chat-face); }
+.picker-item .avatar { --cfa-size: var(--dock-face); }
 /* The face shows "working" itself: no glow ring on top of it. */
 .dock-bot[data-mood="working"] .avatar[data-mode="cfa"] { animation: none; }
 .dock-bot[data-paused] .avatar[data-mode="cfa"] * { animation-play-state: paused !important; }
@@ -290,11 +305,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .popover-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 10px 10px 14px;
+  gap: 9px;
+  padding: 9px 10px 9px 14px;
   border-bottom: 1px solid var(--line);
 }
+/* Two whole-pixel lines (18 + 16): the row is 34px, so the 22px face sits
+   6px from either edge, on the pixel grid. */
 .popover-title { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.popover-title strong { line-height: 18px; }
+.popover-title span { line-height: 16px; }
 .popover-title strong, .popover-title span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .muted { color: var(--muted); font-size: 12px; }
 
