@@ -37,6 +37,16 @@ const MAX_BODY_BYTES = 512 * 1024
 // state, never forwarded to a renderer.
 const CSRF = /^[A-Za-z0-9+/=_-]{20,200}$/
 
+// Where a redirect from a write went: sign-in means the session is gone.
+function redirectsToSignIn (location) {
+  if (typeof location !== 'string' || !location) return false
+  try {
+    return /^\/(users\/)?(sign_in|login|session)(\/|$|\?)/.test(new URL(location, APP_URL).pathname)
+  } catch {
+    return true
+  }
+}
+
 function workspaceSwitchPath (id) {
   const valid = validId(id)
   return valid ? `/workspaces/${encodeURIComponent(valid)}/switch` : null
@@ -92,6 +102,10 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
   let timer = null
   let signedIn = null
 
+  // A write's answer: the endpoints that reply with a redirect (the plan and
+  // question forms) succeeded unless the redirect is to sign-in.
+  const writeOk = (res) => (res.status >= 200 && res.status < 300) || (res.status >= 300 && res.status < 400 && !redirectsToSignIn(res.location))
+
   const takeResponse = (res) => {
     if (!res || res.status !== 200 || !res.json || typeof res.json !== 'object') return false
     if (typeof res.json.csrf_token === 'string' && CSRF.test(res.json.csrf_token)) csrfToken = res.json.csrf_token
@@ -100,7 +114,7 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
 
   async function refresh () {
     const res = await request({ method: 'GET', path: WIDGET_JSON_PATH })
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401 || res.status === 403 || (res.status >= 300 && res.status < 400)) {
       signedIn = false
       csrfToken = null
       store.clear()
@@ -110,10 +124,11 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     return ok
   }
 
-  // A write with the CSRF token. A 422 is a stale token (the session
-  // rotated it): fetch a fresh one and retry, once.
+  // A write. Every request carries X-CMA-Desktop: 1, which the server
+  // accepts in place of a CSRF token (electronRequest), so there is nothing
+  // to fetch first; the token from widget.json rides along when we have one.
+  // A 422 may still be a stale token: refresh and retry, once.
   async function write (method, path, body) {
-    if (!csrfToken) await refresh()
     const res = await request({ method, path, body, csrfToken })
     if (res.status !== 422) return res
     await refresh()
@@ -133,6 +148,14 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     const res = await write('POST', command.path, command.body)
     refresh().catch(() => {})
     return res.status >= 200 && res.status < 300 ? conversationFrom(res.json, command.botId) : null
+  }
+
+  // An answer or a plan decision: true when the server took it.
+  async function actionWrite (command) {
+    if (!command) return false
+    const res = await write('POST', command.path, command.body)
+    refresh().catch(() => {})
+    return writeOk(res)
   }
 
   return {
@@ -158,17 +181,24 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
       return send('PATCH', WIDGET_PATH, { focused_bot_id: id })
     },
 
-    // seats: the full ordered list of pinned bot ids (the manager is always
-    // shown first and is never in it).
+    // Pin a bot to the dock (add_seat) or take it off (remove_seat); the
+    // manager's seat is not the shell's to remove.
     async setPinned (botId, pinned) {
       const id = validId(botId)
       const state = store.get()
-      if (!id || !state) return false
+      if (!id || !state || id === state.manager?.id) return false
       store.update((s) => {
         for (const seat of s.seats) if (seat.bot_id === id) seat.pinned = Boolean(pinned)
         return s
       })
-      const seats = store.get().seats.filter((s) => s.pinned).map((s) => s.bot_id)
+      return send('PATCH', WIDGET_PATH, pinned ? { add_seat: id } : { remove_seat: id })
+    },
+
+    // The dock's full order: seats is every pinned id, manager included.
+    async setSeatOrder (ids) {
+      const state = store.get()
+      if (!state || !Array.isArray(ids)) return false
+      const seats = [...new Set(ids.map(validId).filter(Boolean))].slice(0, 50)
       return send('PATCH', WIDGET_PATH, { seats })
     },
 
@@ -183,15 +213,14 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
       return res.status === 200 ? conversationFrom(res.json, botId) : null
     },
     sendMessage: (input) => conversationWrite(composeFrom(input)),
-    answer: (input) => conversationWrite(answerFrom(input)),
-    decide: (input) => conversationWrite(decisionFrom(input)),
+    answer: (input) => actionWrite(answerFrom(input, store.get())),
+    decide: (input) => actionWrite(decisionFrom(input, store.get())),
 
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)
       if (!path) return false
-      if (!csrfToken) await refresh()
       const res = await request({ method: 'POST', path, body: {}, csrfToken })
-      if (res.status < 200 || res.status >= 300) return false
+      if (res.status !== 200 || res.json?.ok !== true) return false
       return refresh()
     },
   }
@@ -226,15 +255,18 @@ function electronRequest ({ method, path, body, csrfToken }) {
 
     req.setHeader('Accept', 'application/json')
     req.setHeader('X-Requested-With', 'XMLHttpRequest')
+    // The server's desktop-widget marker; with Origin absent or ours it is
+    // also accepted in place of the CSRF token (docs/desktop-widget.md).
+    req.setHeader('X-CMA-Desktop', '1')
     if (method !== 'GET') {
       req.setHeader('Content-Type', 'application/json')
       req.setHeader('Origin', APP_URL)
       if (csrfToken) req.setHeader('X-CSRF-Token', csrfToken)
     }
 
-    req.on('redirect', () => {
+    req.on('redirect', (statusCode, _method, location) => {
       try { req.abort() } catch {}
-      done({ status: 401 })
+      done({ status: statusCode, location })
     })
     req.on('error', () => done({ status: 0 }))
     req.on('abort', () => done({ status: 0 }))
@@ -268,6 +300,7 @@ module.exports = {
   POLL_MS,
   PAGE_FRESH_MS,
   workspaceSwitchPath,
+  redirectsToSignIn,
   createWidgetStore,
   createWidgetFeed,
   electronRequest,

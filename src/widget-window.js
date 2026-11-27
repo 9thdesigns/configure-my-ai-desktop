@@ -29,6 +29,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
+const { popoverConversation } = require('./widget-chat')
 
 const DOCK_WIDTH = 72 // the dock column, including room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -175,6 +176,8 @@ function widgetView (state) {
       id: bot.id,
       name: bot.name,
       avatar_url: bot.avatar_url,
+      avatar_color: bot.avatar_color,
+      avatar_shape: bot.avatar_shape,
       mood: bot.mood,
       waiting: bot.state.waiting,
       detail: bot.state.detail,
@@ -268,11 +271,18 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
     send('cma-widget:state', widgetView(store.get()))
   }
 
+  // The popover's view of a bot: the server's history when there is one, the
+  // pending card from the widget state either way (widget-chat.js).
+  async function popoverFor (botId, conversation) {
+    if (conversation === undefined) conversation = await feed.conversation(botId).catch(() => null)
+    return popoverConversation(botId, conversation, store.get())
+  }
+
   async function loadConversation () {
     if (!openBotId) return
     const botId = openBotId
-    const conversation = await feed.conversation(botId).catch(() => null)
-    if (botId === openBotId) send('cma-widget:conversation', conversation || { bot_id: botId, error: true })
+    const view = await popoverFor(botId)
+    if (botId === openBotId) send('cma-widget:conversation', view)
   }
 
   function expand (botId) {
@@ -330,11 +340,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
   // the main window's state has nothing to do with it.
   function sync () {
     const state = store.get()
-    const show = prefs.get().showWidget && dockBots(state).length > 0
+    // Both switches: the shell's pref (tray "Show Widget") and the server's
+    // enabled flag, which the tray toggle also sets.
+    const show = prefs.get().showWidget && Boolean(state?.enabled) && dockBots(state).length > 0
     if (show && !alive()) create()
     if (!show && alive()) win.destroy()
     if (show) pushState()
     if (expanded && openBotId && !dockBots(state).some((b) => b.id === openBotId)) collapse()
+    else if (expanded && openBotId) loadConversation()
   }
 
   const onDisplays = () => place()
@@ -405,9 +418,22 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
       openBot(id)
     })
 
-    ipcMain.handle('cma-widget:send', (event, input) => (fromWidget(event) ? feed.sendMessage(input) : null))
-    ipcMain.handle('cma-widget:answer', (event, input) => (fromWidget(event) ? feed.answer(input) : null))
-    ipcMain.handle('cma-widget:decide', (event, input) => (fromWidget(event) ? feed.decide(input) : null))
+    // Each answers with the popover's refreshed view, or null when the server
+    // didn't take it (the renderer keeps what the user typed and says so).
+    ipcMain.handle('cma-widget:send', async (event, input) => {
+      if (!fromWidget(event)) return null
+      const conversation = await feed.sendMessage(input).catch(() => null)
+      return conversation ? popoverFor(conversation.bot_id, conversation) : null
+    })
+    const action = (run) => async (event, input) => {
+      if (!fromWidget(event) || !input || typeof input !== 'object') return null
+      const ok = await run(input).catch(() => false)
+      if (!ok) return null
+      await feed.refresh().catch(() => {})
+      return popoverFor(input.bot_id)
+    }
+    ipcMain.handle('cma-widget:answer', action((input) => feed.answer(input)))
+    ipcMain.handle('cma-widget:decide', action((input) => feed.decide(input)))
   }
 
   return {

@@ -4,6 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const fixture = require('./fixtures/widget.json')
 const { widgetStateFrom } = require('../src/widget-state')
+const { WS2, ADA, LIN, OPS } = require('./ids')
 const { trayTitle, trayTooltip, trayMenuTemplate, trayIconPath } = require('../src/tray')
 
 const state = widgetStateFrom(fixture)
@@ -17,17 +18,17 @@ function recorder () {
 const byId = (template, id) => template.find((item) => item.id === id)
 
 test('the menu bar title is the focused bot and the needs-you count', () => {
-  assert.equal(trayTitle(state), 'Max · 2')
-  assert.equal(trayTitle({ ...state, focused_bot_id: '22' }), 'Lin · 2')
+  assert.equal(trayTitle(state), 'Max · 3')
+  assert.equal(trayTitle({ ...state, focused_bot_id: LIN }), 'Lin · 3')
   assert.equal(trayTitle({ ...state, needs_you: 0 }), 'Max', 'nothing waiting: just the name')
   assert.equal(trayTitle({ ...state, needs_you: 250 }), 'Max · 99+')
   assert.equal(trayTitle(null), '', 'no state (signed out): icon only')
   const long = widgetStateFrom({ ...fixture, manager: { ...fixture.manager, name: 'Maximilian the Magnificent' } })
-  assert.equal(trayTitle(long), 'Maximilian the Ma… · 2')
+  assert.equal(trayTitle(long), 'Maximilian the Ma… · 3')
 })
 
 test('the tooltip says it in words', () => {
-  assert.equal(trayTooltip(state), 'Configure My AI — Max: Questions — 2 need you')
+  assert.equal(trayTooltip(state), 'Configure My AI — Max: Questions — 3 need you')
   assert.equal(trayTooltip({ ...state, needs_you: 1 }), 'Configure My AI — Max: Questions — 1 needs you')
   assert.equal(trayTooltip(null), 'Configure My AI')
 })
@@ -49,29 +50,29 @@ test('workspaces are radio items; clicking another switches, clicking the curren
   assert.deepEqual(submenu.map((i) => [i.label, i.type, i.checked]), [['9D  9th Designs', 'radio', true], ['SP  Side Project', 'radio', false]])
   submenu[0].click()
   submenu[1].click()
-  assert.deepEqual(calls, [['switchWorkspace', '8']])
+  assert.deepEqual(calls, [['switchWorkspace', WS2]])
 })
 
 test('bots are checkboxes for "shown in the widget"; the manager is always on', () => {
   const { calls, actions } = recorder()
   const submenu = byId(trayMenuTemplate(state, {}, actions), 'bots').submenu
   assert.deepEqual(submenu.map((i) => [i.label, i.type, i.checked, i.enabled]), [
-    ['Max', 'checkbox', true, false],
+    ['Max (1)', 'checkbox', true, false],
     [undefined, 'separator', undefined, undefined],
     ['Ada', 'checkbox', true, undefined],
     ['Lin (1)', 'checkbox', true, undefined],
-    ['Ops', 'checkbox', false, undefined],
+    ['Ops (1)', 'checkbox', false, undefined],
   ])
   submenu[2].click()
   submenu[4].click()
-  assert.deepEqual(calls, [['setPinned', '21', false], ['setPinned', '23', true]])
+  assert.deepEqual(calls, [['setPinned', ADA, false], ['setPinned', OPS, true]])
 })
 
 test('the items call their actions', () => {
   const { calls, actions } = recorder()
   const template = trayMenuTemplate(state, { prefs: { showWidget: true, keepRunningInBackground: false }, openAtLogin: true, platform: 'win32' }, actions)
   for (const id of ['open', 'focused-bot', 'show-widget', 'keep-running', 'open-at-login', 'quit']) byId(template, id).click()
-  assert.deepEqual(calls, [['openApp'], ['openBot', '11'], ['setShowWidget', false], ['setKeepRunning', true], ['setOpenAtLogin', false], ['quit']])
+  assert.deepEqual(calls, [['openApp'], ['openBot', 'manager'], ['setShowWidget', false], ['setKeepRunning', true], ['setOpenAtLogin', false], ['quit']])
 })
 
 test('signed out: no workspaces or bots, a sign-in prompt instead of a bot', () => {

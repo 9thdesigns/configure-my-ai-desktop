@@ -1,22 +1,34 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fixture = require('./fixtures/widget.json')
-const { widgetStateFrom, dockBots, validAppUrl, focusedBot, stateLabel, validId, cleanText, validImageUrl, MAX_SEATS } = require('../src/widget-state')
+const { WS, WS2, ADA, LIN, LIN_SESSION, OPS } = require('./ids')
+const { widgetStateFrom, dockBots, botById, focusedBot, stateLabel, validId, cleanText, validImageUrl, validAppUrl, validColor, validShape, MAX_SEATS } = require('../src/widget-state')
 
 // The widget state arrives from a web page or the network and goes on to the
 // OS (menu bar title, native menus) — so it is rebuilt, never passed through.
 
 test('the fixture (the /desktop/widget.json contract) validates into the known shape', () => {
   const state = widgetStateFrom(fixture)
-  assert.deepEqual(state.workspace, { id: '3', name: '9th Designs' })
-  assert.deepEqual(state.workspaces.map((w) => [w.id, w.mark]), [['3', '9D'], ['8', 'SP']])
-  assert.equal(state.manager.id, '11')
-  assert.equal(state.manager.mood, 'waiting', 'a manager with a pending question reads as waiting')
-  assert.deepEqual(state.manager.state, { waiting: 'question', detail: 'Which repo should I ship first?' })
-  assert.deepEqual(state.seats.map((s) => [s.bot_id, s.mood, s.pinned]), [['21', 'working', true], ['22', 'waiting', true], ['23', 'idle', false]])
-  assert.deepEqual(state.seats[2].state, { waiting: null, detail: '' })
-  assert.equal(state.needs_you, 2)
-  assert.equal(state.focused_bot_id, '11')
+  assert.deepEqual(state.workspace, { id: WS, name: '9th Designs' })
+  assert.deepEqual(state.workspaces[0].mark, { initials: '9D', color: '#2f6feb', shape: 'squircle', logo_url: 'https://configuremyai.com/rails/active_storage/logo.png' })
+  assert.deepEqual(state.workspaces[1].mark, { initials: 'SP', color: '#e5484d', shape: 'circle', logo_url: null })
+  assert.equal(state.manager.id, 'manager')
+  assert.equal(state.manager.url, 'https://configuremyai.com/home', 'paths become absolute app URLs')
+  assert.equal(state.manager.avatar_url, 'https://configuremyai.com/rails/active_storage/logo.png')
+  assert.equal(state.manager.state.run_id, '0d1e2f3a-4b5c-4d6e-8f7a-8b9c0d1e2f3a')
+  assert.equal(state.manager.state.waiting, 'question')
+  assert.deepEqual(state.seats.map((s) => [s.bot_id, s.mood, s.pinned]), [[ADA, 'working', true], [LIN, 'waiting', true], [OPS, 'waiting', false]],
+    'the manager seat is not repeated; everyone else keeps their order')
+  const lin = state.seats[1]
+  assert.equal(lin.avatar_url, null)
+  assert.equal(lin.avatar_color, '#6e56cf')
+  assert.equal(lin.avatar_shape, 'hexagon')
+  assert.equal(lin.url, `https://configuremyai.com/autopilot/bots/${LIN}`)
+  assert.equal(lin.state.session_id, LIN_SESSION)
+  assert.equal(lin.state.status, 'awaiting_approval')
+  assert.equal(state.needs_you, 3)
+  assert.equal(state.focused_bot_id, 'manager')
+  assert.equal(state.enabled, true)
   assert.equal('csrf_token' in state, false, 'the CSRF token never travels with the state')
 })
 
@@ -26,9 +38,10 @@ test('anything that is not a widget state is refused', () => {
   }
 })
 
-test('ids are positive integers or short slugs, always strings', () => {
+test('ids are UUIDs, "manager", or short slugs — always strings', () => {
+  assert.equal(validId(ADA), ADA)
+  assert.equal(validId('manager'), 'manager')
   assert.equal(validId(7), '7')
-  assert.equal(validId('a1b2-c3_d'), 'a1b2-c3_d')
   for (const bad of [0, -3, 1.5, '', 'a b', '../x', 'x'.repeat(65), null, {}, NaN, 2 ** 60]) assert.equal(validId(bad), null)
 })
 
@@ -38,49 +51,81 @@ test('text is one line, trimmed and capped', () => {
   assert.equal(cleanText(42, 10), '')
 })
 
-test('avatars are https only, without credentials', () => {
+test('images are https only, without credentials', () => {
   assert.equal(validImageUrl('https://configuremyai.com/a.png'), 'https://configuremyai.com/a.png')
-  for (const bad of ['http://x.com/a.png', 'javascript:alert(1)', 'data:image/png;base64,AA', 'https://u:p@x.com/a.png', 'file:///etc/passwd', 7]) {
+  for (const bad of ['http://x.com/a.png', 'javascript:alert(1)', 'data:image/png;base64,AA', 'https://u:p@x.com/a.png', 'file:///etc/passwd', '/a.png', 7]) {
     assert.equal(validImageUrl(bad), null, bad)
   }
 })
 
-test('unknown moods and waits fall back, unknown keys are dropped, counts are clamped', () => {
+test('a bot url is a path on our origin, or our origin, or nothing', () => {
+  assert.equal(validAppUrl('/home'), 'https://configuremyai.com/home')
+  assert.equal(validAppUrl(`/autopilot/bots/${ADA}`), `https://configuremyai.com/autopilot/bots/${ADA}`)
+  assert.equal(validAppUrl('https://configuremyai.com/x'), 'https://configuremyai.com/x')
+  for (const bad of ['//evil.com/x', '/\\evil.com', 'https://evil.com/bots/1', 'http://configuremyai.com/x', 'javascript:1', 'https://a:b@configuremyai.com/', 'home', 3]) {
+    assert.equal(validAppUrl(bad), null, String(bad))
+  }
+})
+
+test('avatar colours are hex and shapes are bare words', () => {
+  assert.equal(validColor('#6E56CF'), '#6e56cf')
+  assert.equal(validColor('#abc'), '#abc')
+  for (const bad of ['red', '#abcd', 'url(x)', '#6e56cf;x', null]) assert.equal(validColor(bad), null)
+  assert.equal(validShape('squircle'), 'squircle')
+  for (const bad of ['Square', 'a b', 'x"y', '', 5]) assert.equal(validShape(bad), null)
+})
+
+test('unknown moods, waits and keys fall back or drop; counts are clamped', () => {
   const state = widgetStateFrom({
-    workspace: { id: 1, name: 'W', evil: true },
-    seats: [{ bot_id: 5, name: 'B', mood: 'exploding', state: { waiting: 'bribe', detail: 'x' }, needs_count: -4, pinned: 'yes', extra: 1 }],
+    workspace: { id: 'w1', name: 'W', evil: true },
+    seats: [{ bot_id: 'b5', name: 'B', mood: 'exploding', state: { waiting: 'bribe', detail: 'x', status: 'Not A Keyword', session_id: '../s' }, needs_count: -4, pinned: 'yes', extra: 1 }],
     needs_you: 'lots',
+    enabled: false,
   })
-  assert.deepEqual(state.seats[0], { bot_id: '5', name: 'B', avatar_url: null, url: null, mood: 'idle', state: { waiting: null, detail: 'x' }, needs_count: 0, pinned: false })
+  const seat = state.seats[0]
+  assert.equal(seat.mood, 'idle')
+  assert.equal(seat.pinned, false)
+  assert.equal(seat.needs_count, 0)
+  assert.equal(seat.extra, undefined)
+  assert.deepEqual(seat.state, { status: null, face: null, waiting: null, detail: 'x', url: null, session_id: null, message_id: null, run_id: null, thread_id: null })
   assert.equal(state.needs_you, 0)
   assert.equal(state.manager, null)
-  assert.deepEqual(state.workspace, { id: '1', name: 'W' })
-  assert.deepEqual(state.workspaces, [{ id: '1', name: 'W', mark: '' }], 'the current workspace is always in the list')
+  assert.equal(state.enabled, false)
+  assert.deepEqual(state.workspace, { id: 'w1', name: 'W' })
+  assert.deepEqual(state.workspaces, [{ id: 'w1', name: 'W', mark: { initials: 'W', color: null, shape: null, logo_url: null } }], 'the current workspace is always in the list')
 })
 
 test('seats are de-duplicated, never repeat the manager, and are capped', () => {
-  const seats = Array.from({ length: 200 }, (_, i) => ({ bot_id: (i % 120) + 1, name: `B${i}` }))
-  const state = widgetStateFrom({ workspace: { id: 1 }, manager: { id: 1, name: 'M' }, seats })
+  const seats = [{ bot_id: 'manager', manager: true }, ...Array.from({ length: 200 }, (_, i) => ({ bot_id: `b${(i % 120) + 1}`, name: `B${i}` }))]
+  const state = widgetStateFrom({ workspace: { id: 'w' }, manager: { id: 'manager', name: 'M' }, seats })
   assert.equal(state.seats.length, MAX_SEATS)
-  assert.equal(state.seats.some((s) => s.bot_id === '1'), false)
+  assert.equal(state.seats.some((s) => s.bot_id === 'manager'), false)
   assert.equal(new Set(state.seats.map((s) => s.bot_id)).size, state.seats.length)
 })
 
 test('the focus must be a known bot, else the manager', () => {
-  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: 22 }).focused_bot_id, '22')
-  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: 999 }).focused_bot_id, '11')
-  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: undefined }).focused_bot_id, '11')
-  assert.equal(widgetStateFrom({ workspace: { id: 1 }, focused_bot_id: 5 }).focused_bot_id, null)
+  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: LIN }).focused_bot_id, LIN)
+  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: 'nobody' }).focused_bot_id, 'manager')
+  assert.equal(widgetStateFrom({ ...fixture, focused_bot_id: null }).focused_bot_id, 'manager')
+  assert.equal(widgetStateFrom({ workspace: { id: 'w' }, focused_bot_id: 'b5' }).focused_bot_id, null)
 })
 
-test('focusedBot resolves the manager or a seat', () => {
+test('focusedBot and botById resolve the manager or a seat', () => {
   const state = widgetStateFrom(fixture)
   assert.equal(focusedBot(state).name, 'Max')
   assert.equal(focusedBot(state).isManager, true)
-  const lin = focusedBot({ ...state, focused_bot_id: '22' })
+  const lin = focusedBot({ ...state, focused_bot_id: LIN })
   assert.equal(lin.name, 'Lin')
-  assert.equal(lin.id, '22')
+  assert.equal(lin.id, LIN)
+  assert.equal(lin.isManager, false)
+  assert.equal(botById(state, OPS).name, 'Ops')
+  assert.equal(botById(state, 'nobody'), null)
   assert.equal(focusedBot(null), null)
+})
+
+test('the dock shows the manager first, then the pinned seats in order', () => {
+  assert.deepEqual(dockBots(widgetStateFrom(fixture)).map((b) => [b.id, b.isManager]), [['manager', true], [ADA, false], [LIN, false]])
+  assert.deepEqual(dockBots(null), [])
 })
 
 test('the state label: a pending wait outranks the mood', () => {
@@ -91,15 +136,4 @@ test('the state label: a pending wait outranks the mood', () => {
   assert.equal(stateLabel({ mood: 'failed' }), 'Failed')
   assert.equal(stateLabel({ mood: 'idle' }), 'Idle')
   assert.equal(stateLabel(null), '')
-})
-
-test('a bot url is ours or nothing', () => {
-  assert.equal(validAppUrl('https://configuremyai.com/bots/22'), 'https://configuremyai.com/bots/22')
-  for (const bad of ['https://evil.com/bots/1', 'http://configuremyai.com/x', 'javascript:1', 'https://a:b@configuremyai.com/', 3]) assert.equal(validAppUrl(bad), null)
-})
-
-test('the dock shows the manager first, then the pinned seats in order', () => {
-  const bots = dockBots(widgetStateFrom(fixture))
-  assert.deepEqual(bots.map((b) => [b.id, b.isManager]), [['11', true], ['21', false], ['22', false]])
-  assert.deepEqual(dockBots(null), [])
 })

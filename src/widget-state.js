@@ -3,43 +3,50 @@
 // The desktop widget's state — which workspace, which bots sit in the dock,
 // which one is focused, and how many things need the user — in the shape the
 // Rails app serves at GET /desktop/widget.json and hands to
-// window.cmaiDesktop.widget.publish(state). Pure, so it is unit-testable
-// without Electron (test/widget-state.test.js), the same split
-// window-chrome.js makes.
+// window.cmaiDesktop.widget.publish(state) (docs/desktop-widget.md in the
+// Rails app). Pure, so it is unit-testable without Electron
+// (test/widget-state.test.js), the same split window-chrome.js makes.
 //
 // Everything here is INPUT: it arrives from a web page or over the network
-// and goes on to the OS (the menu bar title, a native menu) and, later, into
-// the widget windows. So it is rebuilt field by field into a fresh object of
+// and goes on to the OS (the menu bar title, a native menu) and into the
+// widget windows. So it is rebuilt field by field into a fresh object of
 // known shape — unknown keys dropped, strings trimmed and capped, numbers
-// clamped, URLs limited to https — and anything structurally wrong is
-// refused rather than repaired.
+// clamped, URLs limited to https / our own origin — and anything
+// structurally wrong is refused rather than repaired.
 //
 //   {
 //     workspace:  { id, name },
-//     workspaces: [{ id, name, mark }],
-//     manager:    { id, name, avatar_url, mood, state },
-//     seats:      [{ bot_id, name, avatar_url, mood, state, needs_count, pinned }],
-//     needs_you, focused_bot_id
+//     workspaces: [{ id, name, mark: { initials, color, shape, logo_url } }],
+//     manager:    { id: 'manager', name, avatar_url, avatar_color,
+//                   avatar_shape, mood, needs_count, url, state },
+//     seats:      [{ bot_id, name, avatar_url, avatar_color, avatar_shape,
+//                    mood, needs_count, pinned, manager, url, state }],
+//     needs_you, focused_bot_id, enabled
 //   }
 //
-// mood is idle | working | waiting | failed | responded; state is
-// { waiting: 'question' | 'approval' | null, detail }.
+// Ids are UUID strings; the manager's is the literal 'manager'. Seats list
+// every candidate bot: the pinned ones first in the user's order, then the
+// rest with pinned: false. mood is idle | working | waiting | failed |
+// responded; state is { status, face, waiting: 'question' | 'approval' |
+// null, detail, url, session_id, message_id } for a bot and the same with
+// run_id / thread_id for the manager.
 
-const { isAppUrl } = require('./url-policy')
+const { APP_URL, isAppUrl } = require('./url-policy')
 
 const MOODS = Object.freeze(['idle', 'working', 'waiting', 'failed', 'responded'])
 const WAITING = Object.freeze(['question', 'approval'])
+const MANAGER_ID = 'manager'
 
 const MAX_SEATS = 50
 const MAX_WORKSPACES = 50
 const MAX_NAME = 80
-const MAX_MARK = 16
+const MAX_INITIALS = 4
 const MAX_DETAIL = 500
 const MAX_COUNT = 9999
 const MAX_URL = 2048
 
-// Record ids: positive integers or short slug/uuid-like strings, always
-// handed on as strings so "7" and 7 compare equal everywhere downstream.
+// Record ids: UUIDs, 'manager', or other short slugs (positive integers are
+// still accepted), always handed on as strings.
 const ID = /^[A-Za-z0-9_-]{1,64}$/
 
 function validId (value) {
@@ -65,9 +72,9 @@ function count (value) {
   return Math.min(n, MAX_COUNT)
 }
 
-// Avatars are pictures the widget will draw; only https, and only without
-// credentials in the URL. Anything else is dropped (the widget falls back to
-// initials).
+// Pictures the widget will draw (the manager's workspace logo, workspace
+// marks): https only, no credentials in the URL. Anything else is dropped and
+// the widget falls back to initials on the avatar colour.
 function validImageUrl (value) {
   if (typeof value !== 'string' || value.length > MAX_URL) return null
   try {
@@ -79,49 +86,108 @@ function validImageUrl (value) {
   }
 }
 
-// Where a bot lives in the app (optional; the shell falls back to
-// /bots/:id). Only our own https origin — this URL is loaded into the main
-// window.
+// Where something lives in the app — loaded into the main window, so only our
+// own https origin. The server sends paths ('/home', '/autopilot/bots/:id');
+// full URLs on our origin are accepted too. Always handed on absolute.
 function validAppUrl (value) {
-  if (typeof value !== 'string' || value.length > MAX_URL || !isAppUrl(value)) return null
+  if (typeof value !== 'string' || value.length > MAX_URL) return null
+  if (value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\')) {
+    try {
+      value = new URL(value, APP_URL).toString()
+    } catch {
+      return null
+    }
+  }
+  if (!isAppUrl(value)) return null
   const url = new URL(value)
   if (url.username || url.password) return null
   return url.toString()
+}
+
+// "#rgb" / "#rrggbb" only — it becomes a CSS background in the widget.
+const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
+function validColor (value) {
+  return typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : null
+}
+
+// A shape keyword (circle, squircle, square, hexagon, …): a CSS class in the
+// widget, so a bare lowercase word or nothing.
+const SHAPE = /^[a-z][a-z_-]{0,23}$/
+function validShape (value) {
+  return typeof value === 'string' && SHAPE.test(value) ? value : null
 }
 
 function validMood (value) {
   return MOODS.includes(value) ? value : 'idle'
 }
 
+const KEYWORD = /^[a-z][a-z0-9_-]{0,31}$/
+function validKeyword (value) {
+  return typeof value === 'string' && KEYWORD.test(value) ? value : null
+}
+
 function validBotState (input) {
-  const state = { waiting: null, detail: '' }
+  const state = {
+    status: null,
+    face: null,
+    waiting: null,
+    detail: '',
+    url: null,
+    session_id: null,
+    message_id: null,
+    run_id: null,
+    thread_id: null,
+  }
   if (!input || typeof input !== 'object') return state
+  state.status = validKeyword(input.status)
+  state.face = validKeyword(input.face)
   if (WAITING.includes(input.waiting)) state.waiting = input.waiting
   state.detail = cleanText(input.detail, MAX_DETAIL)
+  state.url = validAppUrl(input.url)
+  for (const key of ['session_id', 'message_id', 'run_id', 'thread_id']) state[key] = validId(input[key])
   return state
+}
+
+function validMark (input, name) {
+  const fallback = cleanText(name, MAX_NAME).split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()
+  if (typeof input === 'string') return { initials: cleanText(input, MAX_INITIALS) || fallback, color: null, shape: null, logo_url: null }
+  if (!input || typeof input !== 'object') return { initials: fallback, color: null, shape: null, logo_url: null }
+  return {
+    initials: cleanText(input.initials, MAX_INITIALS) || fallback,
+    color: validColor(input.color),
+    shape: validShape(input.shape),
+    logo_url: validImageUrl(input.logo_url),
+  }
 }
 
 function validWorkspace (input) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
   if (!id) return null
-  return { id, name: cleanText(input.name, MAX_NAME) || 'Workspace', mark: cleanText(input.mark, MAX_MARK) }
+  const name = cleanText(input.name, MAX_NAME) || 'Workspace'
+  return { id, name, mark: validMark(input.mark, name) }
+}
+
+// The fields every bot (manager or seat) carries.
+function botFields (input, fallbackName) {
+  const state = validBotState(input.state)
+  return {
+    name: cleanText(input.name, MAX_NAME) || fallbackName,
+    avatar_url: validImageUrl(input.avatar_url),
+    avatar_color: validColor(input.avatar_color),
+    avatar_shape: validShape(input.avatar_shape),
+    url: validAppUrl(input.url) || state.url,
+    mood: input.mood === undefined && state.waiting ? 'waiting' : validMood(input.mood),
+    needs_count: count(input.needs_count),
+    state,
+  }
 }
 
 function validManager (input) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
   if (!id) return null
-  const state = validBotState(input.state)
-  return {
-    id,
-    name: cleanText(input.name, MAX_NAME) || 'Manager',
-    avatar_url: validImageUrl(input.avatar_url),
-    url: validAppUrl(input.url),
-    mood: input.mood === undefined && state.waiting ? 'waiting' : validMood(input.mood),
-    state,
-    needs_count: count(input.needs_count),
-  }
+  return { id, ...botFields(input, 'Manager') }
 }
 
 function validSeat (input) {
@@ -130,26 +196,22 @@ function validSeat (input) {
   if (!botId) return null
   return {
     bot_id: botId,
-    name: cleanText(input.name, MAX_NAME) || 'Bot',
-    avatar_url: validImageUrl(input.avatar_url),
-    url: validAppUrl(input.url),
-    mood: validMood(input.mood),
-    state: validBotState(input.state),
-    needs_count: count(input.needs_count),
+    ...botFields(input, 'Bot'),
     pinned: input.pinned === true,
+    manager: input.manager === true || botId === MANAGER_ID,
   }
 }
 
 // Arrays: entries that fail validation are skipped, duplicates (by id) keep
 // the first, and the length is capped — a page that sends 10,000 seats gets
 // a menu of MAX_SEATS, not a hung main process.
-function validList (input, validate, key, max, exclude = []) {
+function validList (input, validate, key, max, skip = () => false) {
   if (!Array.isArray(input)) return []
   const out = []
-  const seen = new Set(exclude)
+  const seen = new Set()
   for (const item of input.slice(0, max * 2)) {
     const valid = validate(item)
-    if (!valid || seen.has(valid[key])) continue
+    if (!valid || seen.has(valid[key]) || skip(valid)) continue
     seen.add(valid[key])
     out.push(valid)
     if (out.length >= max) break
@@ -166,7 +228,9 @@ function widgetStateFrom (input) {
   if (!workspace) return null
 
   const manager = validManager(input.manager)
-  const seats = validList(input.seats, validSeat, 'bot_id', MAX_SEATS, manager ? [manager.id] : [])
+  // The manager is its own field and always first in the dock; its seat in
+  // the list (bot_id 'manager') is not repeated as a second avatar.
+  const seats = validList(input.seats, validSeat, 'bot_id', MAX_SEATS, (s) => s.manager || (manager && s.bot_id === manager.id))
   const workspaces = validList(input.workspaces, validWorkspace, 'id', MAX_WORKSPACES)
   if (!workspaces.some((w) => w.id === workspace.id)) workspaces.unshift(workspace)
 
@@ -182,30 +246,36 @@ function widgetStateFrom (input) {
     // The focus has to be a bot the state knows about; otherwise the manager
     // (always first, and the default on launch).
     focused_bot_id: focused && known.has(focused) ? focused : (manager ? manager.id : null),
+    enabled: input.enabled !== false,
   }
 }
 
-// The focused bot as { id, name, mood, state, needs_count, avatar_url }, or
-// null when there is nobody to show.
-function focusedBot (state) {
-  if (!state) return null
-  const id = state.focused_bot_id
+function seatAsBot (seat) {
+  const { bot_id: id, pinned, manager, ...rest } = seat
+  return { id, ...rest, isManager: false }
+}
+
+// Any bot the state knows, by id, as { id, name, …, isManager }.
+function botById (state, id) {
+  if (!state || !id) return null
   if (state.manager && state.manager.id === id) return { ...state.manager, isManager: true }
   const seat = state.seats.find((s) => s.bot_id === id)
-  if (seat) return { id: seat.bot_id, name: seat.name, avatar_url: seat.avatar_url, url: seat.url, mood: seat.mood, state: seat.state, needs_count: seat.needs_count, isManager: false }
-  return state.manager ? { ...state.manager, isManager: true } : null
+  return seat ? seatAsBot(seat) : null
+}
+
+// The focused bot, or the manager, or null when there is nobody to show.
+function focusedBot (state) {
+  if (!state) return null
+  return botById(state, state.focused_bot_id) || (state.manager ? { ...state.manager, isManager: true } : null)
 }
 
 // The avatars the dock shows, in order: the manager always first, then the
-// pinned seats as the server ordered them.
+// pinned seats in the user's order.
 function dockBots (state) {
   if (!state) return []
   const bots = []
   if (state.manager) bots.push({ ...state.manager, isManager: true })
-  for (const seat of state.seats) {
-    if (!seat.pinned) continue
-    bots.push({ id: seat.bot_id, name: seat.name, avatar_url: seat.avatar_url, url: seat.url, mood: seat.mood, state: seat.state, needs_count: seat.needs_count, isManager: false })
-  }
+  for (const seat of state.seats) if (seat.pinned) bots.push(seatAsBot(seat))
   return bots
 }
 
@@ -227,6 +297,7 @@ function stateLabel (bot) {
 module.exports = {
   MOODS,
   WAITING,
+  MANAGER_ID,
   MAX_SEATS,
   MAX_WORKSPACES,
   MAX_NAME,
@@ -234,7 +305,10 @@ module.exports = {
   cleanText,
   validImageUrl,
   validAppUrl,
+  validColor,
+  validShape,
   widgetStateFrom,
+  botById,
   focusedBot,
   dockBots,
   stateLabel,

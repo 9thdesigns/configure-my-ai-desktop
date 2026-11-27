@@ -111,8 +111,9 @@ test('the offset persists, and a bad file means centred', () => {
 test('the renderer gets the dock bots and their labels, nothing else', () => {
   const view = W.widgetView(widgetStateFrom(fixture))
   assert.deepEqual(Object.keys(view).sort(), ['bots', 'focused_bot_id', 'needs_you'])
-  assert.equal(view.focused_bot_id, '11')
-  assert.deepEqual(view.bots.map((b) => [b.id, b.label]), [['11', 'Questions'], ['21', 'Working…'], ['22', 'Needs approval']])
+  assert.equal(view.focused_bot_id, 'manager')
+  assert.deepEqual(view.bots.map((b) => [b.name, b.label, b.avatar_color, b.avatar_shape]), [['Max', 'Questions', '#231d1b', 'circle'], ['Ada', 'Working…', '#f2c94c', 'squircle'], ['Lin', 'Needs approval', '#6e56cf', 'hexagon']])
+  assert.ok(!JSON.stringify(view).includes('session_id'), 'no session ids in the renderer: main addresses replies itself')
   assert.ok(!JSON.stringify(view).includes(fixture.csrf_token))
   assert.deepEqual(W.widgetView(null), { focused_bot_id: null, needs_you: 0, bots: [] })
 })
@@ -124,8 +125,9 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
   assert.equal(handlers.length, 9)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
-    assert.match(handler.slice(0, 220), /fromWidget\(event\)/, handler.slice(0, 40))
+    assert.match(handler.slice(0, 220), /fromWidget\(event\)|, action\(/, handler.slice(0, 40))
   }
+  assert.match(ipc, /const action = \(run\) => async \(event, input\) => \{\n\s+if \(!fromWidget\(event\)/)
   assert.match(src, /return url === HTML_URL/)
   assert.match(W.HTML_URL, /^file:\/\/.*\/src\/widget\.html$/)
 })
