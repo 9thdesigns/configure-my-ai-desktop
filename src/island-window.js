@@ -29,7 +29,7 @@ const { widgetWindowOptions } = require('./widget-window')
 const placement = require('./widget-placement')
 
 const ISLAND_WIDTH = 360
-const COMPACT_HEIGHT = 44
+const COMPACT_HEIGHT = 36 // the pill (island.css --pill-h)
 const MAX_HEIGHT = 440
 const TOP_MARGIN = 6
 const SHADOW = 10 // room around the pill for its shadow

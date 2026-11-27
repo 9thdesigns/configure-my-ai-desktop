@@ -11,6 +11,13 @@
   --working: #2f6feb;
   --failed: #e5484d;
   --ok: #30a46c;
+  /* Whole pixels so the face lands on the pixel grid at 1x and 2x: a 22px
+     face in a 36px pill, 7px from the top, the bottom and the rounded end
+     (so it sits concentric with the end cap). The face's bob reaches about
+     3px past its box while it works; 7px keeps it inside the pill, which
+     clips. island-window.js COMPACT_HEIGHT matches the pill. */
+  --pill-h: 36px;
+  --face: 22px;
   color-scheme: dark;
 }
 
@@ -35,13 +42,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   left: 10px;
   width: 360px;
   background: var(--pill);
-  border-radius: 22px;
+  border-radius: 18px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   overflow: hidden;
   transition: border-radius 0.2s ease;
   animation: island-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
-.island.is-expanded { border-radius: 20px; }
+.island.is-expanded { border-radius: 18px; }
 
 @keyframes island-in {
   from { transform: scale(0.85); opacity: 0; }
@@ -50,39 +57,41 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .island-bar {
   width: 100%;
-  height: 44px;
+  height: var(--pill-h);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 8px 0 8px;
+  gap: 9px;
+  padding: 0 7px;
+  line-height: 18px;
   border: 0;
   background: none;
   text-align: left;
 }
 
 .avatar {
-  width: 28px;
-  height: 28px;
+  width: var(--face);
+  height: var(--face);
   flex: none;
   border-radius: 50%;
   display: grid;
   place-items: center;
   overflow: hidden;
   background: var(--pill-2);
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
 }
-.avatar[data-shape="square"] { border-radius: 7px; }
+.avatar[data-shape="square"] { border-radius: 6px; }
 .avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
 .avatar[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .island[data-chip="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
 
 /* The web app's animated CFA face (src/avatar-render.js), sized to its slot
-   by --cfa-size; the face brings its own shape, colour and motion (the
-   avatar stylesheet main hands over). Paused while the window is hidden or
-   the box is off screen; static with reduced motion. */
-.avatar { --cfa-size: 28px; }
+   by --cfa-size — the same whole-pixel size as the box, always; the face
+   brings its own shape, colour and motion (the avatar stylesheet main hands
+   over). Paused while the window is hidden or the box is off screen; static
+   with reduced motion. */
+.avatar { --cfa-size: var(--face); }
 /* The face's own stylesheet gives .cfa-avatar a default --cfa-size (72px);
    the slot's size must win, so the face takes it from its box. */
 .avatar[data-mode="cfa"] > .cfa-avatar { --cfa-size: inherit; }
@@ -115,9 +124,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .chip {
   flex: none;
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 999px;
   font-size: 12px;
+  line-height: 16px;
   font-weight: 600;
   background: var(--pill-2);
   color: var(--muted);

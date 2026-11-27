@@ -189,7 +189,8 @@ test('the CSS turns the reduced-motion and paused flags into a static face', () 
     assert.match(css, /:root\[data-motion="reduce"\] \.avatar\[data-mode="cfa"\] \* \{ animation: none !important/, file)
     assert.match(css, /:root\[data-cfa-paused\] \.avatar\[data-mode="cfa"\] \*/, file)
     assert.match(css, /\[data-offscreen\] \* \{ animation-play-state: paused !important; \}/, file)
-    assert.match(css, /--cfa-size: \d+px/, file)
+    // A whole-pixel size, or the slot variable that holds one (avatar-geometry.test.js).
+    assert.match(css, /--cfa-size: (\d+px|var\(--[a-z-]+\))/, file)
   }
 })
 
