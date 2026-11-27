@@ -18,13 +18,13 @@ function recorder () {
 const byId = (template, id) => template.find((item) => item.id === id)
 
 test('the menu bar title is the focused bot and the needs-you count', () => {
-  assert.equal(trayTitle(state), 'Max · 3')
-  assert.equal(trayTitle({ ...state, focused_bot_id: LIN }), 'Lin · 3')
-  assert.equal(trayTitle({ ...state, needs_you: 0 }), 'Max', 'nothing waiting: just the name')
-  assert.equal(trayTitle({ ...state, needs_you: 250 }), 'Max · 99+')
+  assert.equal(trayTitle(state), 'Config My AI · 3')
+  assert.equal(trayTitle({ ...state, focused_bot_id: LIN }), 'Config My AI · 3', 'the label is the app, whichever bot is focused')
+  assert.equal(trayTitle({ ...state, needs_you: 0 }), 'Config My AI', 'nothing waiting: just the name')
+  assert.equal(trayTitle({ ...state, needs_you: 250 }), 'Config My AI · 99+')
   assert.equal(trayTitle(null), '', 'no state (signed out): icon only')
   const long = widgetStateFrom({ ...fixture, manager: { ...fixture.manager, name: 'Maximilian the Magnificent' } })
-  assert.equal(trayTitle(long), 'Maximilian the Ma… · 3')
+  assert.equal(trayTitle(long), 'Config My AI · 3', 'a long bot name never changes the label')
 })
 
 test('the tooltip says it in words', () => {
