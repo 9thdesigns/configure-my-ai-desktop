@@ -114,7 +114,9 @@ function trayMenuTemplate (state, options, actions) {
       label: 'Show Island',
       type: 'checkbox',
       checked: Boolean(prefs.showIsland),
-      click: () => actions.setShowIsland(!prefs.showIsland),
+      // Electron flips a checkbox before click, so item.checked is what the
+      // user asked for; the snapshot is the fallback (and what tests pass).
+      click: (item) => actions.setShowIsland(typeof item?.checked === 'boolean' ? item.checked : !prefs.showIsland),
     },
     {
       id: 'keep-running',
