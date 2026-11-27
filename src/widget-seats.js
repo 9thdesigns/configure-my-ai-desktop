@@ -95,6 +95,7 @@ function pickerBots (state, query = '') {
       avatar_color: s.avatar_color,
       avatar_shape: s.avatar_shape,
       avatar_url: s.avatar_url,
+      avatar: s.avatar,
       needs_count: s.needs_count,
       label: isPaused(s) ? 'Paused' : stateLabel(s),
     }))

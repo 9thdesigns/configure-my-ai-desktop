@@ -105,7 +105,7 @@ test('publish is origin-gated in main and validated before it is stored', () => 
   const gated = preload.slice(preload.indexOf('if (info && info.chromeless && onAppOrigin())'))
   assert.ok(gated.includes("ipcRenderer.send('cfa:widget-publish'"), 'publish is inside the origin gate')
   const handler = main.slice(main.indexOf("ipcMain.on('cfa:widget-publish'"))
-  assert.match(handler.slice(0, 200), /if \(!fromAppFrame\(event\) \|\| !widgetStore\) return\n\s+widgetStore\.apply\(input, 'page'\)/)
+  assert.match(handler.slice(0, 200), /if \(!fromAppFrame\(event\) \|\| !widgetStore\) return\n\s+widgetStore\.apply\(input, 'page', \{ origin: /)
   const unhandled = main.slice(main.indexOf("ipcMain.on('cfa:widget-command-unhandled'"))
   assert.match(unhandled.slice(0, 200), /if \(!fromAppFrame\(event\)/)
 })

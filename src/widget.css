@@ -236,6 +236,28 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .avatar-sm { width: 28px; height: 28px; font-size: 11px; }
 
+/* The web app's animated CFA face (src/avatar-render.js), sized to its slot
+   by --cfa-size; the face brings its own shape, colour and motion (the
+   avatar stylesheet main hands over). Paused while the window is hidden or
+   the box is off screen; static with reduced motion. */
+.avatar { --cfa-size: 44px; }
+.avatar[data-mode="cfa"] {
+  background: none;
+  clip-path: none;
+  overflow: visible;
+  contain: layout style;
+}
+.avatar[data-mode="cfa"] > * { flex: none; }
+:root[data-cfa-paused] .avatar[data-mode="cfa"] *,
+.avatar[data-mode="cfa"][data-offscreen] * { animation-play-state: paused !important; }
+:root[data-motion="reduce"] .avatar[data-mode="cfa"],
+:root[data-motion="reduce"] .avatar[data-mode="cfa"] * { animation: none !important; transition: none !important; }
+.avatar-sm { --cfa-size: 28px; }
+.picker-item .avatar { --cfa-size: 32px; }
+/* The face shows "working" itself: no glow ring on top of it. */
+.dock-bot[data-mood="working"] .avatar[data-mode="cfa"] { animation: none; }
+.dock-bot[data-paused] .avatar[data-mode="cfa"] * { animation-play-state: paused !important; }
+
 /* The popover ------------------------------------------------------------ */
 
 .popover {

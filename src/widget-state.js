@@ -21,8 +21,13 @@
 //                   avatar_shape, mood, needs_count, url, state },
 //     seats:      [{ bot_id, name, avatar_url, avatar_color, avatar_shape,
 //                    mood, needs_count, pinned, manager, url, state }],
-//     needs_you, focused_bot_id, enabled
+//     needs_you, focused_bot_id, enabled, avatar_css_url
 //   }
+//
+// The manager and every seat may also carry `avatar` (the web app's animated
+// CFA avatar, cfa-avatar.js), null from an older server. Its markup, and
+// avatar_css_url, are only kept when the caller says the state came from our
+// own origin ({ trusted: true }).
 //
 // Ids are UUID strings; the manager's is the literal 'manager'. Seats list
 // every candidate bot: the pinned ones first in the user's order, then the
@@ -32,6 +37,7 @@
 // run_id / thread_id for the manager.
 
 const { APP_URL, isAppUrl } = require('./url-policy')
+const { validAvatar, validAvatarCssUrl } = require('./cfa-avatar')
 
 const MOODS = Object.freeze(['idle', 'working', 'waiting', 'failed', 'responded'])
 const WAITING = Object.freeze(['question', 'approval'])
@@ -202,13 +208,14 @@ function validWorkspace (input) {
 }
 
 // The fields every bot (manager or seat) carries.
-function botFields (input, fallbackName) {
+function botFields (input, fallbackName, trusted) {
   const state = validBotState(input.state)
   return {
     name: cleanText(input.name, MAX_NAME) || fallbackName,
     avatar_url: validImageUrl(input.avatar_url),
     avatar_color: validColor(input.avatar_color),
     avatar_shape: validShape(input.avatar_shape),
+    avatar: validAvatar(input.avatar, { trusted }),
     url: validAppUrl(input.url) || state.url,
     mood: input.mood === undefined && state.waiting ? 'waiting' : validMood(input.mood),
     needs_count: count(input.needs_count),
@@ -216,20 +223,20 @@ function botFields (input, fallbackName) {
   }
 }
 
-function validManager (input) {
+function validManager (input, trusted = false) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
   if (!id) return null
-  return { id, ...botFields(input, 'Manager') }
+  return { id, ...botFields(input, 'Manager', trusted) }
 }
 
-function validSeat (input) {
+function validSeat (input, trusted = false) {
   if (!input || typeof input !== 'object') return null
   const botId = validId(input.bot_id)
   if (!botId) return null
   return {
     bot_id: botId,
-    ...botFields(input, 'Bot'),
+    ...botFields(input, 'Bot', trusted),
     pinned: input.pinned === true,
     manager: input.manager === true || botId === MANAGER_ID,
   }
@@ -254,16 +261,17 @@ function validList (input, validate, key, max, skip = () => false) {
 
 // The page's (or the server's) widget state, made safe — or null when it is
 // not a widget state at all. A state with no workspace is refused: every
-// other field is scoped to one.
-function widgetStateFrom (input) {
+// other field is scoped to one. trusted: it came from our own origin (the
+// server's feed, or the app's own page), so avatar markup may be kept.
+function widgetStateFrom (input, { trusted = false } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
   const workspace = validWorkspace(input.workspace)
   if (!workspace) return null
 
-  const manager = validManager(input.manager)
+  const manager = validManager(input.manager, trusted)
   // The manager is its own field and always first in the dock; its seat in
   // the list (bot_id 'manager') is not repeated as a second avatar.
-  const seats = validList(input.seats, validSeat, 'bot_id', MAX_SEATS, (s) => s.manager || (manager && s.bot_id === manager.id))
+  const seats = validList(input.seats, (s) => validSeat(s, trusted), 'bot_id', MAX_SEATS, (s) => s.manager || (manager && s.bot_id === manager.id))
   const workspaces = validList(input.workspaces, validWorkspace, 'id', MAX_WORKSPACES)
   if (!workspaces.some((w) => w.id === workspace.id)) workspaces.unshift(workspace)
 
@@ -280,6 +288,7 @@ function widgetStateFrom (input) {
     // (always first, and the default on launch).
     focused_bot_id: focused && known.has(focused) ? focused : (manager ? manager.id : null),
     enabled: input.enabled !== false,
+    avatar_css_url: trusted ? validAvatarCssUrl(input.avatar_css_url) : null,
   }
 }
 
