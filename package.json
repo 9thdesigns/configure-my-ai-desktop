@@ -2,7 +2,7 @@
   "name": "configure-my-ai-desktop",
   "productName": "Configure My AI",
   "desktopName": "configure-my-ai.desktop",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Configure My AI for desktop — a thin Electron shell around configuremyai.com for macOS, Windows and Linux (Omarchy/Arch), distributed as a direct download.",
   "main": "src/main.js",
   "private": true,
