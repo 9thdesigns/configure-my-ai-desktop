@@ -29,6 +29,7 @@ const { createPrefs } = require('./prefs')
 const { createTray } = require('./tray')
 const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
 const { validId } = require('./widget-state')
+const { createWidgetController } = require('./widget-window')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -48,6 +49,7 @@ let prefs = null
 let widgetStore = null
 let widgetFeed = null
 let trayHandle = null
+let widget = null
 
 // The windows drawn without a native title bar — the app's own, but not the
 // OAuth popups, which keep a standard frame. Only these need the page to
@@ -248,7 +250,13 @@ function createMainWindow () {
   })
 
   mainWindow.once('ready-to-show', () => mainWindow.show())
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => {
+    mainWindow = null
+    // The widget window keeps "all windows closed" from ever firing, so the
+    // keep-running pref is applied here too: off, closing the app window
+    // quits, widget and all.
+    if (!isQuitting && prefs && !prefs.get().keepRunningInBackground) app.quit()
+  })
 
   mainWindow.loadURL(START_URL)
   return mainWindow
@@ -320,7 +328,7 @@ function registerIpc () {
     if (!fromAppFrame(event) || !command || command.type !== 'open-bot') return
     const id = validId(command.bot_id)
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (id && win && win === mainWindow) win.loadURL(botUrl(id))
+    if (id && win && win === mainWindow) win.loadURL(dockBotById(id)?.url || botUrl(id))
   })
 
   // The OS theme changed: windows the page has not coloured yet follow it.
@@ -511,14 +519,24 @@ function botUrl (id) {
 function openBot (botId) {
   const id = validId(botId)
   if (!id) return
+  const known = dockBotById(id)
   const wasOpen = Boolean(mainWindow && !mainWindow.isDestroyed())
   openApp()
   const contents = mainWindow.webContents
   if (wasOpen && isAppUrl(contents.getURL()) && !contents.isLoading()) {
     contents.send('cfa:widget-command', { type: 'open-bot', bot_id: id })
   } else {
-    mainWindow.loadURL(botUrl(id))
+    mainWindow.loadURL(known?.url || botUrl(id))
   }
+}
+
+// A bot the widget state knows about (for its url), or undefined.
+function dockBotById (id) {
+  const state = widgetStore?.get()
+  if (!state) return undefined
+  if (state.manager?.id === id) return state.manager
+  const seat = state.seats.find((s) => s.bot_id === id)
+  return seat ? { ...seat, id: seat.bot_id } : undefined
 }
 
 function startWidgetFeedAndTray () {
@@ -552,6 +570,20 @@ function startWidgetFeedAndTray () {
     },
     quit: () => app.quit(),
   }
+
+  // The floating dock (src/widget-window.js): its own window, its own
+  // lifecycle — shown while the pref is on and someone is signed in,
+  // whatever the main window is doing.
+  widget = createWidgetController({
+    store: widgetStore,
+    prefs,
+    feed: widgetFeed,
+    getMainWindow: () => mainWindow,
+    openBot,
+    positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
+  })
+  widget.registerIpc(ipcMain)
+  widget.sync()
 
   try {
     trayHandle = createTray({

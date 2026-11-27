@@ -25,6 +25,8 @@
 // mood is idle | working | waiting | failed | responded; state is
 // { waiting: 'question' | 'approval' | null, detail }.
 
+const { isAppUrl } = require('./url-policy')
+
 const MOODS = Object.freeze(['idle', 'working', 'waiting', 'failed', 'responded'])
 const WAITING = Object.freeze(['question', 'approval'])
 
@@ -77,6 +79,16 @@ function validImageUrl (value) {
   }
 }
 
+// Where a bot lives in the app (optional; the shell falls back to
+// /bots/:id). Only our own https origin — this URL is loaded into the main
+// window.
+function validAppUrl (value) {
+  if (typeof value !== 'string' || value.length > MAX_URL || !isAppUrl(value)) return null
+  const url = new URL(value)
+  if (url.username || url.password) return null
+  return url.toString()
+}
+
 function validMood (value) {
   return MOODS.includes(value) ? value : 'idle'
 }
@@ -105,6 +117,7 @@ function validManager (input) {
     id,
     name: cleanText(input.name, MAX_NAME) || 'Manager',
     avatar_url: validImageUrl(input.avatar_url),
+    url: validAppUrl(input.url),
     mood: input.mood === undefined && state.waiting ? 'waiting' : validMood(input.mood),
     state,
     needs_count: count(input.needs_count),
@@ -119,6 +132,7 @@ function validSeat (input) {
     bot_id: botId,
     name: cleanText(input.name, MAX_NAME) || 'Bot',
     avatar_url: validImageUrl(input.avatar_url),
+    url: validAppUrl(input.url),
     mood: validMood(input.mood),
     state: validBotState(input.state),
     needs_count: count(input.needs_count),
@@ -178,8 +192,21 @@ function focusedBot (state) {
   const id = state.focused_bot_id
   if (state.manager && state.manager.id === id) return { ...state.manager, isManager: true }
   const seat = state.seats.find((s) => s.bot_id === id)
-  if (seat) return { id: seat.bot_id, name: seat.name, avatar_url: seat.avatar_url, mood: seat.mood, state: seat.state, needs_count: seat.needs_count, isManager: false }
+  if (seat) return { id: seat.bot_id, name: seat.name, avatar_url: seat.avatar_url, url: seat.url, mood: seat.mood, state: seat.state, needs_count: seat.needs_count, isManager: false }
   return state.manager ? { ...state.manager, isManager: true } : null
+}
+
+// The avatars the dock shows, in order: the manager always first, then the
+// pinned seats as the server ordered them.
+function dockBots (state) {
+  if (!state) return []
+  const bots = []
+  if (state.manager) bots.push({ ...state.manager, isManager: true })
+  for (const seat of state.seats) {
+    if (!seat.pinned) continue
+    bots.push({ id: seat.bot_id, name: seat.name, avatar_url: seat.avatar_url, url: seat.url, mood: seat.mood, state: seat.state, needs_count: seat.needs_count, isManager: false })
+  }
+  return bots
 }
 
 // The one-line state of a bot, as the menu bar, the dock tooltip and the
@@ -206,7 +233,9 @@ module.exports = {
   validId,
   cleanText,
   validImageUrl,
+  validAppUrl,
   widgetStateFrom,
   focusedBot,
+  dockBots,
   stateLabel,
 }

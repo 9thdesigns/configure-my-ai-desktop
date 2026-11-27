@@ -21,6 +21,7 @@
 // without Electron (test/widget-feed.test.js).
 
 const { widgetStateFrom, validId } = require('./widget-state')
+const { messagesPath, conversationFrom, composeFrom, answerFrom, decisionFrom } = require('./widget-chat')
 const { APP_URL, isAppUrl } = require('./url-policy')
 
 const WIDGET_JSON_PATH = '/desktop/widget.json'
@@ -109,15 +110,29 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     return ok
   }
 
-  async function send (method, path, body) {
+  // A write with the CSRF token. A 422 is a stale token (the session
+  // rotated it): fetch a fresh one and retry, once.
+  async function write (method, path, body) {
     if (!csrfToken) await refresh()
     const res = await request({ method, path, body, csrfToken })
-    if (res.status === 422) {
-      // A stale token (the session rotated it): fetch a fresh one, once.
-      await refresh()
-      return takeResponse(await request({ method, path, body, csrfToken }))
-    }
-    return takeResponse(res)
+    if (res.status !== 422) return res
+    await refresh()
+    return request({ method, path, body, csrfToken })
+  }
+
+  async function send (method, path, body) {
+    return takeResponse(await write(method, path, body))
+  }
+
+  // The popover's conversation calls answer with the conversation, not the
+  // widget state; null when the request or its answer is no good. A reply
+  // usually changes the bot's mood and the needs-you count, so the widget
+  // state is refreshed after every write.
+  async function conversationWrite (command) {
+    if (!command) return null
+    const res = await write('POST', command.path, command.body)
+    refresh().catch(() => {})
+    return res.status >= 200 && res.status < 300 ? conversationFrom(res.json, command.botId) : null
   }
 
   return {
@@ -160,6 +175,16 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     async setEnabled (enabled) {
       return send('PATCH', WIDGET_PATH, { enabled: Boolean(enabled) })
     },
+
+    async conversation (botId) {
+      const path = messagesPath(botId)
+      if (!path) return null
+      const res = await request({ method: 'GET', path })
+      return res.status === 200 ? conversationFrom(res.json, botId) : null
+    },
+    sendMessage: (input) => conversationWrite(composeFrom(input)),
+    answer: (input) => conversationWrite(answerFrom(input)),
+    decide: (input) => conversationWrite(decisionFrom(input)),
 
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)

@@ -1,7 +1,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const fixture = require('./fixtures/widget.json')
-const { widgetStateFrom, focusedBot, stateLabel, validId, cleanText, validImageUrl, MAX_SEATS } = require('../src/widget-state')
+const { widgetStateFrom, dockBots, validAppUrl, focusedBot, stateLabel, validId, cleanText, validImageUrl, MAX_SEATS } = require('../src/widget-state')
 
 // The widget state arrives from a web page or the network and goes on to the
 // OS (menu bar title, native menus) — so it is rebuilt, never passed through.
@@ -51,7 +51,7 @@ test('unknown moods and waits fall back, unknown keys are dropped, counts are cl
     seats: [{ bot_id: 5, name: 'B', mood: 'exploding', state: { waiting: 'bribe', detail: 'x' }, needs_count: -4, pinned: 'yes', extra: 1 }],
     needs_you: 'lots',
   })
-  assert.deepEqual(state.seats[0], { bot_id: '5', name: 'B', avatar_url: null, mood: 'idle', state: { waiting: null, detail: 'x' }, needs_count: 0, pinned: false })
+  assert.deepEqual(state.seats[0], { bot_id: '5', name: 'B', avatar_url: null, url: null, mood: 'idle', state: { waiting: null, detail: 'x' }, needs_count: 0, pinned: false })
   assert.equal(state.needs_you, 0)
   assert.equal(state.manager, null)
   assert.deepEqual(state.workspace, { id: '1', name: 'W' })
@@ -91,4 +91,15 @@ test('the state label: a pending wait outranks the mood', () => {
   assert.equal(stateLabel({ mood: 'failed' }), 'Failed')
   assert.equal(stateLabel({ mood: 'idle' }), 'Idle')
   assert.equal(stateLabel(null), '')
+})
+
+test('a bot url is ours or nothing', () => {
+  assert.equal(validAppUrl('https://configuremyai.com/bots/22'), 'https://configuremyai.com/bots/22')
+  for (const bad of ['https://evil.com/bots/1', 'http://configuremyai.com/x', 'javascript:1', 'https://a:b@configuremyai.com/', 3]) assert.equal(validAppUrl(bad), null)
+})
+
+test('the dock shows the manager first, then the pinned seats in order', () => {
+  const bots = dockBots(widgetStateFrom(fixture))
+  assert.deepEqual(bots.map((b) => [b.id, b.isManager]), [['11', true], ['21', false], ['22', false]])
+  assert.deepEqual(dockBots(null), [])
 })

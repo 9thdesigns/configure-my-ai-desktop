@@ -1,0 +1,416 @@
+// The widget window's page (src/widget.html): the dock of bot avatars and the
+// quick-chat popover. It renders only what main sends over window.cmaWidget
+// (src/widget-preload.js) and sets every string as text, never as HTML. It has
+// no network access and no credentials; every action is a request to main.
+
+(() => {
+  'use strict'
+
+  const api = window.cmaWidget
+  if (!api) return
+
+  const $ = (sel, root = document) => root.querySelector(sel)
+  const dock = $('#dock')
+  const botsEl = $('[data-role="bots"]', dock)
+  const grip = $('[data-role="grip"]', dock)
+  const popover = $('#popover')
+  const messagesEl = $('[data-role="messages"]', popover)
+  const pendingEl = $('[data-role="pending"]', popover)
+  const composer = $('[data-role="composer"]', popover)
+  const compose = $('[data-role="compose"]', popover)
+  const sendButton = $('.btn-send', composer)
+
+  let view = { bots: [], focused_bot_id: null }
+  let layout = { expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null }
+  let conversation = null
+  // The pending card on screen: 'kind:id', null for none, undefined to force a
+  // redraw.
+  let pendingKey
+  let selected = new Set()
+  let busy = false
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+
+  const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
+
+  function paintAvatar (node, bot) {
+    if (node.dataset.src === (bot.avatar_url || '') && node.dataset.name === bot.name) return
+    node.dataset.src = bot.avatar_url || ''
+    node.dataset.name = bot.name
+    node.textContent = ''
+    if (bot.avatar_url) {
+      const img = new Image()
+      img.alt = ''
+      img.referrerPolicy = 'no-referrer'
+      img.draggable = false
+      img.onerror = () => { node.textContent = initials(bot.name) }
+      img.src = bot.avatar_url
+      node.append(img)
+    } else {
+      node.textContent = initials(bot.name)
+    }
+  }
+
+  const botById = (id) => view.bots.find((b) => b.id === id)
+
+  // --- The dock ------------------------------------------------------------
+
+  const buttons = new Map()
+
+  function renderDock () {
+    const ids = view.bots.map((b) => b.id)
+    for (const [id, button] of buttons) {
+      if (!ids.includes(id)) {
+        button.remove()
+        buttons.delete(id)
+      }
+    }
+    view.bots.forEach((bot, index) => {
+      let button = buttons.get(bot.id)
+      if (!button) {
+        button = el('button', 'dock-bot')
+        button.type = 'button'
+        button.dataset.botId = bot.id
+        button.append(el('span', 'avatar'))
+        button.addEventListener('click', () => api.open(bot.id))
+        buttons.set(bot.id, button)
+      }
+      if (botsEl.children[index] !== button) botsEl.insertBefore(button, botsEl.children[index] || null)
+      paintAvatar(button.firstChild, bot)
+      button.dataset.mood = bot.mood
+      button.classList.toggle('is-focused', bot.id === view.focused_bot_id)
+      button.title = `${bot.name} — ${bot.label}`
+      button.setAttribute('aria-label', `${bot.name}, ${bot.label}`)
+    })
+    reportLayout()
+  }
+
+  // --- Hit rects: where the window takes the mouse -------------------------
+
+  let reportQueued = false
+  function reportLayout () {
+    if (reportQueued) return
+    reportQueued = true
+    requestAnimationFrame(() => {
+      reportQueued = false
+      const rects = [dock, popover]
+        .filter((node) => !node.hidden)
+        .map((node) => {
+          const r = node.getBoundingClientRect()
+          return { x: r.left, y: r.top, width: r.width, height: r.height }
+        })
+      // The dock plus its 6px margins top and bottom.
+      api.reportHitRects(rects, Math.ceil(dock.offsetHeight + 12))
+    })
+  }
+
+  if (typeof ResizeObserver === 'function') {
+    const observer = new ResizeObserver(reportLayout)
+    observer.observe(dock)
+    observer.observe(popover)
+  }
+
+  // --- Dragging the dock up and down ---------------------------------------
+
+  let dragging = false
+  let frame = 0
+  let lastY = 0
+  grip.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    dragging = true
+    grip.setPointerCapture(event.pointerId)
+    api.drag('start', event.screenY)
+    event.preventDefault()
+  })
+  grip.addEventListener('pointermove', (event) => {
+    if (!dragging) return
+    lastY = event.screenY
+    if (frame) return
+    frame = requestAnimationFrame(() => {
+      frame = 0
+      api.drag('move', lastY)
+    })
+  })
+  const endDrag = (event) => {
+    if (!dragging) return
+    dragging = false
+    if (frame) cancelAnimationFrame(frame)
+    frame = 0
+    api.drag('end', event.screenY)
+  }
+  grip.addEventListener('pointerup', endDrag)
+  grip.addEventListener('pointercancel', endDrag)
+
+  // --- The popover ---------------------------------------------------------
+
+  function renderHead () {
+    const bot = botById(layout.botId)
+    if (!bot) return
+    paintAvatar($('[data-role="head-avatar"]', popover), bot)
+    $('[data-role="head-name"]', popover).textContent = bot.name
+    $('[data-role="head-state"]', popover).textContent = bot.label
+    compose.placeholder = `Message ${bot.name}…`
+  }
+
+  function renderMessages () {
+    const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40
+    messagesEl.textContent = ''
+    if (!conversation) {
+      messagesEl.append(el('li', 'messages-empty', 'Loading…'))
+      return
+    }
+    if (conversation.error) {
+      messagesEl.append(el('li', 'messages-empty', 'Couldn’t load messages. Open in app to see them.'))
+      return
+    }
+    if (!conversation.messages.length) {
+      messagesEl.append(el('li', 'messages-empty', 'No messages yet.'))
+      return
+    }
+    for (const message of conversation.messages) {
+      messagesEl.append(el('li', `message is-${message.role}`, message.body))
+    }
+    if (atBottom || !messagesEl.dataset.scrolled) {
+      messagesEl.scrollTop = messagesEl.scrollHeight
+      messagesEl.dataset.scrolled = '1'
+    }
+  }
+
+  const letter = (i) => String.fromCharCode(65 + i)
+
+  function renderPending () {
+    const pending = conversation && !conversation.error ? conversation.pending : null
+    const key = pending ? `${pending.kind}:${pending.id}` : null
+    // Re-rendering on every poll would wipe a half-made choice.
+    if (key === pendingKey) return
+    pendingKey = key
+    selected = new Set()
+    pendingEl.textContent = ''
+    pendingEl.hidden = !pending
+    if (!pending) return reportLayout()
+
+    pendingEl.append(el('div', 'pending-prompt', pending.prompt))
+    if (pending.detail) pendingEl.append(el('div', 'pending-detail', pending.detail))
+    const actions = el('div', 'pending-actions')
+
+    if (pending.kind === 'approval') {
+      const decline = el('button', 'btn', 'Decline')
+      const approve = el('button', 'btn btn-primary', 'Approve')
+      decline.type = approve.type = 'button'
+      decline.addEventListener('click', () => decide('decline'))
+      approve.addEventListener('click', () => decide('approve'))
+      actions.append(decline, approve)
+      pendingEl.append(actions)
+      return reportLayout()
+    }
+
+    const options = el('div', 'pending-options')
+    pending.options.forEach((option, index) => {
+      const button = el('button', 'option')
+      button.type = 'button'
+      button.dataset.optionId = option.id
+      button.append(el('span', 'option-key', letter(index)), el('span', '', option.label))
+      button.addEventListener('click', () => toggleOption(option.id))
+      options.append(button)
+    })
+    pendingEl.append(options)
+
+    let other = null
+    if (pending.allow_other) {
+      other = el('input', 'pending-other')
+      other.type = 'text'
+      other.placeholder = 'Something else…'
+      other.dataset.role = 'other'
+      other.addEventListener('input', updateDone)
+      other.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          submitAnswer()
+        }
+      })
+      pendingEl.append(other)
+    }
+
+    const skip = el('button', 'btn', 'Skip')
+    const done = el('button', 'btn btn-primary', 'Done')
+    skip.type = done.type = 'button'
+    done.dataset.role = 'done'
+    skip.addEventListener('click', () => submitAnswer({ skip: true }))
+    done.addEventListener('click', () => submitAnswer())
+    actions.append(skip, done)
+    pendingEl.append(actions)
+    updateDone()
+    reportLayout()
+  }
+
+  function toggleOption (id) {
+    const pending = conversation?.pending
+    if (!pending || pending.kind !== 'question') return
+    if (selected.has(id)) {
+      selected.delete(id)
+    } else {
+      if (!pending.multiple) selected.clear()
+      selected.add(id)
+    }
+    for (const button of pendingEl.querySelectorAll('.option')) {
+      button.classList.toggle('is-selected', selected.has(button.dataset.optionId))
+    }
+    updateDone()
+    // A single-choice question with no free text: one press answers it.
+    if (!pending.multiple && !otherText()) submitAnswer()
+  }
+
+  const otherText = () => ($('[data-role="other"]', pendingEl)?.value || '').trim()
+
+  function updateDone () {
+    const done = $('[data-role="done"]', pendingEl)
+    if (done) done.disabled = busy || (selected.size === 0 && !otherText())
+  }
+
+  function setBusy (on) {
+    busy = on
+    sendButton.disabled = on
+    for (const button of pendingEl.querySelectorAll('button')) button.disabled = on
+    if (!on) updateDone()
+  }
+
+  function showError (text) {
+    let line = $('.error-line', popover)
+    if (!text) return line?.remove()
+    if (!line) {
+      line = el('div', 'error-line')
+      composer.before(line)
+    }
+    line.textContent = text
+  }
+
+  function takeConversation (result, failure) {
+    setBusy(false)
+    if (!result) return showError(failure)
+    showError(null)
+    conversation = result
+    pendingKey = undefined
+    renderMessages()
+    renderPending()
+  }
+
+  async function submitAnswer ({ skip = false } = {}) {
+    const pending = conversation?.pending
+    if (!pending || busy) return
+    const text = otherText()
+    if (!skip && selected.size === 0 && !text) return
+    setBusy(true)
+    const result = await api.answer({ bot_id: layout.botId, pending_id: pending.id, option_ids: [...selected], text, skip })
+    takeConversation(result, 'Couldn’t send your answer. Try again, or open in app.')
+  }
+
+  async function decide (decision) {
+    const pending = conversation?.pending
+    if (!pending || busy) return
+    setBusy(true)
+    const result = await api.decide({ bot_id: layout.botId, pending_id: pending.id, decision })
+    takeConversation(result, 'Couldn’t send that. Try again, or open in app.')
+  }
+
+  async function sendMessage () {
+    const body = compose.value.trim()
+    if (!body || busy || !layout.botId) return
+    setBusy(true)
+    const result = await api.sendMessage(layout.botId, body)
+    if (result) {
+      compose.value = ''
+      autosize()
+    }
+    takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
+  }
+
+  function autosize () {
+    compose.style.height = 'auto'
+    compose.style.height = `${Math.min(compose.scrollHeight, 120)}px`
+  }
+
+  composer.addEventListener('submit', (event) => {
+    event.preventDefault()
+    sendMessage()
+  })
+  compose.addEventListener('input', autosize)
+  compose.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault()
+      sendMessage()
+    }
+  })
+
+  popover.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-action]')?.dataset.action
+    if (action === 'collapse') api.collapse()
+    if (action === 'open-in-app' && layout.botId) api.openInApp(layout.botId)
+  })
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      api.collapse()
+      return
+    }
+    // A–H pick a question's options, unless the user is typing.
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')
+    const pending = conversation?.pending
+    if (typing || !pending || pending.kind !== 'question' || event.metaKey || event.ctrlKey || event.altKey) return
+    const index = event.key.length === 1 ? event.key.toUpperCase().charCodeAt(0) - 65 : -1
+    if (index >= 0 && index < pending.options.length) {
+      event.preventDefault()
+      toggleOption(pending.options[index].id)
+    }
+  })
+
+  // --- From main -----------------------------------------------------------
+
+  api.onState((next) => {
+    if (!next || !Array.isArray(next.bots)) return
+    view = next
+    renderDock()
+    if (layout.expanded) renderHead()
+  })
+
+  api.onLayout((next) => {
+    if (!next) return
+    const opened = next.expanded && next.botId !== layout.botId
+    layout = next
+    dock.style.top = `${next.dockTop}px`
+    popover.hidden = !next.expanded
+    if (next.expanded) {
+      popover.style.top = `${next.popoverTop}px`
+      popover.style.height = `${next.popoverHeight}px`
+    }
+    if (opened) {
+      conversation = null
+      pendingKey = undefined
+      delete messagesEl.dataset.scrolled
+      showError(null)
+      renderHead()
+      renderMessages()
+      renderPending()
+      compose.focus()
+    }
+    if (!next.expanded) {
+      conversation = null
+      pendingKey = undefined
+    }
+    reportLayout()
+  })
+
+  api.onConversation((next) => {
+    if (!next || next.bot_id !== layout.botId) return
+    conversation = next
+    renderMessages()
+    renderPending()
+  })
+
+  api.ready()
+})()
