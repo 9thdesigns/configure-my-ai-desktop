@@ -9,3 +9,7 @@ The CFA markup and stylesheet in these shots are **stand-ins** (in `stub-cfa.js`
 - `island-pill-*`: the island pill.
 - `before-initials` / `after-cfa-idle` / `after-cfa-working`, each in `light` and `dark`.
 - `dock-idle-to-working-swap.webm`: idle → working → idle swapped in place without a re-mount.
+
+## Round 2: real partial structure (`*-real-cfa-*`)
+
+These use the **real CFA partial's markup structure** from configure-my-ai #1588 (`gen-fixture.js`; only the ~14KB brand-mark path data is generated), passed through the real sanitiser and renderer. The stylesheet (`cfa-avatar-real.css`) was rebuilt from the real sheet's facts: `@property`, `@keyframes`, a reduced-motion block, and `data:image/svg+xml` masks for the cloud, triangle, samurai and astronaut shapes. The real 56KB sheet was not live in production when these were taken. Samurai is the Manager (top of the dock); cloud is Ada (quick chat).
