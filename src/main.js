@@ -34,6 +34,7 @@ const { afterSwitch } = require('./workspaces')
 const { createIslandController } = require('./island-window')
 const { createCable, electronCookieHeader } = require('./widget-cable')
 const { installNativeFeel } = require('./native-feel')
+const { initLocalTools } = require('./local-tools-main')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -482,7 +483,11 @@ installNativeFeel(app)
 app.whenReady().then(() => {
   restrictPermissions()
   registerIpc()
+  // Bots' local computer access: shell, files and screenshot on THIS machine,
+  // every call approved by the user (src/local-tools-main.js).
+  const localAccess = initLocalTools()
   installMenu({
+    localAccess,
     appUrl: APP_URL,
     startUrl: START_URL,
     getWindow: () => mainWindow,

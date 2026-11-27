@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Allow this action?</title>
+  <link rel="stylesheet" href="local-tools.css">
+</head>
+<body>
+  <main id="card" hidden>
+    <h1 id="title"></h1>
+    <p id="subtitle"></p>
+    <pre id="target"></pre>
+    <p id="shell" class="warn" hidden>This command uses shell features (pipes, globs, variables or redirects). Allowing it runs this exact text through your shell, once.</p>
+    <div class="actions">
+      <button id="once" class="primary">Allow once</button>
+      <button id="always"></button>
+      <button id="deny">Deny</button>
+    </div>
+    <div class="meta" id="countdown"></div>
+  </main>
+  <script src="local-tools-card.js"></script>
+</body>
+</html>

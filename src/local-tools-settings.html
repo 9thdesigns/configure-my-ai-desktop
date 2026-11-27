@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Local Computer Access</title>
+  <link rel="stylesheet" href="local-tools.css">
+</head>
+<body>
+  <h1>Local Computer Access</h1>
+  <p>Bots can ask to run commands, read files, list folders and take screenshots on this computer. Every request needs your approval unless you chose “Always allow” for it below.</p>
+  <label class="switch"><input type="checkbox" id="enabled"> Allow bots to ask to use this computer</label>
+
+  <h2>Always-allowed</h2>
+  <div id="grants"></div>
+
+  <h2>Recent activity</h2>
+  <div id="audit"></div>
+  <script src="local-tools-settings.js"></script>
+</body>
+</html>
