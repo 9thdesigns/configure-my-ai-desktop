@@ -1,0 +1,21 @@
+{
+  "workspace": { "id": 3, "name": "9th Designs" },
+  "workspaces": [
+    { "id": 3, "name": "9th Designs", "mark": "9D" },
+    { "id": 8, "name": "Side Project", "mark": "SP" }
+  ],
+  "manager": {
+    "id": 11,
+    "name": "Max",
+    "avatar_url": "https://configuremyai.com/rails/active_storage/max.png",
+    "state": { "waiting": "question", "detail": "Which repo should I ship first?" }
+  },
+  "seats": [
+    { "bot_id": 21, "name": "Ada", "avatar_url": "https://configuremyai.com/ada.png", "mood": "working", "state": { "waiting": null, "detail": "" }, "needs_count": 0, "pinned": true },
+    { "bot_id": 22, "name": "Lin", "avatar_url": null, "mood": "waiting", "state": { "waiting": "approval", "detail": "Deploy to production?" }, "needs_count": 1, "pinned": true },
+    { "bot_id": 23, "name": "Ops", "avatar_url": null, "mood": "idle", "state": null, "needs_count": 0, "pinned": false }
+  ],
+  "needs_you": 2,
+  "focused_bot_id": 11,
+  "csrf_token": "abcdefghijklmnopqrstuvwxyz0123456789ABCD=="
+}
