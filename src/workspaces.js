@@ -21,14 +21,16 @@ const WORKSPACES_HEADER = { id: 'workspaces-header', label: 'Workspaces', enable
 // checked; clicking another switches). A workspace with a logo shows it as
 // the item's icon once workspace-logos.js has it cached (iconFor returns a
 // 16/32px nativeImage, or null while loading or after a failure); otherwise
-// the mark's initials lead the label, as before.
-function workspaceMenuItems (state, actions, { iconFor, header = false } = {}) {
+// the mark's initials lead the label, as before. On Linux the initials stay
+// even with an icon: AppIndicator / StatusNotifier tray menus often don't
+// draw item icons, and a bare name would lose the mark.
+function workspaceMenuItems (state, actions, { iconFor, header = false, platform = process.platform } = {}) {
   if (!state) return []
   const items = state.workspaces.map((w) => {
     const icon = w.logo_url && typeof iconFor === 'function' ? iconFor(w.logo_url) : null
     const item = {
       id: `workspace-${w.id}`,
-      label: !icon && w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
+      label: (!icon || platform === 'linux') && w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
       type: 'radio',
       checked: w.id === state.workspace.id,
       click: () => { if (w.id !== state.workspace.id) actions.switchWorkspace(w.id) },

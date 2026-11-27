@@ -48,6 +48,15 @@ test('older feeds without logo_url still work (the mark logo, under the same rul
   assert.deepEqual(workspaceMenuItems(bare, {}).map((i) => i.label), ['S  Solo'])
 })
 
+test('origin rule: the ActiveStorage proxy on the app origin is accepted end to end', () => {
+  const proxy = 'https://configuremyai.com/rails/active_storage/blobs/proxy/eyJfcmFpbHMiOnsiZGF0YSI6MTIzLCJwdXIiOiJibG9iX2lkIn19--3f1e2d4c5b6a79880a1b2c3d4e5f60718293a4b5/acme-logo.png'
+  assert.equal(isAppAssetUrl(proxy), true)
+  const s = widgetStateFrom({ ...fixture, workspaces: [{ ...fixture.workspaces[0], logo_url: proxy }] })
+  assert.equal(s.workspaces[0].logo_url, proxy)
+  assert.equal(s.workspaces[0].mark.logo_url, proxy)
+  assert.equal(isAppAssetUrl(proxy.replace('https://configuremyai.com', 'https://bucket.s3.amazonaws.com')), false, 'no S3 host')
+})
+
 test('origin rule: only the app origin and its asset hosts, https, no credentials', () => {
   for (const ok of [LOGO, CDN_LOGO]) assert.equal(isAppAssetUrl(ok), true, ok)
   for (const bad of [
@@ -68,14 +77,29 @@ test('origin rule: only the app origin and its asset hosts, https, no credential
 test('switcher: a cached logo becomes the item icon; no logo (or not yet loaded) falls back to the mark', () => {
   const s = widgetStateFrom(newFeed)
   const icon = { fake: 'nativeImage' }
-  const items = workspaceMenuItems(s, {}, { iconFor: (url) => (url === LOGO ? icon : null) })
+  const items = workspaceMenuItems(s, {}, { iconFor: (url) => (url === LOGO ? icon : null), platform: 'darwin' })
   assert.equal(items[0].icon, icon)
   assert.equal(items[0].label, '9th Designs', 'the logo replaces the initials')
   assert.equal(items[1].icon, undefined)
   assert.equal(items[1].label, 'SP  Side Project')
-  const loading = workspaceMenuItems(s, {}, { iconFor: () => null })
+  const loading = workspaceMenuItems(s, {}, { iconFor: () => null, platform: 'darwin' })
   assert.equal(loading[0].icon, undefined)
   assert.equal(loading[0].label, '9D  9th Designs', 'until the logo loads (or if it fails): the mark')
+})
+
+test('switcher on Linux: the initials stay beside the icon (AppIndicator menus often hide icons)', () => {
+  const s = widgetStateFrom(newFeed)
+  const iconFor = (url) => (url === LOGO ? 'ICON' : null)
+  const linux = workspaceMenuItems(s, {}, { iconFor, platform: 'linux' })
+  assert.equal(linux[0].icon, 'ICON')
+  assert.equal(linux[0].label, '9D  9th Designs')
+  assert.equal(linux[1].label, 'SP  Side Project')
+  for (const platform of ['darwin', 'win32']) {
+    assert.equal(workspaceMenuItems(s, {}, { iconFor, platform })[0].label, '9th Designs', platform)
+  }
+  const tray = trayMenuTemplate(s, { iconFor, platform: 'linux' }, {}).find((x) => x.id === 'workspaces').submenu
+  assert.equal(tray[2].label, '9D  9th Designs', 'the tray passes its platform through')
+  assert.equal(tray[2].icon, 'ICON')
 })
 
 test('switcher: a small "Workspaces" label at the top when it opens', () => {
@@ -91,7 +115,7 @@ test('switcher: a small "Workspaces" label at the top when it opens', () => {
   assert.deepEqual(workspaceMenuItems(s, {}).map((i) => i.type), ['radio', 'radio'], 'no label unless asked')
   assert.deepEqual(workspaceMenuItems(null, {}, { header: true }), [])
   // The tray passes its icon lookup through.
-  const tray = trayMenuTemplate(s, { iconFor: (url) => (url === LOGO ? 'ICON' : null) }, {})
+  const tray = trayMenuTemplate(s, { iconFor: (url) => (url === LOGO ? 'ICON' : null), platform: 'darwin' }, {})
   const sub = tray.find((x) => x.id === 'workspaces').submenu
   assert.equal(sub[0].label, 'Workspaces')
   assert.equal(sub[2].icon, 'ICON')

@@ -348,7 +348,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   // "Workspaces" label, with each workspace's logo once it's cached.
   function showWorkspaceMenu () {
     const { Menu } = require('electron')
-    const items = workspaceMenuItems(store.get(), { switchWorkspace: (id) => switchWorkspace(id) }, { iconFor: logos?.iconFor, header: true })
+    const items = workspaceMenuItems(store.get(), { switchWorkspace: (id) => switchWorkspace(id) }, { iconFor: logos?.iconFor, header: true, platform })
     if (items.length && alive()) Menu.buildFromTemplate(items).popup({ window: win })
   }
 

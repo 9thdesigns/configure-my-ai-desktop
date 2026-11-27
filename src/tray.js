@@ -73,7 +73,7 @@ function trayMenuTemplate (state, options, actions) {
       id: 'workspaces',
       label: 'Workspaces',
       enabled: state.workspaces.length > 0,
-      submenu: workspaceMenuItems(state, actions, { iconFor: options?.iconFor, header: true }),
+      submenu: workspaceMenuItems(state, actions, { iconFor: options?.iconFor, header: true, platform }),
     })
 
     const bots = []
