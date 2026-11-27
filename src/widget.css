@@ -241,6 +241,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
    avatar stylesheet main hands over). Paused while the window is hidden or
    the box is off screen; static with reduced motion. */
 .avatar { --cfa-size: 44px; }
+/* The face's own stylesheet gives .cfa-avatar a default --cfa-size (72px);
+   the slot's size must win, so the face takes it from its box. */
+.avatar[data-mode="cfa"] > .cfa-avatar { --cfa-size: inherit; }
 .avatar[data-mode="cfa"] {
   background: none;
   clip-path: none;

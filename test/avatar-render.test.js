@@ -205,3 +205,12 @@ test('the pages load the renderer, keep their strict CSP, and never use innerHTM
   const renderer = fs.readFileSync(path.join(__dirname, '../src/avatar-render.js'), 'utf8')
   assert.doesNotMatch(renderer.replace(/\/\/.*$/gm, ''), /innerHTML|insertAdjacentHTML|outerHTML|eval\(/)
 })
+
+// The live CFA sheet sets --cfa-size: 72px on .cfa-avatar itself, which beats
+// an inherited value; the slot's size has to be handed to the face directly.
+test('each slot hands its size to the face, over the sheet default', () => {
+  for (const file of ['widget.css', 'island.css']) {
+    const css = fs.readFileSync(path.join(__dirname, '../src', file), 'utf8')
+    assert.match(css, /\.avatar\[data-mode="cfa"\] > \.cfa-avatar \{ --cfa-size: inherit; \}/, file)
+  }
+})
