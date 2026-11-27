@@ -33,7 +33,7 @@ const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 
-const DOCK_WIDTH = 72 // the dock column, including room for its shadow
+const DOCK_WIDTH = 56 // the dock column (44px, widget.css), with room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
 const POPOVER_WIDTH = 380
 const POPOVER_HEIGHT = 520
