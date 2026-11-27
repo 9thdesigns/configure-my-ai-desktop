@@ -126,9 +126,9 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
   assert.equal(handlers.length, 12)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
-    assert.match(handler.slice(0, 220), /fromWidget\(event\)|, action\(/, handler.slice(0, 40))
+    assert.match(handler.slice(0, 220), /fromWidget\(event\)|, reply\(/, handler.slice(0, 40))
   }
-  assert.match(ipc, /const action = \(run\) => async \(event, input\) => \{\n\s+if \(!fromWidget\(event\)/)
+  assert.match(ipc, /const reply = \(run\) => async \(event, input\) => \{\n\s+if \(!fromWidget\(event\)\) return null/)
   assert.match(src, /return url === HTML_URL/)
   assert.match(W.HTML_URL, /^file:\/\/.*\/src\/widget\.html$/)
 })

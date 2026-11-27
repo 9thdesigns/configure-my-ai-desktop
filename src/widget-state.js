@@ -126,6 +126,26 @@ function validKeyword (value) {
   return typeof value === 'string' && KEYWORD.test(value) ? value : null
 }
 
+// A question's options, as the server sends them: { id, label }, where id is
+// the option's value (any short one-line string) — handed back verbatim in
+// an answer.
+const MAX_OPTIONS = 8
+const MAX_OPTION_ID = 200
+function validOptions (input) {
+  if (!Array.isArray(input)) return []
+  const out = []
+  const seen = new Set()
+  for (const option of input.slice(0, MAX_OPTIONS * 2)) {
+    const id = typeof option?.id === 'number' ? String(option.id) : cleanText(option?.id, MAX_OPTION_ID)
+    const label = cleanText(option?.label, MAX_OPTION_ID) || id
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push({ id, label })
+    if (out.length >= MAX_OPTIONS) break
+  }
+  return out
+}
+
 function validBotState (input) {
   const state = {
     status: null,
@@ -137,6 +157,9 @@ function validBotState (input) {
     message_id: null,
     run_id: null,
     thread_id: null,
+    options: [],
+    allow_other: false,
+    multiple: false,
   }
   if (!input || typeof input !== 'object') return state
   state.status = validKeyword(input.status)
@@ -145,6 +168,11 @@ function validBotState (input) {
   state.detail = cleanText(input.detail, MAX_DETAIL)
   state.url = validAppUrl(input.url)
   for (const key of ['session_id', 'message_id', 'run_id', 'thread_id']) state[key] = validId(input[key])
+  if (state.waiting) {
+    state.options = validOptions(input.options)
+    state.allow_other = input.allow_other === true
+    state.multiple = input.multiple === true
+  }
   return state
 }
 
@@ -307,6 +335,7 @@ module.exports = {
   validAppUrl,
   validColor,
   validShape,
+  validOptions,
   widgetStateFrom,
   botById,
   focusedBot,

@@ -30,7 +30,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
-const { isPaused, reorder, seatContextMenuTemplate, pickerBots, pauseConfirmation } = require('./widget-seats')
+const { isPaused, reorder, seatContextMenuTemplate, pickerBots } = require('./widget-seats')
 
 const DOCK_WIDTH = 72 // the dock column, including room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -317,16 +317,11 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
     win.focus()
   }
 
-  // Pause / resume, confirming first when it is the manager being paused.
-  async function setActive (botId, active) {
+  // Pause / resume a bot in the dock (never the manager: the server
+  // refuses, and its menu item is disabled).
+  function setActive (botId, active) {
     const bot = dockBots(store.get()).find((b) => b.id === botId)
-    if (!bot) return
-    const confirm = active ? null : pauseConfirmation(bot)
-    if (confirm) {
-      const { dialog } = require('electron')
-      const { response } = await dialog.showMessageBox(confirm)
-      if (response !== 0) return
-    }
+    if (!bot || bot.isManager) return
     feed.setActive(botId, active).catch(() => {})
   }
 
@@ -488,20 +483,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
 
     // Each answers with the popover's refreshed view, or null when the server
     // didn't take it (the renderer keeps what the user typed and says so).
-    ipcMain.handle('cma-widget:send', async (event, input) => {
+    const reply = (run) => async (event, input) => {
       if (!fromWidget(event)) return null
-      const conversation = await feed.sendMessage(input).catch(() => null)
+      const conversation = await run(input).catch(() => null)
       return conversation ? popoverFor(conversation.bot_id, conversation) : null
-    })
-    const action = (run) => async (event, input) => {
-      if (!fromWidget(event) || !input || typeof input !== 'object') return null
-      const ok = await run(input).catch(() => false)
-      if (!ok) return null
-      await feed.refresh().catch(() => {})
-      return popoverFor(input.bot_id)
     }
-    ipcMain.handle('cma-widget:answer', action((input) => feed.answer(input)))
-    ipcMain.handle('cma-widget:decide', action((input) => feed.decide(input)))
+    ipcMain.handle('cma-widget:send', reply((input) => feed.sendMessage(input)))
+    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
+    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input)))
   }
 
   return {

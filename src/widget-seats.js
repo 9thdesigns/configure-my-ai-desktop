@@ -50,10 +50,13 @@ function seatContextMenuTemplate (state, botId, actions) {
     { id: 'open', label: `Open ${bot.name}`, click: () => actions.open(bot.id) },
     { type: 'separator' },
     {
+      // The manager can't be paused (the server refuses: it coordinates
+      // everything else), so its switch is shown on and disabled.
       id: 'active',
       label: 'Active',
       type: 'checkbox',
       checked: !isPaused(bot),
+      enabled: !bot.isManager,
       click: () => actions.setActive(bot.id, isPaused(bot)),
     },
   ]
@@ -89,18 +92,4 @@ function pickerBots (state, query = '') {
     }))
 }
 
-// What the confirm dialog says before the manager is paused (the one pause
-// that stops everything else from being coordinated).
-function pauseConfirmation (bot) {
-  if (!bot?.isManager) return null
-  return {
-    type: 'warning',
-    buttons: ['Pause', 'Cancel'],
-    defaultId: 1,
-    cancelId: 1,
-    message: `Pause ${bot.name}?`,
-    detail: 'The manager stops coordinating your bots until you resume it.',
-  }
-}
-
-module.exports = { isPaused, seatOrder, reorder, seatContextMenuTemplate, pickerBots, pauseConfirmation }
+module.exports = { isPaused, seatOrder, reorder, seatContextMenuTemplate, pickerBots }

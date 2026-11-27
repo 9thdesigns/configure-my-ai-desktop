@@ -150,14 +150,6 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
     return res.status >= 200 && res.status < 300 ? conversationFrom(res.json, command.botId) : null
   }
 
-  // An answer or a plan decision: true when the server took it.
-  async function actionWrite (command) {
-    if (!command) return false
-    const res = await write('POST', command.path, command.body)
-    refresh().catch(() => {})
-    return writeOk(res)
-  }
-
   return {
     refresh,
     isSignedIn: () => signedIn,
@@ -228,8 +220,8 @@ function createWidgetFeed ({ store, request, setIntervalFn = setInterval, clearI
       return res.status === 200 ? conversationFrom(res.json, botId) : null
     },
     sendMessage: (input) => conversationWrite(composeFrom(input)),
-    answer: (input) => actionWrite(answerFrom(input, store.get())),
-    decide: (input) => actionWrite(decisionFrom(input, store.get())),
+    answer: (input) => conversationWrite(answerFrom(input, store.get())),
+    decide: (input) => conversationWrite(decisionFrom(input, store.get())),
 
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)

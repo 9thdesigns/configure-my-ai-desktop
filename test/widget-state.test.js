@@ -87,7 +87,7 @@ test('unknown moods, waits and keys fall back or drop; counts are clamped', () =
   assert.equal(seat.pinned, false)
   assert.equal(seat.needs_count, 0)
   assert.equal(seat.extra, undefined)
-  assert.deepEqual(seat.state, { status: null, face: null, waiting: null, detail: 'x', url: null, session_id: null, message_id: null, run_id: null, thread_id: null })
+  assert.deepEqual(seat.state, { status: null, face: null, waiting: null, detail: 'x', url: null, session_id: null, message_id: null, run_id: null, thread_id: null, options: [], allow_other: false, multiple: false })
   assert.equal(state.needs_you, 0)
   assert.equal(state.manager, null)
   assert.equal(state.enabled, false)
@@ -136,4 +136,14 @@ test('the state label: a pending wait outranks the mood', () => {
   assert.equal(stateLabel({ mood: 'failed' }), 'Failed')
   assert.equal(stateLabel({ mood: 'idle' }), 'Idle')
   assert.equal(stateLabel(null), '')
+})
+
+test('a waiting bot carries its options; nothing waiting carries none', () => {
+  const state = widgetStateFrom(fixture)
+  const ops = state.seats.find((s) => s.bot_id === OPS)
+  assert.deepEqual(ops.state.options, [{ id: 'us-east-1', label: 'US East' }, { id: 'eu-west-1', label: 'EU West' }])
+  assert.equal(ops.state.allow_other, true)
+  const quiet = widgetStateFrom({ workspace: { id: 'w' }, seats: [{ bot_id: 'b', state: { waiting: null, options: [{ id: 'x', label: 'X' }], allow_other: true } }] })
+  assert.deepEqual(quiet.seats[0].state.options, [])
+  assert.equal(quiet.seats[0].state.allow_other, false)
 })

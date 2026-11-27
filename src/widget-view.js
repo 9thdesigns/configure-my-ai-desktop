@@ -392,7 +392,7 @@
     const text = otherText()
     if (!skip && selected.size === 0 && !text) return
     setBusy(true)
-    const result = await api.answer({ bot_id: layout.botId, option_ids: [...selected], text, skip })
+    const result = await api.answer({ bot_id: layout.botId, pending_id: pending.id, option_ids: [...selected], text, skip })
     takeConversation(result, 'Couldn’t send your answer. Try again, or open in app.')
   }
 
@@ -400,7 +400,7 @@
     const pending = conversation?.pending
     if (!pending || busy) return
     setBusy(true)
-    const result = await api.decide({ bot_id: layout.botId, decision })
+    const result = await api.decide({ bot_id: layout.botId, pending_id: pending.id, decision })
     takeConversation(result, 'Couldn’t send that. Try again, or open in app.')
   }
 

@@ -33,7 +33,7 @@ test('a conversation is rebuilt: messages cleaned, roles known, pending options 
     ['2', 'assistant', 'Line one\nLine two', null],
     ['3', 'assistant', 'x', null],
   ])
-  assert.deepEqual(c.pending, { id: '9', kind: 'question', prompt: 'Which repo?', detail: '', options: [{ id: 'a', label: 'Web' }, { id: 'b', label: 'Desktop' }], allow_other: true, multiple: false })
+  assert.deepEqual(c.pending, { id: '9', kind: 'question', prompt: 'Which repo?', detail: '', options: [{ id: 'a', label: 'Web' }, { id: 'b', label: 'Desktop' }], allow_other: true, multiple: false, questions_count: 1 })
 })
 
 test('the wrong bot, junk, or a foreign url is refused', () => {
@@ -53,7 +53,7 @@ test('only the last 20 messages are kept', () => {
 
 test('approvals carry no options; unknown pending kinds are dropped', () => {
   assert.deepEqual(C.conversationFrom({ bot_id: 1, pending: { id: 2, kind: 'approval', prompt: 'Deploy?', options: [{ id: 'a', label: 'x' }] } }).pending,
-    { id: '2', kind: 'approval', prompt: 'Deploy?', detail: '', options: [], allow_other: false, multiple: false })
+    { id: '2', kind: 'approval', prompt: 'Deploy?', detail: '', options: [], allow_other: false, multiple: false, questions_count: 1 })
   assert.equal(C.conversationFrom({ bot_id: 1, pending: { id: 2, kind: 'payment' } }).pending, null)
 })
 
@@ -63,45 +63,55 @@ test('a message from the renderer is rebuilt', () => {
   assert.equal(C.composeFrom({ bot_id: '../x', body: 'hi' }), null)
 })
 
-test('answers go to the web question card endpoint, addressed from the widget state', () => {
+test('answers go to the /desktop/widget answer wrapper, for bots waiting on a question', () => {
   const state = widgetStateFrom(fixture)
-  assert.deepEqual(C.answerFrom({ bot_id: OPS, option_ids: ['a', 'a', 'bad id', 'b'], text: '' }, state), {
+  assert.deepEqual(C.answerFrom({ bot_id: OPS, pending_id: OPS_MESSAGE, option_ids: ['eu-west-1', 'eu-west-1', 'us east 1', 7], text: '' }, state), {
     botId: OPS,
-    path: `/autopilot/bots/${OPS}/sessions/${OPS_SESSION}/messages/${OPS_MESSAGE}/answer`,
-    body: { option_ids: ['a', 'b'], text: '' },
+    path: `/desktop/widget/bots/${OPS}/answer`,
+    body: { pending_id: OPS_MESSAGE, option_ids: ['eu-west-1', 'us east 1'], text: '' },
   })
-  assert.deepEqual(C.answerFrom({ bot_id: OPS, text: ' eu-west ' }, state).body, { option_ids: [], text: 'eu-west' })
-  assert.deepEqual(C.answerFrom({ bot_id: OPS, skip: true }, state).body, { skip: true })
+  assert.deepEqual(C.answerFrom({ bot_id: OPS, text: ' eu-west ' }, state).body, { option_ids: [], text: 'eu-west' }, 'pending_id is optional')
+  assert.deepEqual(C.answerFrom({ bot_id: OPS, skip: true, pending_id: '../x' }, state).body, { skip: true })
   assert.equal(C.answerFrom({ bot_id: OPS }, state), null, 'nothing chosen, nothing typed, not a skip')
   assert.equal(C.answerFrom({ bot_id: LIN, text: 'x' }, state), null, 'Lin is waiting on an approval, not a question')
-  assert.equal(C.answerFrom({ bot_id: 'manager', text: 'x' }, state), null, "the manager's runs are answered in the app")
-  assert.equal(C.answerFrom({ bot_id: OPS, text: 'x', session_id: 'forged' }, null), null)
+  assert.equal(C.answerFrom({ bot_id: 'manager', text: 'x' }, state), null, 'the manager asks in replies, not cards')
+  assert.equal(C.answerFrom({ bot_id: OPS, text: 'x' }, null), null)
 })
 
-test('approvals go to approve_plan / decline_plan for the waiting session', () => {
+test('approvals go to the approval wrapper, the manager\'s proposals included', () => {
   const state = widgetStateFrom(fixture)
-  assert.deepEqual(C.decisionFrom({ bot_id: LIN, decision: 'approve' }, state), { botId: LIN, path: `/autopilot/bots/${LIN}/sessions/${LIN_SESSION}/approve_plan`, body: {} })
-  assert.equal(C.decisionFrom({ bot_id: LIN, decision: 'decline' }, state).path, `/autopilot/bots/${LIN}/sessions/${LIN_SESSION}/decline_plan`)
+  assert.deepEqual(C.decisionFrom({ bot_id: LIN, decision: 'approve' }, state), { botId: LIN, path: `/desktop/widget/bots/${LIN}/approval`, body: { decision: 'approve' } })
+  assert.deepEqual(C.decisionFrom({ bot_id: LIN, decision: 'decline', pending_id: LIN_SESSION }, state).body, { pending_id: LIN_SESSION, decision: 'decline' })
+  const proposing = widgetStateFrom({ ...fixture, manager: { ...fixture.manager, state: { ...fixture.manager.state, waiting: 'approval' } } })
+  assert.equal(C.decisionFrom({ bot_id: 'manager', decision: 'approve' }, proposing).path, '/desktop/widget/bots/manager/approval')
   assert.equal(C.decisionFrom({ bot_id: LIN, decision: 'delete-everything' }, state), null)
   assert.equal(C.decisionFrom({ bot_id: OPS, decision: 'approve' }, state), null, 'Ops is waiting on a question')
   assert.equal(C.decisionFrom({ bot_id: ADA, decision: 'approve' }, state), null, 'Ada is not waiting')
 })
 
-test('the popover: server history when there is one, the pending card from the state either way', () => {
+test('the popover: server history and card when there is one, the card from the state otherwise', () => {
   const state = widgetStateFrom(fixture)
+  assert.deepEqual(C.popoverConversation(OPS, null, state).pending, {
+    id: OPS_MESSAGE, kind: 'question', prompt: 'Which region?', detail: '',
+    options: [{ id: 'us-east-1', label: 'US East' }, { id: 'eu-west-1', label: 'EU West' }],
+    allow_other: true, multiple: false, questions_count: 1, actionable: true,
+  }, 'lettered options straight from the feed')
   const lin = C.popoverConversation(LIN, null, state)
-  assert.deepEqual(lin, { bot_id: LIN, messages: [], history: false, pending: { id: LIN_SESSION, kind: 'approval', prompt: 'Deploy to production?', detail: '', options: [], allow_other: false, multiple: false, actionable: true } })
-  const manager = C.popoverConversation('manager', null, state)
-  assert.equal(manager.pending.kind, 'question')
-  assert.equal(manager.pending.actionable, false, 'manager questions hand over to the app')
+  assert.equal(lin.history, false)
+  assert.equal(lin.pending.kind, 'approval')
+  assert.deepEqual(lin.pending.options, [])
+  assert.equal(lin.pending.actionable, true)
+  assert.equal(C.popoverConversation('manager', null, state).pending.actionable, false, 'manager questions hand over to the app')
   assert.equal(C.popoverConversation(ADA, null, state).pending, null)
 
-  const conversation = C.conversationFrom({ ...sample, bot_id: OPS })
-  const ops = C.popoverConversation(OPS, conversation, state)
+  const ops = C.popoverConversation(OPS, C.conversationFrom({ ...sample, bot_id: OPS }), state)
   assert.equal(ops.history, true)
   assert.equal(ops.messages.length, 3)
-  assert.deepEqual(ops.pending.options.map((o) => o.label), ['Web', 'Desktop'], 'the richer server card wins')
+  assert.deepEqual(ops.pending.options.map((o) => o.label), ['Web', 'Desktop'], 'the server conversation wins')
   assert.equal(ops.pending.actionable, true)
+  const multi = C.popoverConversation(OPS, C.conversationFrom({ ...sample, bot_id: OPS, pending: { ...sample.pending, questions_count: 3 } }), state)
+  assert.equal(multi.pending.actionable, false, 'several questions: answered in the app')
+  assert.equal(C.popoverConversation(OPS, C.conversationFrom({ bot_id: OPS, messages: [] }), state).pending, null, 'the server says nothing is pending')
 })
 
 test('option letters', () => {

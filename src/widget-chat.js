@@ -4,34 +4,33 @@
 // question or approval, and the replies the user sends from the widget. Pure,
 // so it is unit-testable without Electron (test/widget-chat.test.js).
 //
-// Answers and approvals go to the same endpoints the web app's question and
-// plan cards submit to (docs/desktop-widget.md in the Rails app), addressed
-// by the session / message ids in the bot's widget state — main builds the
-// path from the validated state, never from what the renderer says:
-//
-//   POST /autopilot/bots/:bot_id/sessions/:session_id/messages/:message_id/answer
-//   POST /autopilot/bots/:bot_id/sessions/:session_id/approve_plan | decline_plan
-//
-// The message history and the composer use session-cookie wrappers (the
-// /mobile-api endpoints take a mobile token the shell doesn't hold); until
-// the server has them the popover shows the pending card from the widget
-// state and "Open in app":
+// Session-cookie wrappers under /desktop/widget (docs/desktop-widget.md,
+// "Conversations", in the Rails app); :id is a bot UUID or 'manager'. Main
+// calls them with the default session (X-CMA-Desktop: 1); only the
+// validated conversation below reaches the widget renderer.
 //
 //   GET  /desktop/widget/bots/:id/messages?limit=20
 //   POST /desktop/widget/bots/:id/messages   { body }
+//   POST /desktop/widget/bots/:id/answer     { pending_id?, option_ids, text } | { pending_id?, skip: true }
+//   POST /desktop/widget/bots/:id/approval   { pending_id?, decision }
 //
-// which answer with the conversation:
-//   { bot_id, url?, messages: [{ id, role, body, created_at }],
-//     pending: { id, kind: 'question' | 'approval', prompt, detail?,
-//                options: [{ id, label }], allow_other, multiple } | null }
+// Each answers with the conversation (refusals are 422 with it attached):
+//   { bot_id, status, url, session_id | thread_id,
+//     messages: [{ id, role, body, created_at }],
+//     pending: { id, kind: 'question' | 'approval', prompt, detail,
+//                options: [{ id, label }], allow_other, multiple,
+//                questions_count } | null }
+//
+// The manager asks in replies, never with question cards, so it can't be
+// answered through /answer (422 not_a_question); its proposals are
+// approvals, which can.
 
-const { validId, cleanText, validAppUrl, botById, stateLabel } = require('./widget-state')
+const { validId, cleanText, validAppUrl, validOptions, botById, stateLabel } = require('./widget-state')
 
 const MESSAGE_LIMIT = 20
 const MAX_BODY = 8000
 const MAX_PROMPT = 1000
 const MAX_OPTIONS = 8
-const MAX_OPTION_LABEL = 200
 const MAX_COMPOSE = 10_000
 const ROLES = Object.freeze(['user', 'assistant', 'system'])
 const PENDING_KINDS = Object.freeze(['question', 'approval'])
@@ -74,26 +73,17 @@ function validPending (input) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
   if (!id || !PENDING_KINDS.includes(input.kind)) return null
-  const options = []
-  const seen = new Set()
-  if (Array.isArray(input.options)) {
-    for (const option of input.options.slice(0, MAX_OPTIONS * 2)) {
-      const optionId = validId(option?.id)
-      const label = cleanText(option?.label, MAX_OPTION_LABEL)
-      if (!optionId || !label || seen.has(optionId)) continue
-      seen.add(optionId)
-      options.push({ id: optionId, label })
-      if (options.length >= MAX_OPTIONS) break
-    }
-  }
+  const question = input.kind === 'question'
+  const questions = Math.trunc(Number(input.questions_count))
   return {
     id,
     kind: input.kind,
-    prompt: cleanBody(input.prompt, MAX_PROMPT) || (input.kind === 'approval' ? 'Approve this?' : 'Question'),
+    prompt: cleanBody(input.prompt, MAX_PROMPT) || (question ? 'Question' : 'Approve this?'),
     detail: cleanBody(input.detail, MAX_PROMPT),
-    options: input.kind === 'question' ? options : [],
-    allow_other: input.kind === 'question' && input.allow_other !== false,
-    multiple: input.kind === 'question' && input.multiple === true,
+    options: question ? validOptions(input.options) : [],
+    allow_other: question && input.allow_other !== false,
+    multiple: question && input.multiple === true,
+    questions_count: Number.isFinite(questions) && questions > 1 ? Math.min(questions, 20) : 1,
   }
 }
 
@@ -117,58 +107,66 @@ function composeFrom (input) {
   return { botId, path: botPath(botId, 'messages'), body: { body } }
 }
 
+// Can the widget answer this bot's pending card itself? Questions, yes —
+// except the manager's (it asks in replies); approvals, always.
+function canReply (bot, kind) {
+  if (!bot) return false
+  return kind === 'approval' || (kind === 'question' && !bot.isManager)
+}
+
 // The bot the renderer named, if the widget state has it waiting for this
-// kind of reply with the ids the endpoint needs.
+// kind of reply.
 function waitingBot (state, botId, kind) {
   const bot = botById(state, validId(botId))
-  if (!bot || bot.isManager || bot.state.waiting !== kind || !bot.state.session_id) return null
-  return bot
+  return bot && bot.state.waiting === kind && canReply(bot, kind) ? bot : null
 }
 
-function sessionPath (bot) {
-  return `/autopilot/bots/${encodeURIComponent(bot.id)}/sessions/${encodeURIComponent(bot.state.session_id)}`
+// The card the user answered, when the renderer says (so a card that
+// changed under them isn't answered with the old card's choices); the server
+// defaults to the one pending now.
+function withPendingId (body, input) {
+  const pendingId = validId(input.pending_id)
+  return pendingId ? { pending_id: pendingId, ...body } : body
 }
 
-// { bot_id, option_ids, text } or { bot_id, skip: true } → the answer POST.
+// { bot_id, pending_id?, option_ids, text } or { bot_id, pending_id?, skip }
 function answerFrom (input, state) {
   if (!input || typeof input !== 'object') return null
   const bot = waitingBot(state, input.bot_id, 'question')
-  if (!bot || !bot.state.message_id) return null
-  const optionIds = Array.isArray(input.option_ids) ? [...new Set(input.option_ids.map(validId).filter(Boolean))].slice(0, MAX_OPTIONS) : []
+  if (!bot) return null
+  const optionIds = Array.isArray(input.option_ids)
+    ? [...new Set(input.option_ids.map((v) => (typeof v === 'string' ? cleanText(v, 200) : '')).filter(Boolean))].slice(0, MAX_OPTIONS)
+    : []
   const text = cleanBody(input.text, MAX_COMPOSE)
   const skip = input.skip === true
   if (!skip && optionIds.length === 0 && !text) return null
-  return {
-    botId: bot.id,
-    path: `${sessionPath(bot)}/messages/${encodeURIComponent(bot.state.message_id)}/answer`,
-    body: skip ? { skip: true } : { option_ids: optionIds, text },
-  }
+  return { botId: bot.id, path: botPath(bot.id, 'answer'), body: withPendingId(skip ? { skip: true } : { option_ids: optionIds, text }, input) }
 }
 
-// { bot_id, decision: 'approve' | 'decline' } → the plan approve/decline POST.
+// { bot_id, pending_id?, decision: 'approve' | 'decline' }
 function decisionFrom (input, state) {
   if (!input || typeof input !== 'object' || !DECISIONS.includes(input.decision)) return null
   const bot = waitingBot(state, input.bot_id, 'approval')
   if (!bot) return null
-  return { botId: bot.id, path: `${sessionPath(bot)}/${input.decision === 'approve' ? 'approve_plan' : 'decline_plan'}`, body: {} }
+  return { botId: bot.id, path: botPath(bot.id, 'approval'), body: withPendingId({ decision: input.decision }, input) }
 }
 
-// The pending card when the server has no richer one: what the widget state
-// says the bot is waiting for. actionable is whether the widget can reply
-// itself (it has the ids) or only offer "Open in app".
+// The pending card from the widget state (which carries the first
+// question's options), for when there is no conversation yet.
 function pendingFromState (bot) {
   if (!bot || !bot.state.waiting) return null
   const kind = bot.state.waiting
-  const actionable = !bot.isManager && Boolean(bot.state.session_id) && (kind === 'approval' || Boolean(bot.state.message_id))
+  const question = kind === 'question'
   return {
-    id: bot.state.message_id || bot.state.session_id || bot.id,
+    id: bot.state.message_id || bot.state.session_id || bot.state.run_id || bot.id,
     kind,
     prompt: bot.state.detail || stateLabel(bot),
     detail: '',
-    options: [],
-    allow_other: kind === 'question',
-    multiple: false,
-    actionable,
+    options: question ? bot.state.options : [],
+    allow_other: question && (bot.state.allow_other || bot.state.options.length === 0),
+    multiple: question && bot.state.multiple,
+    questions_count: 1,
+    actionable: canReply(bot, kind),
   }
 }
 
@@ -177,9 +175,11 @@ function pendingFromState (bot) {
 // (or there is no conversation endpoint yet).
 function popoverConversation (botId, conversation, state) {
   const bot = botById(state, validId(botId))
-  const fromState = pendingFromState(bot)
-  let pending = conversation?.pending ? { ...conversation.pending, actionable: Boolean(fromState?.actionable) } : fromState
-  if (pending && fromState && pending.kind !== fromState.kind) pending = fromState
+  const pending = conversation
+    // A card with several questions is answered in the app, where they
+    // can all be seen together.
+    ? (conversation.pending ? { ...conversation.pending, actionable: canReply(bot, conversation.pending.kind) && conversation.pending.questions_count === 1 } : null)
+    : pendingFromState(bot)
   return {
     bot_id: validId(botId),
     messages: conversation ? conversation.messages : [],

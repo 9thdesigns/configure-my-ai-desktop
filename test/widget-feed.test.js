@@ -135,21 +135,20 @@ test('the popover conversation: GET and compose through the wrappers', async () 
   assert.equal(await createWidgetFeed({ store, request: fakeServer({ [`GET /desktop/widget/bots/${ADA}/messages?limit=20`]: { status: 404 } }).request }).conversation(ADA), null, 'no wrapper yet: null')
 })
 
-test('answers and approvals hit the autopilot endpoints; a redirect is success unless it is to sign-in', async () => {
+test('answers and approvals post to the wrappers and come back as the conversation', async () => {
   const store = createWidgetStore()
-  const approve = `POST /autopilot/bots/${LIN}/sessions/${LIN_SESSION}/approve_plan`
-  const answer = `POST /autopilot/bots/${OPS}/sessions/${OPS_SESSION}/messages/${OPS_MESSAGE}/answer`
-  let approveRes = { status: 302, location: `https://configuremyai.com/autopilot/bots/${LIN}` }
-  const server = fakeServer({ [approve]: () => approveRes, [answer]: { status: 200, json: {} } })
+  const after = { bot_id: OPS, messages: [{ id: 'm9', role: 'user', body: 'EU West' }], pending: null }
+  const server = fakeServer({
+    [`POST /desktop/widget/bots/${OPS}/answer`]: { status: 200, json: after },
+    [`POST /desktop/widget/bots/${LIN}/approval`]: { status: 422, json: { error: 'Nothing to approve', code: 'not_awaiting' } },
+  })
   const feed = createWidgetFeed({ store, request: server.request })
   await feed.refresh()
-  assert.equal(await feed.decide({ bot_id: LIN, decision: 'approve' }), true)
-  assert.deepEqual(server.calls.find((c) => `${c.method} ${c.path}` === approve), { method: 'POST', path: approve.slice(5), body: {}, csrfToken: fixture.csrf_token })
-  approveRes = { status: 302, location: '/users/sign_in' }
-  assert.equal(await feed.decide({ bot_id: LIN, decision: 'approve' }), false)
-  assert.equal(await feed.answer({ bot_id: OPS, option_ids: ['eu'] }), true)
-  assert.deepEqual(server.calls.find((c) => `${c.method} ${c.path}` === answer).body, { option_ids: ['eu'], text: '' })
-  assert.equal(await feed.decide({ bot_id: OPS, decision: 'approve' }), false, 'not waiting on an approval: never sent')
+  assert.deepEqual(await feed.answer({ bot_id: OPS, pending_id: OPS_MESSAGE, option_ids: ['eu-west-1'] }), { bot_id: OPS, url: null, messages: [{ id: 'm9', role: 'user', body: 'EU West', created_at: null }], pending: null })
+  assert.deepEqual(server.calls.find((c) => c.path.endsWith('/answer')).body, { pending_id: OPS_MESSAGE, option_ids: ['eu-west-1'], text: '' })
+  assert.equal(await feed.decide({ bot_id: LIN, decision: 'approve' }), null, 'a refusal is null')
+  assert.equal(server.calls.some((c) => c.path.includes('/autopilot/')), false, 'never the web form routes')
+  assert.equal(await feed.decide({ bot_id: OPS, decision: 'approve' }), null)
   assert.equal(redirectsToSignIn('/users/sign_in?x=1'), true)
   assert.equal(redirectsToSignIn('https://configuremyai.com/login'), true)
   assert.equal(redirectsToSignIn('/autopilot/bots/1'), false)

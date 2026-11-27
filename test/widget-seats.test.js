@@ -70,11 +70,10 @@ test('the picker lists bots not in the dock, those needing attention first, filt
   assert.deepEqual(S.pickerBots(null), [])
 })
 
-test('only pausing the manager asks first', () => {
-  const confirm = S.pauseConfirmation({ isManager: true, name: 'Max' })
-  assert.equal(confirm.message, 'Pause Max?')
-  assert.deepEqual(confirm.buttons, ['Pause', 'Cancel'])
-  assert.equal(confirm.cancelId, 1)
-  assert.equal(confirm.defaultId, 1, 'Cancel is the default')
-  assert.equal(S.pauseConfirmation({ isManager: false, name: 'Ada' }), null)
+test("the manager's Active switch is shown on and disabled (the server refuses to pause it)", () => {
+  const { calls, actions } = recorder()
+  const active = byId(S.seatContextMenuTemplate(state, 'manager', actions), 'active')
+  assert.equal(active.checked, true)
+  assert.equal(active.enabled, false)
+  assert.deepEqual(calls, [])
 })
