@@ -33,6 +33,7 @@ const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
 const { createIslandController } = require('./island-window')
 const { createCable, electronCookieHeader } = require('./widget-cable')
+const { installNativeFeel } = require('./native-feel')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -473,6 +474,10 @@ tagUserAgent()
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('ozone-platform-hint', 'auto')
 }
+
+// No pinch zoom, a native text-field menu with spelling suggestions, for
+// every window as it is created (src/native-feel.js).
+installNativeFeel(app)
 
 app.whenReady().then(() => {
   restrictPermissions()
