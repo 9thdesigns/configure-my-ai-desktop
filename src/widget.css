@@ -184,6 +184,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .picker-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .picker-count { background: var(--waiting); color: #fff; border-radius: 9px; font-size: 11px; font-weight: 700; padding: 1px 7px; }
 
+/* The workspace mark at the top of the dock */
+.dock-workspace {
+  border: 0;
+  padding: 0 0 8px;
+  margin-bottom: -2px;
+  background: none;
+  border-bottom: 1px solid var(--line);
+  transition: transform 0.15s ease;
+}
+.dock-workspace[hidden] { display: none; }
+.dock-workspace:hover { transform: scale(1.06); }
+.dock-workspace:disabled { cursor: default; transform: none; }
+.workspace-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.workspace-mark[data-shape="circle"] { border-radius: 50%; }
+.workspace-mark[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
+.workspace-mark img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
 /* Avatars ---------------------------------------------------------------- */
 
 .avatar {

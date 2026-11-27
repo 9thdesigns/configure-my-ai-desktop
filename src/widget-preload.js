@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   collapse: () => ipcRenderer.send('cma-widget:collapse'),
   contextMenu: (botId) => ipcRenderer.send('cma-widget:context-menu', botId),
   picker: () => ipcRenderer.send('cma-widget:picker'),
+  workspaceMenu: () => ipcRenderer.send('cma-widget:workspace-menu'),
   pin: (botId) => ipcRenderer.send('cma-widget:pin', botId),
   openInApp: (botId) => ipcRenderer.send('cma-widget:open-in-app', botId),
   sendMessage: (botId, body) => ipcRenderer.invoke('cma-widget:send', { bot_id: botId, body }),
