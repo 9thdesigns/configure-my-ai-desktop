@@ -13,7 +13,7 @@
   },
   "scripts": {
     "start": "electron .",
-    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check src/updater.js && node --check build/afterPack.js && node --check src/url-policy.js && node --check src/offline.js && node --check src/web-refresh.js && node --check src/window-chrome.js && node --check src/widget-state.js && node --check src/widget-feed.js && node --check src/prefs.js && node --check src/tray.js && node --check src/widget-chat.js && node --check src/widget-window.js && node --check src/widget-preload.js && node --check src/widget-view.js && node --check src/widget-seats.js",
+    "check": "node --check src/main.js && node --check src/menu.js && node --check src/window-state.js && node --check src/preload.js && node --check src/updater.js && node --check build/afterPack.js && node --check src/url-policy.js && node --check src/offline.js && node --check src/web-refresh.js && node --check src/window-chrome.js && node --check src/widget-state.js && node --check src/widget-feed.js && node --check src/prefs.js && node --check src/tray.js && node --check src/widget-chat.js && node --check src/widget-window.js && node --check src/widget-preload.js && node --check src/widget-view.js && node --check src/widget-seats.js && node --check src/native-feel.js",
     "test": "node --test test/*.test.js",
     "pack": "electron-builder --mac --dir",
     "pack:win": "electron-builder --win --dir",
