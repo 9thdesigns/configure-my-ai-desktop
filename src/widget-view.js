@@ -41,38 +41,13 @@
     return node
   }
 
-  const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
-
-  // Dark ink on a light avatar colour, light ink on a dark one.
-  function inkFor (hex) {
-    const full = hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(full.slice(i, i + 2), 16))
-    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#231d1b' : '#ffffff'
-  }
-
-  // Bots have no picture: initials on their avatar colour, in their avatar
-  // shape (the same look as the web app). The manager may carry the
-  // workspace logo.
-  function paintAvatar (node, bot) {
-    const key = [bot.avatar_url, bot.name, bot.avatar_color, bot.avatar_shape].join('|')
-    if (node.dataset.key === key) return
-    node.dataset.key = key
-    node.dataset.shape = bot.avatar_shape || 'circle'
-    node.style.background = bot.avatar_color || ''
-    node.style.color = bot.avatar_color ? inkFor(bot.avatar_color) : ''
-    node.textContent = ''
-    if (bot.avatar_url) {
-      const img = new Image()
-      img.alt = ''
-      img.referrerPolicy = 'no-referrer'
-      img.draggable = false
-      img.onerror = () => { node.textContent = initials(bot.name) }
-      img.src = bot.avatar_url
-      node.append(img)
-    } else {
-      node.textContent = initials(bot.name)
-    }
-  }
+  // The bot's avatar — the web app's animated CFA face, its picture, or its
+  // initials (src/avatar-render.js decides, and swaps states in place).
+  const avatars = window.CfaAvatar
+  const paintAvatar = (node, bot) => avatars.paint(node, bot)
+  const inkFor = avatars.inkFor
+  avatars.watch(window, document)
+  if (typeof api.onAvatarCss === 'function') api.onAvatarCss((payload) => avatars.applyCss(document, payload && payload.css))
 
   const botById = (id) => view.bots.find((b) => b.id === id)
 

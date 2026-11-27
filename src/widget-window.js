@@ -180,6 +180,7 @@ function widgetView (state) {
       avatar_url: bot.avatar_url,
       avatar_color: bot.avatar_color,
       avatar_shape: bot.avatar_shape,
+      avatar: bot.avatar,
       mood: bot.mood,
       waiting: bot.state.waiting,
       detail: bot.state.detail,
@@ -223,7 +224,7 @@ function saveOffset (file, offsetY) {
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, platform = process.platform }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, platform = process.platform }) {
   const { BrowserWindow, screen, session } = require('electron')
 
   let win = null
@@ -278,7 +279,21 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   }
 
   function pushState () {
-    send('cma-widget:state', widgetView(store.get()))
+    const state = store.get()
+    send('cma-widget:state', widgetView(state))
+    pushAvatarCss(state)
+  }
+
+  // The CFA avatar stylesheet, once per URL per window (avatar-css.js).
+  let sentCssUrl = null
+  function pushAvatarCss (state) {
+    const url = state?.avatar_css_url
+    if (!avatarCss || !url || url === sentCssUrl) return
+    avatarCss.get(url).then((css) => {
+      if (!css || !alive() || store.get()?.avatar_css_url !== url) return
+      sentCssUrl = url
+      send('cma-widget:avatar-css', { url, css })
+    }).catch(() => {})
   }
 
   // The popover's view of a bot: the server's history when there is one, the
@@ -378,6 +393,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     win.on('blur', collapse)
     win.on('closed', () => {
       win = null
+      sentCssUrl = null
       expanded = false
       openBotId = null
       clearInterval(pointerTimer)
@@ -423,6 +439,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   function registerIpc (ipcMain) {
     ipcMain.on('cma-widget:ready', (event) => {
       if (!fromWidget(event)) return
+      // A fresh page has no stylesheet yet, whatever was sent before.
+      sentCssUrl = null
       pushState()
       place()
     })

@@ -13,6 +13,7 @@ const listen = (channel) => (fn) => {
 contextBridge.exposeInMainWorld('cmaIsland', {
   onView: listen('cma-island:view'),
   onLayout: listen('cma-island:layout'),
+  onAvatarCss: listen('cma-island:avatar-css'),
   ready: () => ipcRenderer.send('cma-island:ready'),
   reportHeight: (height) => ipcRenderer.send('cma-island:height', height),
   hover: (inside) => ipcRenderer.send('cma-island:hover', inside === true),

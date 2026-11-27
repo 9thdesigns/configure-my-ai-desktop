@@ -35,34 +35,12 @@
     return node
   }
 
-  const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
-
-  function inkFor (hex) {
-    const full = hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(full.slice(i, i + 2), 16))
-    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#231d1b' : '#ffffff'
-  }
-
-  function paintAvatar (bot) {
-    const key = [bot.avatar_url, bot.name, bot.avatar_color, bot.avatar_shape].join('|')
-    if (avatar.dataset.key === key) return
-    avatar.dataset.key = key
-    avatar.dataset.shape = bot.avatar_shape || 'circle'
-    avatar.style.background = bot.avatar_color || ''
-    avatar.style.color = bot.avatar_color ? inkFor(bot.avatar_color) : ''
-    avatar.textContent = ''
-    if (bot.avatar_url) {
-      const img = new Image()
-      img.alt = ''
-      img.referrerPolicy = 'no-referrer'
-      img.draggable = false
-      img.onerror = () => { avatar.textContent = initials(bot.name) }
-      img.src = bot.avatar_url
-      avatar.append(img)
-    } else {
-      avatar.textContent = initials(bot.name)
-    }
-  }
+  // The bot's avatar — the web app's animated CFA face, its picture, or its
+  // initials (src/avatar-render.js decides, and swaps states in place).
+  const avatars = window.CfaAvatar
+  const paintAvatar = (bot) => avatars.paint(avatar, bot)
+  avatars.watch(window, document)
+  if (typeof api.onAvatarCss === 'function') api.onAvatarCss((payload) => avatars.applyCss(document, payload && payload.css))
 
   function reportHeight () {
     requestAnimationFrame(() => api.reportHeight(Math.ceil(island.offsetHeight)))

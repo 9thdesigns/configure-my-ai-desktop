@@ -72,7 +72,8 @@ function islandBot (state) {
   return [...docked, ...rest].find((b) => b.state?.waiting && islandChip(b)) || null
 }
 
-const botView = (bot) => ({ id: bot.id, name: bot.name, avatar_url: bot.avatar_url, avatar_color: bot.avatar_color, avatar_shape: bot.avatar_shape })
+// avatar: the CFA face from a newer feed (cfa-avatar.js); absent from an older one.
+const botView = (bot) => ({ id: bot.id, name: bot.name, avatar_url: bot.avatar_url, avatar_color: bot.avatar_color, avatar_shape: bot.avatar_shape, ...(bot.avatar ? { avatar: bot.avatar } : {}) })
 
 // The calm pill shown when nobody needs the user: the manager's mark and a
 // one-word status. With no widget state yet (signed out, or the first fetch
@@ -170,7 +171,7 @@ const HTML_URL = pathToFileURL(HTML_PATH).href
 const HOVER_COLLAPSE_MS = 600
 const DISPLAY_SETTLE_MS = 300
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, platform = process.platform, electron = require('electron') }) {
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -234,6 +235,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     win.on('blur', collapse)
     win.on('closed', () => {
       win = null
+      sentCssUrl = null
       expanded = false
       focused = false
     })
@@ -266,10 +268,23 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     if (!alive()) return create()
     if ((pendingChanged || view.idle) && expanded && !focused) collapse()
     send('cma-island:view', view)
+    pushAvatarCss()
     if (!win.isVisible()) {
       place()
       win.showInactive()
     }
+  }
+
+  // The CFA avatar stylesheet, once per URL per window (avatar-css.js).
+  let sentCssUrl = null
+  function pushAvatarCss () {
+    const url = store.get()?.avatar_css_url
+    if (!avatarCss || !url || url === sentCssUrl) return
+    avatarCss.get(url).then((css) => {
+      if (!css || !alive() || store.get()?.avatar_css_url !== url) return
+      sentCssUrl = url
+      send('cma-island:avatar-css', { url, css })
+    }).catch(() => {})
   }
 
   // A display added, removed, rescaled, rotated, or its menu bar / taskbar
@@ -295,7 +310,9 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   function registerIpc (ipcMain) {
     ipcMain.on('cma-island:ready', (event) => {
       if (!fromIsland(event)) return
+      sentCssUrl = null
       if (view) send('cma-island:view', view)
+      pushAvatarCss()
       place()
     })
 

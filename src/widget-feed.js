@@ -62,9 +62,10 @@ function createWidgetStore ({ now = Date.now } = {}) {
   return {
     get: () => state,
     // input from the page or the server; false (and nothing changes) when it
-    // fails validation.
-    apply (input, source) {
-      const next = widgetStateFrom(input)
+    // fails validation. origin: where it came from — avatar markup is only
+    // kept when that is our own app origin (cfa-avatar.js).
+    apply (input, source, { origin = null } = {}) {
+      const next = widgetStateFrom(input, { trusted: isAppUrl(origin) })
       if (!next) return false
       if (source === 'page') lastPagePublish = now()
       state = next
@@ -72,10 +73,12 @@ function createWidgetStore ({ now = Date.now } = {}) {
       return true
     },
     // An optimistic local edit; the function gets a copy and returns the new
-    // state, which is re-validated like any other input.
+    // state, which is re-validated like any other input. The copy holds only
+    // what an earlier apply already sanitised (avatar trees are re-checked
+    // structurally), so it keeps its trust.
     update (fn) {
       if (!state) return false
-      const next = widgetStateFrom(fn(structuredClone(state)))
+      const next = widgetStateFrom(fn(structuredClone(state)), { trusted: true })
       if (!next) return false
       state = next
       emit()
@@ -109,7 +112,9 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
   const takeResponse = (res) => {
     if (!res || res.status !== 200 || !res.json || typeof res.json !== 'object') return false
     if (typeof res.json.csrf_token === 'string' && CSRF.test(res.json.csrf_token)) csrfToken = res.json.csrf_token
-    return store.apply(res.json, 'server')
+    // Every request goes to APP_URL (electronRequest refuses anything else);
+    // the response says where it actually came from.
+    return store.apply(res.json, 'server', { origin: res.url || APP_URL })
   }
 
   async function refresh () {
@@ -305,7 +310,7 @@ function electronRequest ({ method, path, body, csrfToken }) {
         let json = null
         try { json = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch {}
         const stream = res.headers['x-cma-widget-stream']
-        done({ status: res.statusCode, json, stream: Array.isArray(stream) ? stream[0] : stream })
+        done({ status: res.statusCode, json, url, stream: Array.isArray(stream) ? stream[0] : stream })
       })
       res.on('error', () => done({ status: 0 }))
     })

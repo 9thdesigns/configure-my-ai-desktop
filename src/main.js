@@ -28,6 +28,7 @@ const { applyBadge } = require('./badge')
 const { createPrefs } = require('./prefs')
 const { createTray } = require('./tray')
 const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
+const { createAvatarCssCache, electronFetchText } = require('./avatar-css')
 const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
@@ -325,9 +326,11 @@ function registerIpc () {
   // focused bot, the needs-you count, the seats. Same origin gate; the shape
   // is rebuilt field by field in widget-state.js before it reaches the menu
   // bar, and anything that isn't a widget state is dropped.
+  // fromAppFrame checks the frame is ours; avatar markup is kept only for our
+  // own origin (the frame's URL goes along to the store).
   ipcMain.on('cfa:widget-publish', (event, input) => {
     if (!fromAppFrame(event) || !widgetStore) return
-    widgetStore.apply(input, 'page')
+    widgetStore.apply(input, 'page', { origin: (event.senderFrame && event.senderFrame.url) || event.sender.getURL() })
   })
 
   // A widget command the page had no handler for (an older site, or a page
@@ -575,6 +578,8 @@ function startWidgetFeedAndTray () {
     : null
   widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
   widgetFeed.start()
+  // The CFA avatar stylesheet the dock and the island share, cached on disk.
+  const avatarCss = createAvatarCssCache({ dir: path.join(app.getPath('userData'), 'avatar-css'), fetchText: electronFetchText })
 
   // Workspace logos for the native switcher menus (src/workspace-logos.js),
   // fetched as soon as a feed names them.
@@ -621,6 +626,7 @@ function startWidgetFeedAndTray () {
     switchWorkspace: (id) => switchWorkspace(id),
     logos,
     positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
+    avatarCss,
   })
   widget.registerIpc(ipcMain)
   widget.sync()
@@ -634,6 +640,7 @@ function startWidgetFeedAndTray () {
     getMainWindow: () => mainWindow,
     openBot,
     openApp,
+    avatarCss,
   })
   island.registerIpc(ipcMain)
   island.sync()

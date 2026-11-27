@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   onState: listen('cma-widget:state'),
   onLayout: listen('cma-widget:layout'),
   onConversation: listen('cma-widget:conversation'),
+  onAvatarCss: listen('cma-widget:avatar-css'),
   ready: () => ipcRenderer.send('cma-widget:ready'),
   reportHitRects: (rects, dockHeight) => ipcRenderer.send('cma-widget:hit-rects', { rects, dockHeight }),
   drag: (phase, screenY) => ipcRenderer.send('cma-widget:drag', { phase, screenY }),
