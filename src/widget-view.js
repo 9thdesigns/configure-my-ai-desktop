@@ -38,10 +38,23 @@
 
   const initials = (name) => (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?'
 
+  // Dark ink on a light avatar colour, light ink on a dark one.
+  function inkFor (hex) {
+    const full = hex.length === 4 ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}` : hex
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(full.slice(i, i + 2), 16))
+    return (0.299 * r + 0.587 * g + 0.114 * b) > 160 ? '#231d1b' : '#ffffff'
+  }
+
+  // Bots have no picture: initials on their avatar colour, in their avatar
+  // shape (the same look as the web app). The manager may carry the
+  // workspace logo.
   function paintAvatar (node, bot) {
-    if (node.dataset.src === (bot.avatar_url || '') && node.dataset.name === bot.name) return
-    node.dataset.src = bot.avatar_url || ''
-    node.dataset.name = bot.name
+    const key = [bot.avatar_url, bot.name, bot.avatar_color, bot.avatar_shape].join('|')
+    if (node.dataset.key === key) return
+    node.dataset.key = key
+    node.dataset.shape = bot.avatar_shape || 'circle'
+    node.style.background = bot.avatar_color || ''
+    node.style.color = bot.avatar_color ? inkFor(bot.avatar_color) : ''
     node.textContent = ''
     if (bot.avatar_url) {
       const img = new Image()
@@ -164,8 +177,8 @@
       messagesEl.append(el('li', 'messages-empty', 'Loading…'))
       return
     }
-    if (conversation.error) {
-      messagesEl.append(el('li', 'messages-empty', 'Couldn’t load messages. Open in app to see them.'))
+    if (!conversation.history) {
+      messagesEl.append(el('li', 'messages-empty', 'Open in app to see the full conversation.'))
       return
     }
     if (!conversation.messages.length) {
@@ -184,8 +197,8 @@
   const letter = (i) => String.fromCharCode(65 + i)
 
   function renderPending () {
-    const pending = conversation && !conversation.error ? conversation.pending : null
-    const key = pending ? `${pending.kind}:${pending.id}` : null
+    const pending = conversation ? conversation.pending : null
+    const key = pending ? `${pending.kind}:${pending.id}:${pending.actionable}` : null
     // Re-rendering on every poll would wipe a half-made choice.
     if (key === pendingKey) return
     pendingKey = key
@@ -197,6 +210,17 @@
     pendingEl.append(el('div', 'pending-prompt', pending.prompt))
     if (pending.detail) pendingEl.append(el('div', 'pending-detail', pending.detail))
     const actions = el('div', 'pending-actions')
+
+    // Waiting on something the widget can't answer itself (the manager's
+    // runs, or a card without the ids): say what, and hand over to the app.
+    if (!pending.actionable) {
+      const open = el('button', 'btn btn-primary', pending.kind === 'approval' ? 'Review in app' : 'Answer in app')
+      open.type = 'button'
+      open.addEventListener('click', () => api.openInApp(layout.botId))
+      actions.append(open)
+      pendingEl.append(actions)
+      return reportLayout()
+    }
 
     if (pending.kind === 'approval') {
       const decline = el('button', 'btn', 'Decline')
@@ -250,7 +274,7 @@
 
   function toggleOption (id) {
     const pending = conversation?.pending
-    if (!pending || pending.kind !== 'question') return
+    if (!pending || pending.kind !== 'question' || !pending.actionable) return
     if (selected.has(id)) {
       selected.delete(id)
     } else {
@@ -305,7 +329,7 @@
     const text = otherText()
     if (!skip && selected.size === 0 && !text) return
     setBusy(true)
-    const result = await api.answer({ bot_id: layout.botId, pending_id: pending.id, option_ids: [...selected], text, skip })
+    const result = await api.answer({ bot_id: layout.botId, option_ids: [...selected], text, skip })
     takeConversation(result, 'Couldn’t send your answer. Try again, or open in app.')
   }
 
@@ -313,7 +337,7 @@
     const pending = conversation?.pending
     if (!pending || busy) return
     setBusy(true)
-    const result = await api.decide({ bot_id: layout.botId, pending_id: pending.id, decision })
+    const result = await api.decide({ bot_id: layout.botId, decision })
     takeConversation(result, 'Couldn’t send that. Try again, or open in app.')
   }
 
@@ -361,7 +385,7 @@
     // A–H pick a question's options, unless the user is typing.
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '')
     const pending = conversation?.pending
-    if (typing || !pending || pending.kind !== 'question' || event.metaKey || event.ctrlKey || event.altKey) return
+    if (typing || !pending || pending.kind !== 'question' || !pending.actionable || event.metaKey || event.ctrlKey || event.altKey) return
     const index = event.key.length === 1 ? event.key.toUpperCase().charCodeAt(0) - 65 : -1
     if (index >= 0 && index < pending.options.length) {
       event.preventDefault()

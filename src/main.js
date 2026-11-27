@@ -28,7 +28,7 @@ const { applyBadge } = require('./badge')
 const { createPrefs } = require('./prefs')
 const { createTray } = require('./tray')
 const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
-const { validId } = require('./widget-state')
+const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 
 // Height of the strip at the top of the window that the user drags it by, and
@@ -328,7 +328,7 @@ function registerIpc () {
     if (!fromAppFrame(event) || !command || command.type !== 'open-bot') return
     const id = validId(command.bot_id)
     const win = BrowserWindow.fromWebContents(event.sender)
-    if (id && win && win === mainWindow) win.loadURL(dockBotById(id)?.url || botUrl(id))
+    if (id && win && win === mainWindow) win.loadURL(botById(widgetStore?.get(), id)?.url || botUrl(id))
   })
 
   // The OS theme changed: windows the page has not coloured yet follow it.
@@ -506,9 +506,10 @@ function openApp () {
   if (process.platform === 'darwin') app.focus({ steal: true })
 }
 
-// Where a bot lives when the page can't route there itself.
+// Where a bot lives when the widget state has no url for it: the manager's
+// home, or the bot's autopilot page.
 function botUrl (id) {
-  return `${APP_URL}/bots/${encodeURIComponent(id)}`
+  return id === 'manager' ? `${APP_URL}/home` : `${APP_URL}/autopilot/bots/${encodeURIComponent(id)}`
 }
 
 // Open a bot in the app window: the page does it as a Turbo visit when it has
@@ -519,25 +520,17 @@ function botUrl (id) {
 function openBot (botId) {
   const id = validId(botId)
   if (!id) return
-  const known = dockBotById(id)
+  const known = botById(widgetStore?.get(), id)
   const wasOpen = Boolean(mainWindow && !mainWindow.isDestroyed())
   openApp()
   const contents = mainWindow.webContents
   if (wasOpen && isAppUrl(contents.getURL()) && !contents.isLoading()) {
-    contents.send('cfa:widget-command', { type: 'open-bot', bot_id: id })
+    contents.send('cfa:widget-command', { type: 'open-bot', bot_id: id, url: known?.url || botUrl(id) })
   } else {
     mainWindow.loadURL(known?.url || botUrl(id))
   }
 }
 
-// A bot the widget state knows about (for its url), or undefined.
-function dockBotById (id) {
-  const state = widgetStore?.get()
-  if (!state) return undefined
-  if (state.manager?.id === id) return state.manager
-  const seat = state.seats.find((s) => s.bot_id === id)
-  return seat ? { ...seat, id: seat.bot_id } : undefined
-}
 
 function startWidgetFeedAndTray () {
   prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
