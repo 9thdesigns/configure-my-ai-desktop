@@ -4,10 +4,11 @@
 
 const { Menu, shell } = require('electron')
 const { goBack, goHome } = require('./menu-actions')
+const { islandMenuItem, syncIslandMenuItem } = require('./island-window')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
-function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAccess }) {
+function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAccess, prefs }) {
   const contents = () => getWindow()?.webContents
   // Home goes to the app's entry point (the sign-in screen, which Devise
   // bounces to the app when already signed in) rather than the marketing root.
@@ -50,6 +51,9 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
         { role: 'zoomOut' },
         { type: 'separator' },
         { role: 'togglefullscreen' },
+        // The status pill at the top of the screen (island-window.js); the
+        // same pref as the tray's checkbox, kept in step both ways.
+        ...(prefs ? [{ type: 'separator' }, islandMenuItem(prefs)] : []),
       ],
     },
     ...(localAccess
@@ -86,7 +90,9 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
     },
   ]
 
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+  if (prefs) syncIslandMenuItem(menu, prefs)
 }
 
 module.exports = { installMenu }

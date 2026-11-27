@@ -172,6 +172,8 @@
   island.addEventListener('mouseenter', () => api.hover(true))
   island.addEventListener('mouseleave', () => api.hover(false))
   bar.addEventListener('click', () => {
+    // The idle pill has no card: a click just brings the app forward.
+    if (view?.idle) return api.openApp()
     if (layout.focused) api.collapse()
     else api.activate()
   })
@@ -199,6 +201,7 @@
     if (!next || !next.bot || !next.chip) return
     view = next
     island.dataset.chip = next.chip.kind
+    island.classList.toggle('is-idle', next.idle === true)
     paintAvatar(next.bot)
     nameEl.textContent = next.bot.name
     chipEl.textContent = next.chip.label

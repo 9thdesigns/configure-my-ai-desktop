@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('cmaIsland', {
   activate: () => ipcRenderer.send('cma-island:activate'),
   collapse: () => ipcRenderer.send('cma-island:collapse'),
   openInApp: (botId) => ipcRenderer.send('cma-island:open-in-app', botId),
+  openApp: () => ipcRenderer.send('cma-island:open-app'),
   answer: (payload) => ipcRenderer.invoke('cma-island:answer', payload),
   decide: (payload) => ipcRenderer.invoke('cma-island:decide', payload),
 })
