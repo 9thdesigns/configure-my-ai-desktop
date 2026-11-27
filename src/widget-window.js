@@ -30,7 +30,7 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
-const { isPaused, reorder, seatContextMenuTemplate, pickerBots } = require('./widget-seats')
+const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 
 const DOCK_WIDTH = 72 // the dock column, including room for its shadow
@@ -190,6 +190,8 @@ function widgetView (state) {
     })),
     // The "+" picker's list: the workspace's bots not in the dock.
     candidates: pickerBots(state),
+    dock_full: dockFull(state),
+    max_pinned: MAX_PINNED,
     // The workspace mark at the top of the dock.
     workspace: currentWorkspace(state),
   }
@@ -479,7 +481,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     // Pin a bot from the picker; it must be one the picker offered.
     ipcMain.on('cma-widget:pin', (event, botId) => {
       const id = validId(botId)
-      if (!fromWidget(event) || !id || !pickerBots(store.get()).some((b) => b.id === id)) return
+      if (!fromWidget(event) || !id || dockFull(store.get()) || !pickerBots(store.get()).some((b) => b.id === id)) return
       collapse()
       feed.setPinned(id, true).catch(() => {})
     })

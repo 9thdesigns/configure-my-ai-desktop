@@ -77,3 +77,12 @@ test("the manager's Active switch is shown on and disabled (the server refuses t
   assert.equal(active.enabled, false)
   assert.deepEqual(calls, [])
 })
+
+test('the dock holds 12 pinned seats (the manager is not one)', () => {
+  assert.equal(S.MAX_PINNED, 12)
+  assert.equal(S.dockFull(state), false)
+  const seats = Array.from({ length: 14 }, (_, i) => ({ bot_id: `b${i}`, name: `B${i}`, pinned: i < 12 }))
+  const full = widgetStateFrom({ ...fixture, seats })
+  assert.equal(S.dockFull(full), true)
+  assert.equal(S.dockFull(null), false)
+})

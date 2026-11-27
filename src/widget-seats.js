@@ -12,6 +12,14 @@
 const { validId, cleanText, dockBots, stateLabel } = require('./widget-state')
 
 const MAX_PICKER_QUERY = 80
+// The server keeps at most this many pinned seats (the manager is not one);
+// a 13th answers 422 (docs/desktop-widget.md, PATCH /desktop/widget).
+const MAX_PINNED = 12
+
+// Is the dock full? Then the picker says so instead of offering bots.
+function dockFull (state) {
+  return Boolean(state) && state.seats.filter((s) => s.pinned).length >= MAX_PINNED
+}
 
 // A bot is paused when the server says so in its status.
 function isPaused (bot) {
@@ -92,4 +100,4 @@ function pickerBots (state, query = '') {
     }))
 }
 
-module.exports = { isPaused, seatOrder, reorder, seatContextMenuTemplate, pickerBots }
+module.exports = { MAX_PINNED, dockFull, isPaused, seatOrder, reorder, seatContextMenuTemplate, pickerBots }
