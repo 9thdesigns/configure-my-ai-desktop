@@ -12,17 +12,34 @@
 
 const { APP_URL, isAppUrl } = require('./url-policy')
 
+// The small "Workspaces" label at the top of the switcher, so it's clear
+// what the list is. A disabled item: the one section label every platform's
+// native menus draw (greyed, not clickable).
+const WORKSPACES_HEADER = { id: 'workspaces-header', label: 'Workspaces', enabled: false }
+
 // The Workspaces items, as Menu template entries (radio; the current one
-// checked; clicking another switches).
-function workspaceMenuItems (state, actions) {
+// checked; clicking another switches). A workspace with a logo shows it as
+// the item's icon once workspace-logos.js has it cached (iconFor returns a
+// 16/32px nativeImage, or null while loading or after a failure); otherwise
+// the mark's initials lead the label, as before. On Linux the initials stay
+// even with an icon: AppIndicator / StatusNotifier tray menus often don't
+// draw item icons, and a bare name would lose the mark.
+function workspaceMenuItems (state, actions, { iconFor, header = false, platform = process.platform } = {}) {
   if (!state) return []
-  return state.workspaces.map((w) => ({
-    id: `workspace-${w.id}`,
-    label: w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
-    type: 'radio',
-    checked: w.id === state.workspace.id,
-    click: () => { if (w.id !== state.workspace.id) actions.switchWorkspace(w.id) },
-  }))
+  const items = state.workspaces.map((w) => {
+    const icon = w.logo_url && typeof iconFor === 'function' ? iconFor(w.logo_url) : null
+    const item = {
+      id: `workspace-${w.id}`,
+      label: (!icon || platform === 'linux') && w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
+      type: 'radio',
+      checked: w.id === state.workspace.id,
+      click: () => { if (w.id !== state.workspace.id) actions.switchWorkspace(w.id) },
+    }
+    if (icon) item.icon = icon
+    return item
+  })
+  if (!header || !items.length) return items
+  return [{ ...WORKSPACES_HEADER }, { type: 'separator' }, ...items]
 }
 
 // The current workspace with its mark, for the dock.
@@ -51,4 +68,4 @@ function afterSwitch (currentUrl) {
   return { action: 'reload' }
 }
 
-module.exports = { workspaceMenuItems, currentWorkspace, afterSwitch }
+module.exports = { WORKSPACES_HEADER, workspaceMenuItems, currentWorkspace, afterSwitch }

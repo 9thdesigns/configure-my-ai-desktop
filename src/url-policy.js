@@ -77,4 +77,16 @@ function isAuthUrl (value) {
   return true
 }
 
-module.exports = { APP_HOST, APP_URL, START_URL, AUTH_HOSTS, AUTH_PATH_ONLY_HOSTS, parseUrl, isAppUrl, isAuthUrl, isGithubAuthPath }
+// Where the app's own images (workspace logos) may be loaded from: the app
+// origin and its subdomains (isAppUrl), plus any separate asset host the
+// server uses, listed here by exact name. https only, no credentials in the
+// URL. A logo anywhere else is ignored and the mark is shown instead.
+const ASSET_HOSTS = new Set([])
+
+function isAppAssetUrl (value) {
+  const url = parseUrl(value)
+  if (!url || url.protocol !== 'https:' || url.username || url.password) return false
+  return isAppUrl(value) || ASSET_HOSTS.has(url.hostname)
+}
+
+module.exports = { APP_HOST, APP_URL, START_URL, AUTH_HOSTS, AUTH_PATH_ONLY_HOSTS, ASSET_HOSTS, parseUrl, isAppUrl, isAuthUrl, isAppAssetUrl, isGithubAuthPath }

@@ -32,6 +32,7 @@ const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
 const { createIslandController } = require('./island-window')
+const { createElectronLogoCache } = require('./workspace-logos')
 const { createCable, electronCookieHeader } = require('./widget-cable')
 const { installNativeFeel } = require('./native-feel')
 const { initLocalTools } = require('./local-tools-main')
@@ -575,6 +576,11 @@ function startWidgetFeedAndTray () {
   widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
   widgetFeed.start()
 
+  // Workspace logos for the native switcher menus (src/workspace-logos.js),
+  // fetched as soon as a feed names them.
+  const logos = createElectronLogoCache()
+  widgetStore.onChange((state) => logos.warm(state))
+
   // The manager is the default focus on launch: the first state this run
   // sees puts the focus back on it, whatever the last session left.
   const offFirstState = widgetStore.onChange((state) => {
@@ -613,6 +619,7 @@ function startWidgetFeedAndTray () {
     getMainWindow: () => mainWindow,
     openBot,
     switchWorkspace: (id) => switchWorkspace(id),
+    logos,
     positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
   })
   widget.registerIpc(ipcMain)
@@ -636,6 +643,7 @@ function startWidgetFeedAndTray () {
       store: widgetStore,
       prefs,
       actions,
+      logos,
       getOpenAtLogin: () => {
         try { return app.getLoginItemSettings().openAtLogin } catch { return false }
       },

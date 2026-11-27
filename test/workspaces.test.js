@@ -51,5 +51,7 @@ test('tray and dock share one switch path in main', () => {
   assert.match(main, /async function switchWorkspace \(id\) \{\n\s+widget\?\.collapse\(\)\n\s+const ok = await widgetFeed\.switchWorkspace\(id\)/)
   assert.match(main, /const next = afterSwitch\(mainWindow\.webContents\.getURL\(\)\)/)
   const tray = fs.readFileSync(path.join(__dirname, '../src/tray.js'), 'utf8')
-  assert.match(tray, /submenu: workspaceMenuItems\(state, actions\)/)
+  assert.match(tray, /submenu: workspaceMenuItems\(state, actions, \{ iconFor: options\?\.iconFor, header: true, platform \}\)/)
+  const widget = fs.readFileSync(path.join(__dirname, '../src/widget-window.js'), 'utf8')
+  assert.match(widget, /workspaceMenuItems\(store\.get\(\), \{ switchWorkspace: \(id\) => switchWorkspace\(id\) \}, \{ iconFor: logos\?\.iconFor, header: true, platform \}\)/)
 })
