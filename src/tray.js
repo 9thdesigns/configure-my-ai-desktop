@@ -11,6 +11,7 @@
 
 const path = require('node:path')
 const { focusedBot, stateLabel, cleanText } = require('./widget-state')
+const { workspaceMenuItems } = require('./workspaces')
 
 const TITLE_NAME_MAX = 18
 
@@ -47,7 +48,7 @@ function botLabel (name, needsCount) {
 //   options — { prefs: { showWidget, keepRunningInBackground }, openAtLogin,
 //               platform }
 //   actions — { openApp, openBot(id), switchWorkspace(id), setPinned(id, on),
-//               setShowWidget(on), setKeepRunning(on), setOpenAtLogin(on),
+//               setShowWidget(on), setShowIsland(on), setKeepRunning(on), setOpenAtLogin(on),
 //               quit }
 function trayMenuTemplate (state, options, actions) {
   const { prefs = {}, openAtLogin = false, platform = process.platform } = options || {}
@@ -72,13 +73,7 @@ function trayMenuTemplate (state, options, actions) {
       id: 'workspaces',
       label: 'Workspaces',
       enabled: state.workspaces.length > 0,
-      submenu: state.workspaces.map((w) => ({
-        id: `workspace-${w.id}`,
-        label: w.mark?.initials ? `${w.mark.initials}  ${w.name}` : w.name,
-        type: 'radio',
-        checked: w.id === state.workspace.id,
-        click: () => { if (w.id !== state.workspace.id) actions.switchWorkspace(w.id) },
-      })),
+      submenu: workspaceMenuItems(state, actions),
     })
 
     const bots = []
@@ -113,6 +108,13 @@ function trayMenuTemplate (state, options, actions) {
       type: 'checkbox',
       checked: Boolean(prefs.showWidget),
       click: () => actions.setShowWidget(!prefs.showWidget),
+    },
+    {
+      id: 'show-island',
+      label: 'Show Island',
+      type: 'checkbox',
+      checked: Boolean(prefs.showIsland),
+      click: () => actions.setShowIsland(!prefs.showIsland),
     },
     {
       id: 'keep-running',

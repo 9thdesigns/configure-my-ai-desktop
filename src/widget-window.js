@@ -31,6 +31,7 @@ const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots } = require('./widget-seats')
+const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 
 const DOCK_WIDTH = 72 // the dock column, including room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -189,6 +190,8 @@ function widgetView (state) {
     })),
     // The "+" picker's list: the workspace's bots not in the dock.
     candidates: pickerBots(state),
+    // The workspace mark at the top of the dock.
+    workspace: currentWorkspace(state),
   }
 }
 
@@ -218,7 +221,7 @@ function saveOffset (file, offsetY) {
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, positionFile, platform = process.platform }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, positionFile, platform = process.platform }) {
   const { BrowserWindow, screen, session } = require('electron')
 
   let win = null
@@ -339,6 +342,13 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
     if (template.length && alive()) Menu.buildFromTemplate(template).popup({ window: win })
   }
 
+  // The workspace mark's menu: the same radio list as the tray's.
+  function showWorkspaceMenu () {
+    const { Menu } = require('electron')
+    const items = workspaceMenuItems(store.get(), { switchWorkspace: (id) => switchWorkspace(id) })
+    if (items.length && alive()) Menu.buildFromTemplate(items).popup({ window: win })
+  }
+
   function collapse () {
     clearInterval(conversationTimer)
     conversationTimer = null
@@ -454,6 +464,10 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, p
       const id = validId(botId)
       if (!fromWidget(event) || !id) return
       showSeatMenu(id)
+    })
+
+    ipcMain.on('cma-widget:workspace-menu', (event) => {
+      if (fromWidget(event)) showWorkspaceMenu()
     })
 
     ipcMain.on('cma-widget:picker', (event) => {

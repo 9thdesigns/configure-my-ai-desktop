@@ -37,7 +37,7 @@ test('the menu: open, focused bot, workspaces, bots, switches, quit — in that 
   const { actions } = recorder()
   const template = trayMenuTemplate(state, { prefs: { showWidget: true, keepRunningInBackground: true }, openAtLogin: false, platform: 'darwin' }, actions)
   const ids = template.map((i) => i.id || i.type)
-  assert.deepEqual(ids, ['open', 'separator', 'focused-bot', 'workspaces', 'bots', 'separator', 'show-widget', 'keep-running', 'open-at-login', 'separator', 'quit'])
+  assert.deepEqual(ids, ['open', 'separator', 'focused-bot', 'workspaces', 'bots', 'separator', 'show-widget', 'show-island', 'keep-running', 'open-at-login', 'separator', 'quit'])
   assert.equal(byId(template, 'focused-bot').label, 'Max — Questions')
   assert.equal(byId(template, 'show-widget').checked, true)
   assert.equal(byId(template, 'keep-running').checked, true)
@@ -70,9 +70,9 @@ test('bots are checkboxes for "shown in the widget"; the manager is always on', 
 
 test('the items call their actions', () => {
   const { calls, actions } = recorder()
-  const template = trayMenuTemplate(state, { prefs: { showWidget: true, keepRunningInBackground: false }, openAtLogin: true, platform: 'win32' }, actions)
-  for (const id of ['open', 'focused-bot', 'show-widget', 'keep-running', 'open-at-login', 'quit']) byId(template, id).click()
-  assert.deepEqual(calls, [['openApp'], ['openBot', 'manager'], ['setShowWidget', false], ['setKeepRunning', true], ['setOpenAtLogin', false], ['quit']])
+  const template = trayMenuTemplate(state, { prefs: { showWidget: true, showIsland: false, keepRunningInBackground: false }, openAtLogin: true, platform: 'win32' }, actions)
+  for (const id of ['open', 'focused-bot', 'show-widget', 'show-island', 'keep-running', 'open-at-login', 'quit']) byId(template, id).click()
+  assert.deepEqual(calls, [['openApp'], ['openBot', 'manager'], ['setShowWidget', false], ['setShowIsland', true], ['setKeepRunning', true], ['setOpenAtLogin', false], ['quit']])
 })
 
 test('signed out: no workspaces or bots, a sign-in prompt instead of a bot', () => {

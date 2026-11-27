@@ -165,8 +165,10 @@ function pendingFromState (bot) {
     options: question ? bot.state.options : [],
     allow_other: question && (bot.state.allow_other || bot.state.options.length === 0),
     multiple: question && bot.state.multiple,
-    questions_count: 1,
-    actionable: canReply(bot, kind),
+    questions_count: bot.state.questions_count,
+    // Several questions on one card: answered in the app, where they can
+    // all be seen together.
+    actionable: canReply(bot, kind) && bot.state.questions_count === 1,
   }
 }
 

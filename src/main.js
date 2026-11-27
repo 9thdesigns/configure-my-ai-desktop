@@ -30,6 +30,9 @@ const { createTray } = require('./tray')
 const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
 const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
+const { afterSwitch } = require('./workspaces')
+const { createIslandController } = require('./island-window')
+const { createCable, electronCookieHeader } = require('./widget-cable')
 const { installNativeFeel } = require('./native-feel')
 
 // Height of the strip at the top of the window that the user drags it by, and
@@ -51,6 +54,8 @@ let widgetStore = null
 let widgetFeed = null
 let trayHandle = null
 let widget = null
+let island = null
+let cable = null
 
 // The windows drawn without a native title bar — the app's own, but not the
 // OAuth popups, which keep a standard frame. Only these need the page to
@@ -537,10 +542,28 @@ function openBot (botId) {
 }
 
 
+// Switch workspace (tray or dock): the server switches, the widget state is
+// refetched with the new workspace's seats, and the app window — if it is
+// showing the app — follows (workspaces.js decides reload vs. home).
+async function switchWorkspace (id) {
+  widget?.collapse()
+  const ok = await widgetFeed.switchWorkspace(id).catch(() => false)
+  if (!ok || !mainWindow || mainWindow.isDestroyed()) return ok
+  const next = afterSwitch(mainWindow.webContents.getURL())
+  if (next.action === 'reload') mainWindow.webContents.reload()
+  if (next.action === 'load') mainWindow.loadURL(next.url)
+  return ok
+}
+
 function startWidgetFeedAndTray () {
   prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
   widgetStore = createWidgetStore()
-  widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest })
+  // Push: the server pings the widget's signed stream over ActionCable and
+  // the feed refetches (src/widget-cable.js); the feed's poll is the fallback.
+  cable = typeof WebSocket === 'function'
+    ? createCable({ WebSocketImpl: WebSocket, getCookieHeader: electronCookieHeader, onRefetch: () => widgetFeed.refresh().catch(() => {}) })
+    : null
+  widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
   widgetFeed.start()
 
   // The manager is the default focus on launch: the first state this run
@@ -554,19 +577,13 @@ function startWidgetFeedAndTray () {
   const actions = {
     openApp,
     openBot,
-    switchWorkspace: (id) => {
-      widgetFeed.switchWorkspace(id).then((ok) => {
-        // The app window shows the old workspace's screens: bring it over.
-        if (ok && mainWindow && !mainWindow.isDestroyed() && isAppUrl(mainWindow.webContents.getURL())) {
-          mainWindow.webContents.reload()
-        }
-      }).catch(() => {})
-    },
+    switchWorkspace,
     setPinned: (id, on) => { widgetFeed.setPinned(id, on).catch(() => {}) },
     setShowWidget: (on) => {
       prefs.set({ showWidget: Boolean(on) })
       widgetFeed.setEnabled(Boolean(on)).catch(() => {})
     },
+    setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
     setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
     setOpenAtLogin: (on) => {
       try {
@@ -586,10 +603,23 @@ function startWidgetFeedAndTray () {
     feed: widgetFeed,
     getMainWindow: () => mainWindow,
     openBot,
+    switchWorkspace: (id) => switchWorkspace(id),
     positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
   })
   widget.registerIpc(ipcMain)
   widget.sync()
+
+  // The status pill by the notch (src/island-window.js): shown while the
+  // pref is on and some bot has something to say.
+  island = createIslandController({
+    store: widgetStore,
+    prefs,
+    feed: widgetFeed,
+    getMainWindow: () => mainWindow,
+    openBot,
+  })
+  island.registerIpc(ipcMain)
+  island.sync()
 
   try {
     trayHandle = createTray({
@@ -616,6 +646,7 @@ function startWidgetFeedAndTray () {
 // Fire-and-forget: quit must never hang on it.
 app.on('before-quit', () => {
   isQuitting = true
+  cable?.stop()
   try {
     session.defaultSession.cookies.flushStore().catch(() => {})
   } catch {}
