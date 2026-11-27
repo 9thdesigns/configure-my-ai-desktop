@@ -90,6 +90,31 @@ Back / Forward / Home sit in the app's top bar and on <kbd>Ctrl</kbd> +
 platforms; installing one asks for your password once, since it goes through
 pacman. To remove it: `sudo pacman -R configure-my-ai-desktop`.
 
+*The island on Hyprland.* Wayland doesn't let an app place its own windows,
+so Hyprland decides where the island (the status pill, **Show Island** in the
+tray) goes, and by default it tiles it like a normal window. To float it,
+pinned, unfocused and undecorated, at the top centre of the screen, add this
+to `~/.config/hypr/hyprland.conf` (on Omarchy, `~/.config/hypr/looknfeel.conf`
+works too). The island's window has class `configure-my-ai` and title
+`Configure My AI island`:
+
+```ini
+windowrule = float, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = pin, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = noinitialfocus, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = noborder, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = noshadow, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = noblur, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+windowrule = move (monitor_w*0.5-window_w*0.5) 0, class:^(configure-my-ai)$, title:^(Configure My AI island)$
+```
+
+These use the `windowrule = RULE, class:…, title:…` syntax of Hyprland
+0.48–0.52, the same syntax as the rules above. The `move` expression needs
+0.48 or later. On older versions, use `move 50% 0` and adjust. Releases from
+0.53 rewrote the rule syntax, so translate these with the Hyprland wiki's
+window-rules page if they're rejected. To check the class and title, run
+`hyprctl clients` while the island is showing.
+
 **Other Linux (AppImage)**
 
 1. Download the `.AppImage`, then `chmod +x ConfigureMyAI-linux-x64.AppImage`.

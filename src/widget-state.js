@@ -36,7 +36,7 @@
 // null, detail, url, session_id, message_id } for a bot and the same with
 // run_id / thread_id for the manager.
 
-const { APP_URL, isAppUrl } = require('./url-policy')
+const { APP_URL, isAppUrl, isAppAssetUrl } = require('./url-policy')
 const { validAvatar, validAvatarCssUrl } = require('./cfa-avatar')
 
 const MOODS = Object.freeze(['idle', 'working', 'waiting', 'failed', 'responded'])
@@ -199,12 +199,25 @@ function validMark (input, name) {
   }
 }
 
+// A workspace logo: an image on the app origin or one of its asset hosts
+// (url-policy.js isAppAssetUrl), or null.
+function validLogoUrl (value) {
+  const url = validImageUrl(value)
+  return url && isAppAssetUrl(url) ? url : null
+}
+
+// The workspace's logo comes from its own logo_url (absolute URL or null).
+// Older feeds have no logo_url key; for them, the mark's logo_url is used,
+// under the same origin rule. The mark carries the same logo, so everything
+// that already draws a mark picks it up.
 function validWorkspace (input) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
   if (!id) return null
   const name = cleanText(input.name, MAX_NAME) || 'Workspace'
-  return { id, name, mark: validMark(input.mark, name) }
+  const mark = validMark(input.mark, name)
+  const logo = validLogoUrl(Object.prototype.hasOwnProperty.call(input, 'logo_url') ? input.logo_url : mark.logo_url)
+  return { id, name, logo_url: logo, mark: { ...mark, logo_url: logo } }
 }
 
 // The fields every bot (manager or seat) carries.

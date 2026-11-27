@@ -47,9 +47,10 @@ test('the menu: open, focused bot, workspaces, bots, switches, quit — in that 
 test('workspaces are radio items; clicking another switches, clicking the current does nothing', () => {
   const { calls, actions } = recorder()
   const submenu = byId(trayMenuTemplate(state, {}, actions), 'workspaces').submenu
-  assert.deepEqual(submenu.map((i) => [i.label, i.type, i.checked]), [['9D  9th Designs', 'radio', true], ['SP  Side Project', 'radio', false]])
-  submenu[0].click()
-  submenu[1].click()
+  assert.deepEqual(submenu.map((i) => [i.label, i.type, i.checked]), [['Workspaces', undefined, undefined], [undefined, 'separator', undefined], ['9D  9th Designs', 'radio', true], ['SP  Side Project', 'radio', false]])
+  assert.equal(submenu[0].enabled, false, 'the "Workspaces" label is not clickable')
+  submenu[2].click()
+  submenu[3].click()
   assert.deepEqual(calls, [['switchWorkspace', WS2]])
 })
 

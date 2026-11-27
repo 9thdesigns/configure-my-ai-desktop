@@ -92,7 +92,7 @@ test('unknown moods, waits and keys fall back or drop; counts are clamped', () =
   assert.equal(state.manager, null)
   assert.equal(state.enabled, false)
   assert.deepEqual(state.workspace, { id: 'w1', name: 'W' })
-  assert.deepEqual(state.workspaces, [{ id: 'w1', name: 'W', mark: { initials: 'W', color: null, shape: null, logo_url: null } }], 'the current workspace is always in the list')
+  assert.deepEqual(state.workspaces, [{ id: 'w1', name: 'W', logo_url: null, mark: { initials: 'W', color: null, shape: null, logo_url: null } }], 'the current workspace is always in the list')
 })
 
 test('seats are de-duplicated, never repeat the manager, and are capped', () => {
