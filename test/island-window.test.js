@@ -91,7 +91,7 @@ test('the island sits centred at the top of the work area, growing downward', ()
 test('every island IPC is gated to the island page in the island window; the page is offline', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/island-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
-  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 9)
+  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 10)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromIsland\(event\)|, reply\(/, handler.slice(0, 40))
   }

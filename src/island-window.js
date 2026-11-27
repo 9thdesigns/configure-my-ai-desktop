@@ -26,6 +26,7 @@ const { pathToFileURL } = require('node:url')
 const { validId, focusedBot, dockBots } = require('./widget-state')
 const { pendingFromState } = require('./widget-chat')
 const { widgetWindowOptions } = require('./widget-window')
+const placement = require('./widget-placement')
 
 const ISLAND_WIDTH = 360
 const COMPACT_HEIGHT = 44
@@ -170,8 +171,16 @@ const HTML_PATH = path.join(__dirname, 'island.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 const HOVER_COLLAPSE_MS = 600
 const DISPLAY_SETTLE_MS = 300
+const MAX_MISSED_MOVES = 3
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, electron = require('electron') }) {
+// The island's window for where the user left it on this display: top-centre
+// (islandBounds) when snapped there or never moved, otherwise the spot it was
+// dropped at, kept — pill and open card — inside the work area.
+function islandPlacement (workArea, height, pos) {
+  return placement.islandPlaced(islandBounds(workArea, height), workArea, pos, SHADOW)
+}
+
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -181,6 +190,14 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   let view = null
   let collapseTimer = null
   let settleTimer = null
+  // Where the user dragged it: the display, and the position there (null:
+  // top-centre). Until then it follows the main window's display.
+  let placedDisplayId = null
+  let pos = null
+  let drag = null
+  let missedMoves = 0
+  // Wayland: the compositor places windows (see the README's Hyprland rules).
+  let draggable = !placement.likelyWayland(platform, env)
 
   const islandSession = session.fromPartition(PARTITION)
   islandSession.setPermissionRequestHandler((_c, _p, callback) => callback(false))
@@ -189,18 +206,71 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   const alive = () => Boolean(win && !win.isDestroyed())
   const send = (channel, payload) => { if (alive()) win.webContents.send(channel, payload) }
 
+  // The display it is on: the one it was dropped on while that is connected;
+  // else the newest remembered display that is; else (never dragged, or the
+  // display is gone) the main window's display at top-centre.
   function display () {
+    const displays = screen.getAllDisplays()
+    const kept = placedDisplayId !== null && displays.find((d) => d.id === placedDisplayId)
+    if (kept) return kept
+    const saved = placement.findSaved(prefs.get().islandPositions, displays)
+    if (saved) {
+      placedDisplayId = saved.display.id
+      pos = saved.pos
+      return saved.display
+    }
+    placedDisplayId = null
+    pos = null
     const main = getMainWindow()
     const mainBounds = main && !main.isDestroyed() && !main.isMinimized?.() ? main.getBounds() : null
-    return islandDisplay({ displays: screen.getAllDisplays(), primary: screen.getPrimaryDisplay(), mainBounds })
+    return islandDisplay({ displays, primary: screen.getPrimaryDisplay(), mainBounds })
   }
 
   function place () {
-    if (!alive()) return
+    if (!alive() || drag) return
     const d = display()
     if (!d) return
-    win.setBounds(islandBounds(d.workArea, expanded ? height : COMPACT_HEIGHT))
-    send('cma-island:layout', { expanded, focused })
+    win.setBounds(islandPlacement(d.workArea, expanded ? height : COMPACT_HEIGHT, pos))
+    send('cma-island:layout', { expanded, focused, draggable })
+  }
+
+  // --- Dragging by the bar: the window follows the pointer, kept inside the
+  // work area under it, and snaps home to top-centre when dropped near it.
+  function dragStart (point) {
+    if (!draggable || !alive()) return
+    clearTimeout(collapseTimer)
+    if (expanded || focused) collapse()
+    drag = { startBounds: win.getBounds(), startPoint: point, bounds: win.getBounds() }
+    missedMoves = 0
+  }
+
+  function dragMove (point) {
+    if (!drag || !alive()) return
+    const at = placement.dragPosition(drag.startBounds, drag.startPoint, point)
+    const d = placement.displayNearest(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
+    const next = d ? placement.clampToArea({ ...drag.startBounds, ...at }, d.workArea, SHADOW) : { ...drag.startBounds, ...at }
+    win.setBounds(next)
+    drag.bounds = next
+    if (placement.landed(next, win.getBounds())) missedMoves = 0
+    else if (++missedMoves >= MAX_MISSED_MOVES) {
+      draggable = false
+      drag = null
+      place()
+    }
+  }
+
+  function dragEnd (point) {
+    if (!drag || !alive()) return
+    dragMove(point)
+    if (!drag) return
+    const bounds = drag.bounds
+    drag = null
+    const d = placement.displayNearest(screen.getAllDisplays(), { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 })
+    if (!d) return place()
+    pos = placement.snapIsland(bounds, islandBounds(d.workArea, COMPACT_HEIGHT), d.workArea)
+    placedDisplayId = d.id
+    prefs.set({ islandPositions: placement.remember(prefs.get().islandPositions, d, pos) })
+    place()
   }
 
   function collapse () {
@@ -235,6 +305,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     win.on('blur', collapse)
     win.on('closed', () => {
       win = null
+      drag = null
       sentCssUrl = null
       expanded = false
       focused = false
@@ -327,11 +398,19 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     // Hover: open the card without taking focus. Leaving closes it again,
     // after a beat, unless the user clicked into it.
     ipcMain.on('cma-island:hover', (event, inside) => {
-      if (!fromIsland(event)) return
+      if (!fromIsland(event) || drag) return
       if (inside === true) return expand({ focus: false })
       if (focused) return
       clearTimeout(collapseTimer)
       collapseTimer = setTimeout(collapse, HOVER_COLLAPSE_MS)
+    })
+
+    ipcMain.on('cma-island:drag', (event, input) => {
+      const d = placement.validDrag(input)
+      if (!fromIsland(event) || !d) return
+      if (d.phase === 'start') dragStart(d)
+      else if (d.phase === 'move') dragMove(d)
+      else dragEnd(d)
     })
 
     ipcMain.on('cma-island:activate', (event) => {
@@ -395,6 +474,8 @@ module.exports = {
   PARTITION,
   HTML_URL,
   islandWindowOptions,
+  islandPlacement,
+  MAX_MISSED_MOVES,
   islandChip,
   islandBot,
   islandView,

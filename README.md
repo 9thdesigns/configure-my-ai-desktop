@@ -115,6 +115,12 @@ These use the `windowrule = RULE, class:…, title:…` syntax of Hyprland
 window-rules page if they're rejected. To check the class and title, run
 `hyprctl clients` while the island is showing.
 
+For the same reason, you can't drag the dock or the island yourself under
+Wayland: the app turns dragging off there, and taps still work. Move a
+floating window with Hyprland's own <kbd>Super</kbd> + drag, or with a `move`
+rule like the one above. If the app runs under XWayland
+(`ELECTRON_OZONE_PLATFORM_HINT=x11`), dragging works as it does on X11.
+
 **Other Linux (AppImage)**
 
 1. Download the `.AppImage`, then `chmod +x ConfigureMyAI-linux-x64.AppImage`.

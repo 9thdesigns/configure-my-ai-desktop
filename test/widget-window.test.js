@@ -93,19 +93,29 @@ test('the window takes the mouse only over a live area', () => {
 })
 
 test('the drag protocol is validated', () => {
-  assert.deepEqual(W.validDrag({ phase: 'move', screenY: '412' }), { phase: 'move', screenY: 412 })
-  for (const bad of [null, {}, { phase: 'fly', screenY: 1 }, { phase: 'start', screenY: 'x' }, { phase: 'end', screenY: 1e9 }]) assert.equal(W.validDrag(bad), null)
+  assert.deepEqual(W.validDrag({ phase: 'move', screenX: '-120', screenY: '412' }), { phase: 'move', screenX: -120, screenY: 412 })
+  for (const bad of [null, {}, { phase: 'fly', screenX: 1, screenY: 1 }, { phase: 'start', screenX: 1, screenY: 'x' }, { phase: 'move', screenY: 1 }, { phase: 'end', screenX: 0, screenY: 1e9 }]) assert.equal(W.validDrag(bad), null)
 })
 
-test('the offset persists, and a bad file means centred', () => {
+test('the offset older versions saved is read once, and a bad file means centred', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cma-widget-'))
   const file = path.join(dir, 'widget-position.json')
   assert.equal(W.loadOffset(file), null)
-  W.saveOffset(file, 240)
+  fs.writeFileSync(file, '{"offsetY":240}')
   assert.equal(W.loadOffset(file), 240)
   fs.writeFileSync(file, '{"offsetY":"high"}')
   assert.equal(W.loadOffset(file), null)
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('dragged to the left edge, the dock hugs it and the popover opens rightwards', () => {
+  const left = W.layoutFor({ workArea, dockHeight: 200, offsetY: 100, expanded: false, side: 'left' })
+  assert.deepEqual(left.bounds, { x: W.EDGE_MARGIN, y: 125, width: W.DOCK_WIDTH, height: 200 })
+  assert.equal(left.side, 'left')
+  const open = W.layoutFor({ workArea, dockHeight: 200, offsetY: 100, expanded: true, side: 'left' })
+  assert.equal(open.bounds.x, W.EDGE_MARGIN, 'grows rightwards from the left edge')
+  assert.equal(open.bounds.width, W.EXPANDED_WIDTH)
+  assert.equal(W.layoutFor({ workArea, dockHeight: 200, offsetY: 100, expanded: true }).side, 'right', 'right by default')
 })
 
 test('the renderer gets the dock bots and their labels, nothing else', () => {

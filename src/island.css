@@ -42,6 +42,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   animation: island-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
 }
 .island.is-expanded { border-radius: 20px; }
+:root[data-dragging], :root[data-dragging] * { cursor: grabbing !important; }
 
 @keyframes island-in {
   from { transform: scale(0.85); opacity: 0; }
@@ -49,6 +50,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 
 .island-bar {
+  touch-action: none;
   width: 100%;
   height: 44px;
   display: flex;

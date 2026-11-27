@@ -12,7 +12,6 @@
   const $ = (sel, root = document) => root.querySelector(sel)
   const dock = $('#dock')
   const botsEl = $('[data-role="bots"]', dock)
-  const grip = $('[data-role="grip"]', dock)
   const popover = $('#popover')
   const picker = $('#picker')
   const pickerQuery = $('[data-role="picker-query"]', picker)
@@ -208,36 +207,14 @@
     observer.observe(picker)
   }
 
-  // --- Dragging the dock up and down ---------------------------------------
+  // --- Dragging the dock anywhere ------------------------------------------
+  // Press anywhere on the dock and move: main moves the window and snaps it
+  // to the nearer side edge on release. A tap stays a click on the bot, the
+  // "+" or the workspace mark (drag-gesture.js tells them apart).
 
-  let dragging = false
-  let frame = 0
-  let lastY = 0
-  grip.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return
-    dragging = true
-    grip.setPointerCapture(event.pointerId)
-    api.drag('start', event.screenY)
-    event.preventDefault()
+  window.DragGesture.attach(dock, (phase, x, y) => api.drag(phase, x, y), {
+    onDragChange: (on) => document.documentElement.toggleAttribute('data-dragging', on),
   })
-  grip.addEventListener('pointermove', (event) => {
-    if (!dragging) return
-    lastY = event.screenY
-    if (frame) return
-    frame = requestAnimationFrame(() => {
-      frame = 0
-      api.drag('move', lastY)
-    })
-  })
-  const endDrag = (event) => {
-    if (!dragging) return
-    dragging = false
-    if (frame) cancelAnimationFrame(frame)
-    frame = 0
-    api.drag('end', event.screenY)
-  }
-  grip.addEventListener('pointerup', endDrag)
-  grip.addEventListener('pointercancel', endDrag)
 
   // --- The popover ---------------------------------------------------------
 
@@ -493,6 +470,8 @@
     const opened = next.expanded && next.mode === 'chat' && next.botId !== layout.botId
     const pickerOpened = next.expanded && next.mode === 'picker' && !(layout.expanded && layout.mode === 'picker')
     layout = next
+    document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
+    document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
     dock.style.top = `${next.dockTop}px`
     popover.hidden = !(next.expanded && next.mode === 'chat')
     picker.hidden = !(next.expanded && next.mode === 'picker')
