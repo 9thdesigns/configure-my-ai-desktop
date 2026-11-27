@@ -18,6 +18,7 @@
   const pickerQuery = $('[data-role="picker-query"]', picker)
   const pickerList = $('[data-role="picker-list"]', picker)
   const addButton = $('[data-role="add"]', dock)
+  const workspaceButton = $('[data-role="workspace"]', dock)
   const messagesEl = $('[data-role="messages"]', popover)
   const pendingEl = $('[data-role="pending"]', popover)
   const composer = $('[data-role="composer"]', popover)
@@ -130,6 +131,42 @@
   }
 
   addButton.addEventListener('click', () => api.picker())
+
+  // --- The workspace mark --------------------------------------------------
+
+  function renderWorkspace () {
+    const ws = view.workspace
+    workspaceButton.hidden = !ws
+    if (!ws) return
+    const mark = workspaceButton.firstChild
+    const key = [ws.id, ws.mark.initials, ws.mark.color, ws.mark.shape, ws.mark.logo_url].join('|')
+    if (mark.dataset.key !== key) {
+      mark.dataset.key = key
+      mark.dataset.shape = ws.mark.shape || 'rounded'
+      mark.style.background = ws.mark.color || ''
+      mark.style.color = ws.mark.color ? inkFor(ws.mark.color) : ''
+      mark.textContent = ''
+      if (ws.mark.logo_url) {
+        const img = new Image()
+        img.alt = ''
+        img.referrerPolicy = 'no-referrer'
+        img.draggable = false
+        img.onerror = () => { mark.textContent = ws.mark.initials }
+        img.src = ws.mark.logo_url
+        mark.append(img)
+      } else {
+        mark.textContent = ws.mark.initials
+      }
+    }
+    workspaceButton.disabled = ws.count < 2
+    workspaceButton.title = ws.count < 2 ? ws.name : `${ws.name} — switch workspace`
+    workspaceButton.setAttribute('aria-label', workspaceButton.title)
+  }
+
+  workspaceButton.addEventListener('click', () => {
+    if (workspaceButton.disabled) return
+    api.workspaceMenu()
+  })
 
   // --- The "+" picker ------------------------------------------------------
 
@@ -465,6 +502,7 @@
   api.onState((next) => {
     if (!next || !Array.isArray(next.bots)) return
     view = next
+    renderWorkspace()
     renderDock()
     if (layout.expanded && layout.mode === 'chat') renderHead()
     if (layout.expanded && layout.mode === 'picker') renderPicker()
