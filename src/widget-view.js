@@ -264,8 +264,10 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
+      // The shelf yields while a panel is open (hidden by the CSS): it takes
+      // no clicks then either.
       const rects = [dock, popover, picker, shelfEl, recentsEl]
-        .filter((node) => !node.hidden)
+        .filter((node) => !node.hidden && !(node === shelfEl && layout.expanded))
         .map((node) => {
           const r = node.getBoundingClientRect()
           return { x: r.left, y: r.top, width: r.width, height: r.height }

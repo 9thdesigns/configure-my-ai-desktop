@@ -527,6 +527,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (!draggable || !alive()) return
     recentsSeq++
     steppingBack = false
+    pinned = null
     if (expanded) {
       expanded = false
       openBotId = null

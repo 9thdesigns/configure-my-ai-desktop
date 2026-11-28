@@ -227,3 +227,21 @@ for (const side of ['right', 'left']) {
     assert.equal(r.pop[2], L.thread.popoverTop)
   }, { side })
 }
+
+pageTest('the finished-work shelf yields while the chat from the card is open: hidden, and no hit rect', async (page, L) => {
+  await page.evaluate(() => {
+    window.__rects = []
+    window.cmaWidget.reportHitRects = (rects) => window.__rects.push(rects)
+    const shelf = document.querySelector('#shelf')
+    shelf.hidden = false
+  })
+  await openRow(page, L)
+  await settle(page)
+  const r = await page.evaluate(() => {
+    const shelf = document.querySelector('#shelf').getBoundingClientRect()
+    const last = window.__rects.at(-1) || []
+    return { visibility: getComputedStyle(document.querySelector('#shelf')).visibility, shelfInRects: last.some((x) => x.x === shelf.left && x.y === shelf.top && x.width === shelf.width && x.height === shelf.height && shelf.width > 0) }
+  })
+  assert.equal(r.visibility, 'hidden')
+  assert.equal(r.shelfInRects, false)
+})
