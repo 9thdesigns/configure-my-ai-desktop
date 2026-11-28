@@ -323,7 +323,7 @@
   // it wobbles back (210/13). The faces never scale, only the outline.
   // Off under reduced motion.
   const Motion = window.Motion
-  const DS = window.DockShape
+  const ED = window.EdgeDrag
   const reducedMotion = () => Motion.prefersReducedMotion(window)
   const bodyEl = $('.dock-body', dock)
   const samples = []
@@ -336,22 +336,22 @@
   })
 
   function applyStretch (v) {
-    const st = DS.stretchStyle(v, dock.offsetHeight)
+    const st = ED.stretchStyle(v, dock.offsetHeight)
     dock.style.setProperty('--stretch-scale', String(st.scale))
-    dock.style.setProperty('--stretch-origin', st.origin === 'top' ? '0%' : '100%')
-    bodyEl.style.transform = st.seats ? `translateY(${st.seats.toFixed(2)}px)` : ''
+    dock.style.setProperty('--stretch-origin', st.origin === 'start' ? '0%' : '100%')
+    bodyEl.style.transform = st.lag ? `translateY(${st.lag.toFixed(2)}px)` : ''
   }
 
   // While dragging: aim the stretch at the pointer's current speed, every
   // frame (so it relaxes when the pointer stops).
   function feelTick () {
     feelFrame = requestAnimationFrame(feelTick)
-    stretch.setTarget(DS.stretchFor(DS.velocity(samples, performance.now())))
+    stretch.setTarget(ED.stretchFor(ED.velocity(samples, performance.now())))
   }
 
   function onDragPhase (phase, screenY) {
     if (phase === 'move') {
-      samples.push({ t: performance.now(), y: screenY })
+      samples.push({ t: performance.now(), v: screenY })
       if (samples.length > 12) samples.shift()
     }
   }
@@ -363,11 +363,11 @@
     feelFrame = null
     if (reducedMotion()) return stretch.jump(0)
     if (on) {
-      stretch.setSpring('stretch')
+      stretch.setSpring(ED.SPRINGS.stretch)
       feelFrame = requestAnimationFrame(feelTick)
     } else {
       // Let go: wobble back to rest, carrying the stretch's velocity.
-      stretch.setSpring('wobbly')
+      stretch.setSpring(ED.SPRINGS.release)
       stretch.setTarget(0)
     }
   }

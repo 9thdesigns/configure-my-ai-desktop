@@ -44,6 +44,7 @@ const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PI
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
 const dockPlace = require('./dock-placement')
+const edgeDrag = require('./edge-drag')
 const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
 
 // The dock grows out of the screen edge (widget.css): the window is flush
@@ -406,8 +407,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return
     if (drag.last && drag.last.x === p.x && drag.last.y === p.y) return
     drag.last = p
-    const displays = screen.getAllDisplays()
-    const d = placement.displayNearest(displays, p)
+    const d = edgeDrag.displayAt(screen.getAllDisplays(), p)
     if (!d) return
     if (d.id !== drag.displayId) {
       // Onto another display: the same edge there.
@@ -415,13 +415,13 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       displayId = d.id
     }
     const height = validDockHeight(dockHeight, d.workArea)
-    const at = dockPlace.dragPlace({ display: d, dockHeight: height, edge: drag.edge, grab: drag.grab, point: p })
-    const next = { x: dockPlace.edgeX(d.workArea, drag.edge, DOCK_WIDTH), y: at.top, width: DOCK_WIDTH, height }
+    const at = edgeDrag.dragTo({ display: d, edge: drag.edge, size: height, grab: drag.grab, point: p, anchor: dockPlace.ANCHOR })
+    const next = { x: edgeDrag.crossPosition(d.workArea, drag.edge, DOCK_WIDTH), y: at.pos, width: DOCK_WIDTH, height }
     win.setBounds(next)
-    drag.top = at.top
-    drag.offset = at.offset
+    drag.top = at.pos
+    drag.offset = at.fraction
     drag.target = at.target
-    showGhost(at.ghost ? { display: d, edge: at.target, top: at.top, height } : null)
+    showGhost(at.ghost ? { display: d, edge: at.target, top: at.pos, height } : null)
     // A platform that ignores client positioning (some Wayland setups behind
     // XWayland): stop trying, and put the dock back.
     if (placement.landed(next, win.getBounds())) missedMoves = 0

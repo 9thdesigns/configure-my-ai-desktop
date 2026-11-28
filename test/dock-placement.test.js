@@ -1,13 +1,10 @@
-// Where the dock lives and how it moves (src/dock-placement.js), and the
-// drag's feel (src/dock-shape.js): places are an edge and a fraction of the
-// free height; old px memory migrates; dragging locks x to the edge, keeps
-// the grab under the pointer, clamps to the work area, and targets the
-// pointer's half of the display; the stretch follows the pointer's speed.
+// Where the dock lives (src/dock-placement.js, over edge-drag.js): places
+// are an edge and a fraction of the free height (anchor 'start'); old px
+// memory migrates. The drag maths itself: test/edge-drag.test.js.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const P = require('../src/dock-placement')
-const S = require('../src/dock-shape')
 
 const laptop = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 37, width: 1512, height: 945 } }
 const external = { id: 2, bounds: { x: -1920, y: 0, width: 1920, height: 1080 }, workArea: { x: -1920, y: 0, width: 1920, height: 1040 } }
@@ -40,33 +37,8 @@ test('migrating old px memory once its display is known', () => {
   assert.equal(P.migrate(null, laptop.workArea, 300), null)
 })
 
-test('dragging: x locked to the edge, the grab kept under the pointer, clamped; the target is the pointer\'s half', () => {
-  const at = P.dragPlace({ display: laptop, dockHeight: 300, edge: 'right', grab: 40, point: { x: 1300, y: 500 } })
-  assert.deepEqual(at, { top: 460, offset: P.offsetFor(laptop.workArea, 300, 460 - 37), edge: 'right', target: 'right', ghost: false })
-  const across = P.dragPlace({ display: laptop, dockHeight: 300, edge: 'right', grab: 40, point: { x: 700, y: 500 } })
-  assert.equal(across.target, 'left')
-  assert.equal(across.ghost, true)
-  assert.equal(across.edge, 'right', 'it stays on its edge until let go')
-  assert.equal(P.dragPlace({ display: laptop, dockHeight: 300, edge: 'right', grab: 40, point: { x: 1300, y: -500 } }).top, 37)
-  assert.equal(P.dragPlace({ display: laptop, dockHeight: 300, edge: 'right', grab: 40, point: { x: 1300, y: 5000 } }).top, 37 + 945 - 300)
-  assert.equal(P.edgeAt(external, -100), 'right')
-  assert.equal(P.edgeAt(external, -1500), 'left')
+test('the dock is edge-drag with anchor start: its top and x come from there', () => {
+  assert.equal(P.ANCHOR, 'start')
   assert.equal(P.edgeX(laptop.workArea, 'right', 88), 1512 - 88)
   assert.equal(P.edgeX(external.workArea, 'left', 88), -1920)
-})
-
-test('the feel: velocity from recent samples, stretch 9px per px/ms capped at 12, seats lag 0.3', () => {
-  const now = 1000
-  assert.equal(S.velocity([{ t: 950, y: 100 }, { t: 1000, y: 150 }], now), 1)
-  assert.equal(S.velocity([{ t: 800, y: 100 }, { t: 850, y: 150 }], now), 0, 'stale samples: stopped')
-  assert.equal(S.velocity([{ t: 1000, y: 100 }], now), 0)
-  assert.equal(S.stretchFor(1), 9)
-  assert.equal(S.stretchFor(5), 12)
-  assert.equal(S.stretchFor(-5), -12)
-  assert.equal(S.stretchFor(NaN), 0)
-  assert.deepEqual(S.stretchStyle(0, 300), { scale: 1, origin: 'top', seats: 0 })
-  const down = S.stretchStyle(12, 300)
-  assert.deepEqual([down.scale, down.origin], [312 / 300, 'top'], 'dragged down: grows downward from its top')
-  assert.ok(Math.abs(down.seats - -3.6) < 1e-9, 'seats lag 0.3 behind')
-  assert.equal(S.stretchStyle(-6, 300).origin, 'bottom')
 })
