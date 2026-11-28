@@ -919,3 +919,45 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Hide when not in use (widget-view.js, auto-hide.js): the dock tucks 90px
+   into its edge on the tuck spring (its own `translate`, apart from the
+   edge flip's transform) and leaves a 3px bar flush to the edge, in the
+   rim's colour; amber while a bot waits on the user. A new question sends
+   a soft amber glow up the edge (the wash, 18px wide, never taking the
+   mouse: only the bar is a hit rect). */
+.dock-strip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: strip-in var(--dur-200) var(--ease-out) 120ms both;
+}
+.dock-strip[hidden] { display: none; }
+:root[data-side="left"] .dock-strip { right: auto; left: 0; }
+.dock-strip-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: var(--brand-accent);
+  opacity: 0.55;
+  pointer-events: auto;
+}
+:root[data-side="left"] .dock-strip-bar { right: auto; left: 0; border-radius: 0 3px 3px 0; }
+.dock-strip[data-waiting] .dock-strip-bar { background: var(--amber); opacity: 1; }
+.dock-strip-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 22% at 100% 50%, rgb(255 154 31 / 0.85), rgb(255 154 31 / 0) 100%);
+  opacity: 0;
+}
+:root[data-side="left"] .dock-strip-wash { background: radial-gradient(ellipse 100% 22% at 0% 50%, rgb(255 154 31 / 0.85), rgb(255 154 31 / 0) 100%); }
+@keyframes strip-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .dock-strip { animation: none; }
+}

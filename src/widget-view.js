@@ -264,7 +264,8 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
-      const rects = [dock, popover, picker, shelfEl, recentsEl]
+      // Tucked (hide when not in use): only the strip at the edge.
+      const rects = (tucked ? [barEl] : [dock, popover, picker, shelfEl, recentsEl])
         .filter((node) => !node.hidden)
         .map((node) => {
           const r = node.getBoundingClientRect()
@@ -371,6 +372,8 @@
   function onDragChange (on) {
     document.documentElement.toggleAttribute('data-dragging', on)
     if (on) clearShelf()
+    dragOn = on
+    autoHideCheck()
     samples.length = 0
     if (feelFrame !== null) cancelAnimationFrame(feelFrame)
     feelFrame = null
@@ -500,6 +503,7 @@
     if (open === shelfReported) return
     shelfReported = open
     if (typeof api.shelf === 'function') api.shelf(open)
+    autoHideCheck() // pills out: the dock is in use
   }
 
   function shelfArrive (a) {
@@ -665,11 +669,111 @@
   }
   let hoverDock = false
   let hoverShelf = false
-  const syncHover = () => setShelfHover(hoverDock || hoverShelf)
+  const syncHover = () => { setShelfHover(hoverDock || hoverShelf); autoHideCheck() }
   dock.addEventListener('pointerenter', () => { hoverDock = true; syncHover() })
   dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
   shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })
   shelfEl.addEventListener('pointerleave', () => { hoverShelf = false; syncHover() })
+
+  // --- Hide when not in use -------------------------------------------------
+  // With the pref on (main sends it as view.auto_hide), once nothing has
+  // used the dock for 900ms it tucks 90px into its edge on the tuck spring
+  // (auto-hide.js has the rules), leaving a 3px strip flush to the edge;
+  // only the strip then takes the mouse. Hovering the strip (or anything
+  // else using the dock: a chat or card opening, a drag, finished-work
+  // pills, keyboard focus) slides it straight back out. A new question
+  // while tucked sends an amber wash up the strip, which stays amber while
+  // anyone waits. Reduced motion: it jumps, and the wash is just the colour.
+
+  const AH = window.AutoHide
+  const stripEl = $('#dock-strip')
+  const washEl = $('[data-role="strip-wash"]', stripEl)
+  const barEl = $('[data-role="strip-bar"]', stripEl)
+  let hoverStrip = false
+  let dockFocused = false
+  let dragOn = false
+  let hideTimer = null
+  let tucked = false // where the dock is headed: tucked, or out
+  let waitingBefore = null
+
+  const hideSpring = Motion.createSpring({
+    value: 0,
+    spring: AH.SPRING,
+    reduced: () => reducedMotion(),
+    onUpdate: (v) => {
+      const dir = towardEdge()
+      dock.style.translate = Math.abs(v) < 0.01 ? '' : `${(dir * v).toFixed(2)}px 0`
+    },
+  })
+
+  function autoHideState () {
+    return {
+      enabled: view.auto_hide === true,
+      hover: hoverDock || hoverShelf || hoverStrip,
+      expanded: Boolean(layout.expanded),
+      dragging: dragOn,
+      shelf: shelfItems.length > 0,
+      focused: dockFocused,
+    }
+  }
+
+  function placeStrip () {
+    stripEl.style.top = `${dock.offsetTop}px`
+    stripEl.style.height = `${dock.offsetHeight}px`
+  }
+
+  function setTucked (on) {
+    if (on === tucked) return
+    tucked = on
+    placeStrip()
+    document.documentElement.toggleAttribute('data-tucked', on)
+    stripEl.hidden = !on
+    if (on) hoverStrip = false
+    hideSpring.setTarget(on ? AH.TUCK_PX : 0)
+    reportLayout()
+  }
+
+  // Asked after anything that might change whether the dock is in use.
+  function autoHideCheck () {
+    if (AH.shouldHide(autoHideState())) {
+      if (!tucked && hideTimer === null) {
+        hideTimer = setTimeout(() => {
+          hideTimer = null
+          if (AH.shouldHide(autoHideState())) setTucked(true)
+        }, AH.HIDE_DELAY_MS)
+      }
+      return
+    }
+    clearTimeout(hideTimer)
+    hideTimer = null
+    setTucked(false)
+  }
+
+  function washStrip () {
+    if (!tucked || reducedMotion() || typeof washEl.animate !== 'function') return
+    washEl.animate([
+      { transform: 'translateY(100%)', opacity: 0 },
+      { transform: 'translateY(30%)', opacity: 1, offset: 0.35 },
+      { transform: 'translateY(-100%)', opacity: 0 },
+    ], { duration: AH.WASH_MS, easing: 'cubic-bezier(0.2, 0, 0, 1)' })
+  }
+
+  function autoHideOnState () {
+    const now = AH.waitingIds(view.bots)
+    const fresh = AH.newQuestions(waitingBefore, view.bots)
+    waitingBefore = now
+    stripEl.toggleAttribute('data-waiting', now.size > 0)
+    if (fresh.length) washStrip()
+    autoHideCheck()
+  }
+
+  barEl.addEventListener('pointerenter', () => { hoverStrip = true; autoHideCheck() })
+  barEl.addEventListener('pointerleave', () => { hoverStrip = false; autoHideCheck() })
+  dock.addEventListener('focusin', () => { dockFocused = true; autoHideCheck() })
+  dock.addEventListener('focusout', (event) => {
+    dockFocused = Boolean(event.relatedTarget && dock.contains(event.relatedTarget))
+    autoHideCheck()
+  })
 
   // --- A seat's recents card -----------------------------------------------
   // Its last chats (main fetched and checked them, widget-threads.js), in a
@@ -1618,6 +1722,7 @@
     }
     if (layout.expanded && layout.mode === 'picker') renderPicker()
     if (card) renderRecentsHead()
+    autoHideOnState()
   })
 
   // A bot's answer arrived (main, arrivals.js): its seat nudges, and — with
@@ -1643,6 +1748,8 @@
     shelfEl.style.top = `${next.dockTop + SHADOW_TOP + SHELF_INSET}px`
     if (next.tuck) tuck()
     if (next.budIn) budIn(next.side)
+    autoHideCheck()
+    if (tucked) placeStrip()
     const wantChat = next.expanded && isChat(next.mode)
     const wantPicker = next.expanded && next.mode === 'picker'
     // The card growing into the chat (a row opened), the chat shrinking back

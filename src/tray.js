@@ -48,6 +48,7 @@ function botLabel (name, needsCount) {
 //               platform }
 //   actions — { openApp, openBot(id), switchWorkspace(id), setPinned(id, on),
 //               setShowWidget(on), setShowIsland(on), setShowFinishedWork(on),
+//               setHideWhenNotInUse(on),
 //               setIslandShortcut(id),
 //               setKeepRunning(on), setOpenAtLogin(on),
 //               quit }
@@ -135,6 +136,16 @@ function trayMenuTemplate (state, options, actions) {
       checked: prefs.showFinishedWork !== false,
       enabled: Boolean(prefs.showWidget),
       click: (item) => actions.setShowFinishedWork?.(typeof item?.checked === 'boolean' ? item.checked : prefs.showFinishedWork === false),
+    },
+    {
+      // The dock tucks into its edge when unused, leaving a 3px strip
+      // (auto-hide.js); off by default.
+      id: 'hide-when-not-in-use',
+      label: 'Hide When Not in Use',
+      type: 'checkbox',
+      checked: prefs.hideWhenNotInUse === true,
+      enabled: Boolean(prefs.showWidget),
+      click: (item) => actions.setHideWhenNotInUse?.(typeof item?.checked === 'boolean' ? item.checked : prefs.hideWhenNotInUse !== true),
     },
     {
       // The global shortcut that opens the island's Manager composer.

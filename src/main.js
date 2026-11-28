@@ -615,6 +615,7 @@ function startWidgetFeedAndTray () {
     },
     setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
     setShowFinishedWork: (on) => { prefs.set({ showFinishedWork: Boolean(on) }) },
+    setHideWhenNotInUse: (on) => { prefs.set({ hideWhenNotInUse: Boolean(on) }) },
     setIslandShortcut: (id) => { prefs.set({ islandShortcut: id }) },
     isShortcutUnavailable: () => Boolean(island?.shortcutUnavailable()),
     setHaptics: (on) => { prefs.set({ hapticsEnabled: Boolean(on) }) },
