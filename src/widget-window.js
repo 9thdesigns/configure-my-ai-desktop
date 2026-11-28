@@ -227,7 +227,7 @@ const MAX_MISSED_MOVES = 3
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -347,6 +347,20 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     const state = store.get()
     send('cma-widget:state', widgetView(state))
     pushAvatarCss(state)
+    pushChatCss(state)
+  }
+
+  // The web app's chat tokens (chat-tokens.js), likewise once per URL. No
+  // URL in the feed (an older server): the bundled tokens in widget.css stay.
+  let sentChatCssUrl = null
+  function pushChatCss (state) {
+    const url = state?.chat_css_url
+    if (!chatCss || !url || url === sentChatCssUrl) return
+    chatCss.get(url).then((css) => {
+      if (!css || !alive() || store.get()?.chat_css_url !== url) return
+      sentChatCssUrl = url
+      send('cma-widget:chat-css', { url, css })
+    }).catch(() => {})
   }
 
   // The CFA avatar stylesheet, once per URL per window (avatar-css.js).
@@ -460,6 +474,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       win = null
       drag = null
       sentCssUrl = null
+      sentChatCssUrl = null
       expanded = false
       openBotId = null
       clearInterval(pointerTimer)

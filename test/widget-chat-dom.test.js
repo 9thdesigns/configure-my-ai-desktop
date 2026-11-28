@@ -33,7 +33,7 @@ function stubBridge () {
     decide: async () => null,
   }
   // Every mutation under the popover, by kind; message-node removals apart.
-  cma.counts = { removed: 0, removedMessages: 0, added: 0, characterData: 0, attributes: 0 }
+  cma.counts = { removed: 0, removedMessages: 0, removedDelivery: 0, added: 0, characterData: 0, attributes: 0 }
   cma.observe = () => {
     const popover = document.getElementById('popover')
     new MutationObserver((records) => {
@@ -44,6 +44,7 @@ function stubBridge () {
         cma.counts.added += r.addedNodes.length
         cma.counts.removed += r.removedNodes.length
         for (const n of r.removedNodes) if (n.nodeType === 1 && n.classList.contains('message')) cma.counts.removedMessages++
+        for (const n of r.removedNodes) if (n.nodeType === 1 && n.classList.contains('delivery')) cma.counts.removedDelivery++
         // A message's text node replaced (textContent = …) is a removal too.
         if (r.target.nodeType === 1 && r.target.classList.contains('message')) cma.counts.removedMessages += r.removedNodes.length
       }
@@ -104,7 +105,7 @@ pageTest('chat: a new message is appended; no existing message node is removed o
   await flush(page)
   const c = await counts(page)
   assert.equal(c.removedMessages, 0, 'no message node removed')
-  assert.equal(c.removed, 0, 'nothing removed at all')
+  assert.equal(c.removed - c.removedDelivery, 0, 'nothing removed but the "Delivered" line (the bot replied)')
   assert.equal(c.added, 1, 'one node added: the new message')
   assert.deepEqual(await tags(page), [1, 2, 3, 4, 5, 6, 0], 'the six old nodes are the same nodes; one new one at the end')
   assert.equal((await texts(page)).at(-1), msg(7).body)
@@ -117,7 +118,8 @@ pageTest('chat: the server window sliding past 20 messages keeps the older nodes
   await push(page, thread(2, 21))
   await flush(page)
   const c = await counts(page)
-  assert.equal(c.removed, 0)
+  assert.equal(c.removedMessages, 0)
+  assert.equal(c.removed - c.removedDelivery, 0)
   assert.equal(c.added, 1)
   assert.equal((await texts(page)).length, 21, 'message 1 stays above the window, not torn down')
   assert.deepEqual((await tags(page)).slice(0, 20), Array.from({ length: 20 }, (_, i) => i + 1))
@@ -152,7 +154,7 @@ pageTest('chat: an unchanged thread (a poll, a feed refetch, a state push) chang
     await page.evaluate((bot) => window.__cma.state({ bots: [bot], candidates: [], focused_bot_id: bot.id, dock_full: false, max_pinned: 12, workspace: null }), BOT)
   }
   await flush(page)
-  assert.deepEqual(await counts(page), { removed: 0, removedMessages: 0, added: 0, characterData: 0, attributes: 0 })
+  assert.deepEqual(await counts(page), { removed: 0, removedMessages: 0, removedDelivery: 0, added: 0, characterData: 0, attributes: 0 })
 })
 
 pageTest('chat: a thread with a pending card, pushed again, leaves the card (and a half-made choice) alone', async (page) => {

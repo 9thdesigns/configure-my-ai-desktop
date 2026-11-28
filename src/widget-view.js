@@ -23,6 +23,8 @@
   const composer = $('[data-role="composer"]', popover)
   const compose = $('[data-role="compose"]', popover)
   const sendButton = $('.btn-send', composer)
+  const composePlaceholder = $('[data-role="compose-placeholder"]', popover)
+  const format = window.ChatFormat
 
   let view = { bots: [], candidates: [], focused_bot_id: null }
   let layout = { expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null }
@@ -47,6 +49,22 @@
   const inkFor = avatars.inkFor
   avatars.watch(window, document)
   if (typeof api.onAvatarCss === 'function') api.onAvatarCss((payload) => avatars.applyCss(document, payload && payload.css))
+
+  // The web app's chat tokens (main fetched and checked them, chat-tokens.js),
+  // adopted after widget.css so they override its bundled values. A
+  // constructed sheet: nothing for the CSP to allow.
+  let chatSheet = null
+  function applyChatCss (text) {
+    if (typeof text !== 'string' || typeof CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in document)) return
+    try {
+      if (!chatSheet) {
+        chatSheet = new CSSStyleSheet()
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, chatSheet]
+      }
+      chatSheet.replaceSync(text)
+    } catch {}
+  }
+  if (typeof api.onChatCss === 'function') api.onChatCss((payload) => applyChatCss(payload && payload.css))
 
   const botById = (id) => view.bots.find((b) => b.id === id)
 
@@ -230,25 +248,31 @@
     setText($('[data-role="head-name"]', popover), bot.name)
     setText($('[data-role="head-state"]', popover), bot.label)
     const placeholder = `Message ${bot.name}…`
-    if (compose.placeholder !== placeholder) compose.placeholder = placeholder
+    setText(composePlaceholder, placeholder)
+    if (compose.getAttribute('aria-label') !== placeholder) compose.setAttribute('aria-label', placeholder)
   }
 
   // The thread is patched, never rebuilt. Main re-sends the conversation on
   // every poll (5 s), every feed refetch and every reply; rebuilding the list
   // each time replayed every bubble's fade-in (.message's message-in), so the
   // whole thread blinked out and back as if the popover had reloaded. Now:
-  //   * each message keeps its node, keyed by id (rows);
-  //   * a new message is appended; nothing else is touched;
+  //   * the rows (bubbles, time separators, the delivery line; their shape
+  //     from chat-format.js) keep their nodes, keyed;
+  //   * a new message is appended; nothing else is touched but the grouping
+  //     classes of its neighbour and the delivery line;
   //   * a reply that grows (streams) patches its one text node in place;
   //   * an unchanged thread writes nothing at all;
   //   * messages the server's 20-message window slid past stay above it (up
-  //     to MAX_ROWS), since they are still the thread — only a message gone
-  //     from inside the window is removed;
+  //     to MAX_THREAD), since they are still the thread — only a message
+  //     gone from inside the window is removed;
   //   * the view sticks to the bottom when it was there, and otherwise
   //     stays put.
-  const MAX_ROWS = 200
-  const rows = new Map() // message id -> <li>
+  const MAX_THREAD = 200
+  const rows = new Map() // row key -> <li>
   let rowsBot = null // whose thread the rows are
+  let thread = [] // the messages on screen, oldest first
+  let outbox = [] // the user's sends not yet confirmed: { key, body, failed }
+  let outboxSeq = 0
   let toBottom = true // the next render scrolls to the bottom regardless
   let statusRow = null
 
@@ -257,6 +281,8 @@
   function clearRows () {
     rows.clear()
     rowsBot = null
+    thread = []
+    outbox = []
     statusRow = null
     messagesEl.textContent = ''
     toBottom = true
@@ -275,16 +301,65 @@
     setText(statusRow, text)
   }
 
-  function paintRow (row, message) {
-    const className = `message is-${message.role}`
-    if (row.className !== className) row.className = className
-    // Patch the text node itself, so a streaming reply is one characterData
-    // change, not a node swap.
-    const text = row.firstChild
-    if (text && text.nodeType === 3 && !text.nextSibling) {
-      if (text.data !== message.body) text.data = message.body
+  // A row's only child is its text: patch the text node itself, so a
+  // streaming reply is one characterData change, not a node swap.
+  function setRowText (row, text) {
+    const node = row.firstChild
+    if (node && node.nodeType === 3 && !node.nextSibling) {
+      if (node.data !== text) node.data = text
     } else {
-      row.textContent = message.body
+      row.textContent = text
+    }
+  }
+
+  const setClass = (row, className) => { if (row.className !== className) row.className = className }
+
+  function paintRow (row, item) {
+    if (item.kind === 'separator') {
+      setClass(row, 'time-sep')
+      return setRowText(row, item.text)
+    }
+    if (item.kind === 'status') {
+      setClass(row, `delivery is-${item.state}`)
+      const retry = item.state === 'failed'
+      const label = row.firstChild
+      if (label && label.nodeType === 3 && label.data === item.text && Boolean(row.querySelector('button')) === retry) return
+      row.textContent = item.text
+      if (retry) {
+        const button = el('button', '', 'Retry')
+        button.type = 'button'
+        button.addEventListener('click', retrySend)
+        row.append(button)
+      }
+      return
+    }
+    setClass(row, ['message', `is-${item.role}`, item.groupStart && 'is-group-start', item.groupEnd && 'is-group-end', item.local && `is-${item.local}`].filter(Boolean).join(' '))
+    setRowText(row, item.body)
+  }
+
+  // The server's window of messages, joined onto what is on screen: what it
+  // slid past stays, everything from its first message on is the server's.
+  function mergeThread (messages) {
+    const at = messages.length ? thread.findIndex((m) => m.id === messages[0].id) : -1
+    thread = (at > 0 ? thread.slice(0, at).concat(messages) : messages.slice()).slice(-MAX_THREAD)
+  }
+
+  // An outbox row whose message the server now has takes that message's
+  // key: the same bubble stays, it just stops being "sending".
+  function adoptOutbox (messages) {
+    if (!outbox.length) return
+    const known = new Set(thread.map((m) => m.id))
+    for (const m of messages) {
+      if (m.role !== 'user' || known.has(m.id) || rows.has(m.id)) continue
+      const i = outbox.findIndex((o) => !o.failed && o.body === m.body)
+      if (i < 0) continue
+      const row = rows.get(outbox[i].key)
+      if (row) {
+        rows.delete(outbox[i].key)
+        rows.set(m.id, row)
+        row.dataset.key = m.id
+      }
+      outbox.splice(i, 1)
     }
   }
 
@@ -303,55 +378,46 @@
       rowsBot = conversation.bot_id
     }
     if (!conversation.history) return showStatus('Open in app to see the full conversation.')
-    if (!conversation.messages.length) return showStatus('No messages yet.')
+    adoptOutbox(conversation.messages)
+    mergeThread(conversation.messages)
+    if (!thread.length && !outbox.length) return showStatus('No messages yet.')
     if (statusRow) {
       statusRow.remove()
       statusRow = null
     }
 
     const atBottom = toBottom || nearBottom()
-    const scrollTop = messagesEl.scrollTop
-    const messages = conversation.messages
-    const ids = new Set(messages.map((m) => m.id))
-    const first = rows.get(messages[0].id)
+    const items = format.threadItems(thread, { outbox })
+    const keys = new Set(items.map((item) => item.key))
 
-    // Rows the server no longer sends: kept when they sit above the first
-    // message it sends (its window slid past them), removed otherwise.
-    let above = Boolean(first)
+    // Something kept on screen, to hold the view still if rows above it go.
+    const anchor = atBottom ? null : [...messagesEl.children].find((row) => keys.has(row.dataset.key) && row.offsetTop + row.offsetHeight > messagesEl.scrollTop)
+    const anchorTop = anchor ? anchor.offsetTop : 0
+
     for (const row of [...messagesEl.children]) {
-      if (row === first) above = false
-      const id = row.dataset.messageId
-      if (above || ids.has(id)) continue
+      if (keys.has(row.dataset.key)) continue
+      rows.delete(row.dataset.key)
       row.remove()
-      rows.delete(id)
     }
 
     // In order; a row moves only when it is out of place.
-    let cursor = first || messagesEl.firstChild
-    for (const message of messages) {
-      let row = rows.get(message.id)
+    let cursor = messagesEl.firstChild
+    for (const item of items) {
+      let row = rows.get(item.key)
       if (!row) {
         row = el('li')
-        row.dataset.messageId = message.id
-        rows.set(message.id, row)
+        row.dataset.key = item.key
+        if (item.kind === 'message' && !item.local) row.dataset.messageId = item.key
+        rows.set(item.key, row)
       }
-      paintRow(row, message)
+      if (item.kind === 'message' && !item.local && row.dataset.messageId !== item.key) row.dataset.messageId = item.key
+      paintRow(row, item)
       if (row === cursor) cursor = cursor.nextSibling
       else messagesEl.insertBefore(row, cursor)
     }
 
-    // A long-open popover: drop the oldest rows past the cap, keeping what
-    // the user is looking at where it is.
-    let trimmed = 0
-    while (rows.size > MAX_ROWS) {
-      const row = messagesEl.firstElementChild
-      trimmed += row.offsetHeight
-      rows.delete(row.dataset.messageId)
-      row.remove()
-    }
-
     if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight
-    else if (trimmed) messagesEl.scrollTop = Math.max(0, scrollTop - trimmed)
+    else if (anchor && anchor.offsetTop !== anchorTop) messagesEl.scrollTop += anchor.offsetTop - anchorTop
     toBottom = false
   }
 
@@ -459,7 +525,7 @@
 
   function setBusy (on) {
     busy = on
-    sendButton.disabled = on
+    sendButton.disabled = on || !compose.value.trim()
     for (const button of pendingEl.querySelectorAll('button')) button.disabled = on
     if (!on) updateDone()
   }
@@ -502,21 +568,66 @@
     takeConversation(result, 'Couldn’t send that. Try again, or open in app.')
   }
 
+  // A send shows at once, as a "Sending…" bubble (the outbox); the
+  // server's reply confirms it (the same bubble, now "Delivered") or it
+  // stays as "Not delivered", with Retry.
+  async function deliver (entry) {
+    const botId = layout.botId
+    entry.failed = false
+    renderMessages()
+    setBusy(true)
+    const result = await api.sendMessage(botId, entry.body)
+    setBusy(false)
+    if (botId !== layout.botId || !outbox.includes(entry)) return
+    if (!result) {
+      entry.failed = true
+      return renderMessages()
+    }
+    takeConversation(result)
+  }
+
   async function sendMessage () {
     const body = compose.value.trim()
     if (!body || busy || !layout.botId) return
-    setBusy(true)
-    const result = await api.sendMessage(layout.botId, body)
-    if (result) {
-      compose.value = ''
-      autosize()
+    // No thread on screen to show it in (still loading, or no history
+    // endpoint): send it plainly, and keep the text until it has gone.
+    if (!conversation || !conversation.history) {
+      setBusy(true)
+      const result = await api.sendMessage(layout.botId, body)
+      if (result) {
+        compose.value = ''
+        autosize()
+      }
+      return takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
     }
-    takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
+    compose.value = ''
+    autosize()
+    toBottom = true
+    const entry = { key: `out:${++outboxSeq}`, body, failed: false }
+    outbox.push(entry)
+    deliver(entry)
   }
 
+  function retrySend () {
+    const entry = outbox.find((o) => o.failed)
+    if (!entry || busy) return
+    // Retried, it goes to the end, as a fresh send would.
+    outbox.splice(outbox.indexOf(entry), 1)
+    outbox.push(entry)
+    toBottom = true
+    deliver(entry)
+  }
+
+  // The field grows with its text up to --composer-max-height (the CSS
+  // caps it, and scrolls past that); send is live once there is text.
+  // A growing field shrinks the thread above it: one that was at the
+  // bottom stays there.
   function autosize () {
+    const stick = nearBottom()
     compose.style.height = 'auto'
-    compose.style.height = `${Math.min(compose.scrollHeight, 120)}px`
+    compose.style.height = `${compose.scrollHeight}px`
+    if (stick) messagesEl.scrollTop = messagesEl.scrollHeight
+    sendButton.disabled = busy || !compose.value.trim()
   }
 
   composer.addEventListener('submit', (event) => {

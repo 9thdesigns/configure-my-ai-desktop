@@ -29,6 +29,7 @@ const { createPrefs } = require('./prefs')
 const { createTray } = require('./tray')
 const { createWidgetStore, createWidgetFeed, electronRequest } = require('./widget-feed')
 const { createAvatarCssCache, electronFetchText } = require('./avatar-css')
+const { sanitizeChatTokens, validChatCssUrl } = require('./chat-tokens')
 const { validId, botById } = require('./widget-state')
 const { createWidgetController } = require('./widget-window')
 const { afterSwitch } = require('./workspaces')
@@ -580,6 +581,8 @@ function startWidgetFeedAndTray () {
   widgetFeed.start()
   // The CFA avatar stylesheet the dock and the island share, cached on disk.
   const avatarCss = createAvatarCssCache({ dir: path.join(app.getPath('userData'), 'avatar-css'), fetchText: electronFetchText })
+  // The web app's chat tokens for quick chat (src/chat-tokens.js), likewise.
+  const chatCss = createAvatarCssCache({ dir: path.join(app.getPath('userData'), 'chat-css'), fetchText: electronFetchText, sanitize: sanitizeChatTokens, validUrl: validChatCssUrl })
 
   // Workspace logos for the native switcher menus (src/workspace-logos.js),
   // fetched as soon as a feed names them.
@@ -627,6 +630,7 @@ function startWidgetFeedAndTray () {
     logos,
     positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
     avatarCss,
+    chatCss,
   })
   widget.registerIpc(ipcMain)
   widget.sync()

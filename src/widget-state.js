@@ -21,12 +21,12 @@
 //                   avatar_shape, mood, needs_count, url, state },
 //     seats:      [{ bot_id, name, avatar_url, avatar_color, avatar_shape,
 //                    mood, needs_count, pinned, manager, url, state }],
-//     needs_you, focused_bot_id, enabled, avatar_css_url
+//     needs_you, focused_bot_id, enabled, avatar_css_url, chat_css_url
 //   }
 //
 // The manager and every seat may also carry `avatar` (the web app's animated
 // CFA avatar, cfa-avatar.js), null from an older server. Its markup, and
-// avatar_css_url, are only kept when the caller says the state came from our
+// avatar_css_url and chat_css_url (chat-tokens.js), are only kept when the caller says the state came from our
 // own origin ({ trusted: true }).
 //
 // Ids are UUID strings; the manager's is the literal 'manager'. Seats list
@@ -38,6 +38,7 @@
 
 const { APP_URL, isAppUrl, isAppAssetUrl } = require('./url-policy')
 const { validAvatar, validAvatarCssUrl } = require('./cfa-avatar')
+const { validChatCssUrl } = require('./chat-tokens')
 
 const MOODS = Object.freeze(['idle', 'working', 'waiting', 'failed', 'responded'])
 const WAITING = Object.freeze(['question', 'approval'])
@@ -302,6 +303,7 @@ function widgetStateFrom (input, { trusted = false } = {}) {
     focused_bot_id: focused && known.has(focused) ? focused : (manager ? manager.id : null),
     enabled: input.enabled !== false,
     avatar_css_url: trusted ? validAvatarCssUrl(input.avatar_css_url) : null,
+    chat_css_url: trusted ? validChatCssUrl(input.chat_css_url) : null,
   }
 }
 
