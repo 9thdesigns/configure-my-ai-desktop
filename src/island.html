@@ -9,19 +9,25 @@
   <link rel="stylesheet" href="island.css">
 </head>
 <body>
-  <div id="island" class="island" data-chip="">
-    <button type="button" class="island-bar" data-role="bar">
-      <span class="avatar" data-role="avatar"></span>
-      <span class="island-name" data-role="name"></span>
-      <span class="chip" data-role="chip"></span>
-    </button>
-    <section class="card" data-role="card" hidden>
-      <p class="card-prompt" data-role="prompt"></p>
-      <div class="card-options" data-role="options"></div>
-      <input type="text" class="card-other" data-role="other" placeholder="Something else…" aria-label="Something else" hidden>
-      <div class="card-actions" data-role="actions"></div>
-      <p class="card-error" data-role="error" hidden></p>
-    </section>
+  <div id="island" class="island" data-chip="" data-edge="top" aria-live="polite">
+    <span class="shoulder shoulder-start" aria-hidden="true"></span>
+    <span class="shoulder shoulder-end" aria-hidden="true"></span>
+    <div class="island-clip">
+      <button type="button" class="island-bar" data-role="bar" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown">
+        <span class="avatar" data-role="avatar"></span>
+        <span class="island-name" data-role="name"></span>
+        <span class="notch-gap" aria-hidden="true"></span>
+        <span class="chip" data-role="chip"></span>
+      </button>
+      <section class="card" data-role="card" hidden>
+        <p class="card-prompt" data-role="prompt"></p>
+        <div class="card-options" data-role="options"></div>
+        <input type="text" class="card-other" data-role="other" placeholder="Something else…" aria-label="Something else" hidden>
+        <div class="card-actions" data-role="actions"></div>
+        <p class="card-error" data-role="error" hidden></p>
+      </section>
+    </div>
+    <span class="grabber" data-role="grabber" aria-hidden="true"></span>
   </div>
   <script src="motion.js"></script>
   <script src="drag-gesture.js"></script>

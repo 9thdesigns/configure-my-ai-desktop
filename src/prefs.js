@@ -16,19 +16,25 @@
 //   shareScreen             — "Let Manager see your screen": the widget's
 //                             Share screen may capture the display when the
 //                             user asks (screen-share.js). Off by default.
-//   widgetPositions         — where the user dragged the dock, per display
-//   islandPositions           (and the island): [{ id, bounds, pos }], newest
-//                             first (widget-placement.js validates them).
+//   widgetPositions         — where the user dragged the dock, per display:
+//                             [{ id, bounds, pos }], newest first
+//                             (widget-placement.js validates them).
+//   islandEdge              — where the island is attached: { displayId,
+//                             displayBounds, edge: 'top' | 'bottom', offsetX
+//                             0..1 } (island-placement.js), or null (top
+//                             centre). Migrated once from the old per-display
+//                             islandPositions, which is then dropped.
 
 const fs = require('node:fs')
 const path = require('node:path')
 const { validEntries, validWidgetPos, validIslandPos } = require('./widget-placement')
+const { validIslandEdge, migrateIslandPositions } = require('./island-placement')
 
 // Keys whose values are structures, each with its own validator; the rest
 // are plain values checked by type.
 const STRUCTURED = {
   widgetPositions: (v) => validEntries(v, validWidgetPos),
-  islandPositions: (v) => validEntries(v, validIslandPos),
+  islandEdge: (v) => validIslandEdge(v),
 }
 
 function defaults (platform = process.platform) {
@@ -38,7 +44,7 @@ function defaults (platform = process.platform) {
     showIsland: true,
     shareScreen: false,
     widgetPositions: [],
-    islandPositions: [],
+    islandEdge: null,
   }
 }
 
@@ -48,6 +54,11 @@ function sanitize (input, platform) {
   for (const key of Object.keys(base)) {
     if (STRUCTURED[key]) base[key] = STRUCTURED[key](input[key])
     else if (typeof input[key] === typeof base[key]) base[key] = input[key]
+  }
+  // The island's old per-display memory, read once into islandEdge; it is
+  // not a key any more, so the next save drops it.
+  if (!base.islandEdge && input.islandPositions !== undefined) {
+    base.islandEdge = migrateIslandPositions(validEntries(input.islandPositions, validIslandPos))
   }
   return base
 }

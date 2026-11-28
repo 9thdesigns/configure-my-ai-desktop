@@ -253,51 +253,67 @@ test('the dock on Wayland, or where moves do not land, degrades to not dragging'
 
 // --- The island -----------------------------------------------------------------
 
-test('the island: dropped near top-centre it snaps home; further away it stays; restarts keep it', async () => {
+const pillOf = (win) => lastLayout(win, 'cma-island:layout').pill
+const H = 982 / 2
+
+test('the island: slides along the top edge, the magnet catches it at centre, past the middle it flips to the bottom; restarts keep it', async () => {
   const { dir, file } = tempPrefs()
   const electron = fakeElectron([laptop])
   const { island, prefs, ipc, win } = await startIsland({ file, electron })
-  const home = I.islandBounds(laptop.workArea, I.COMPACT_HEIGHT)
-  assert.deepEqual(win.getBounds(), home)
-  const grab = { x: home.x + 100, y: home.y + 28 }
+  assert.equal(pillOf(win).screenX, 756, 'top centre by default')
+  assert.equal(pillOf(win).edge, 'top')
+  assert.equal(win.getBounds().y, 37, 'flush under the menu bar')
+  const grab = { x: 756, y: 50 }
 
-  // 30px right, 25px down: within 48px of home — snaps back.
-  drag(ipc, 'cma-island:drag', win, grab, { x: grab.x + 30, y: grab.y + 25 })
-  assert.deepEqual(win.getBounds(), home)
-  assert.deepEqual(prefs.get().islandPositions[0].pos, { snap: 'top-center' })
+  // Mid-drag it slides along the edge under the pointer, never off it.
+  ipc.emit('cma-island:drag', win, { phase: 'start', screenX: grab.x, screenY: grab.y })
+  ipc.emit('cma-island:drag', win, { phase: 'move', screenX: 400, screenY: 120 })
+  assert.equal(pillOf(win).screenX, 400)
+  assert.equal(win.getBounds().y, 37, 'still on the top edge')
+  assert.equal(lastLayout(win, 'cma-island:layout').dragging, true)
+  // Back within 24px of centre: caught.
+  ipc.emit('cma-island:drag', win, { phase: 'move', screenX: 756 + 20, screenY: 60 })
+  assert.equal(pillOf(win).screenX, 756)
+  assert.equal(lastLayout(win, 'cma-island:layout').snapped, true)
+  ipc.emit('cma-island:drag', win, { phase: 'end', screenX: 756 + 20, screenY: 60 })
+  assert.deepEqual([prefs.get().islandEdge.edge, prefs.get().islandEdge.offsetX], ['top', 0.5])
 
-  // Down to the bottom-left: stays there.
-  drag(ipc, 'cma-island:drag', win, grab, { x: 300, y: 700 })
-  const dropped = win.getBounds()
-  assert.deepEqual([dropped.x, dropped.y], [300 - 100, 700 - 28], 'where it was let go (grabbed 100px in, 28px down)')
-  assert.deepEqual(prefs.get().islandPositions[0].pos, { dx: dropped.x, dy: dropped.y - 37 })
+  // Down past the middle of the display, to the left: the bottom edge.
+  drag(ipc, 'cma-island:drag', win, grab, { x: 300, y: H + 200 })
+  assert.equal(pillOf(win).edge, 'bottom')
+  assert.equal(pillOf(win).screenX, 300)
+  const b = win.getBounds()
+  assert.equal(b.y + b.height, 982, 'flush to the bottom of the work area')
+  assert.deepEqual(prefs.get().islandEdge, { displayId: 1, displayBounds: laptop.bounds, edge: 'bottom', offsetX: Math.round((300 / 1512) * 10000) / 10000 })
   island.destroy()
 
   const again = await startIsland({ file, electron })
-  assert.deepEqual(again.win.getBounds(), dropped)
+  assert.deepEqual(again.win.getBounds(), b)
   again.island.destroy()
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
-test('the island: kept on screen when the work area shrinks; back to top-centre when its display goes', async () => {
+test('the island: kept on screen when the work area shrinks; the same edge on the laptop when its display goes', async () => {
   const { dir, file } = tempPrefs()
   const electron = fakeElectron([laptop, external])
   const { island, ipc, win } = await startIsland({ file, electron })
-  const home = I.islandBounds(laptop.workArea, I.COMPACT_HEIGHT)
-  // Onto the external display, low and to the left.
-  drag(ipc, 'cma-island:drag', win, { x: home.x + 100, y: home.y + 28 }, { x: -1800, y: 950 })
-  const there = win.getBounds()
-  assert.ok(there.x < 0, 'on the external display')
-  // Its resolution drops: still inside the (smaller) work area.
+  // Onto the external display, bottom edge, far left.
+  drag(ipc, 'cma-island:drag', win, { x: 756, y: 50 }, { x: -1900, y: 950 })
+  assert.equal(pillOf(win).edge, 'bottom')
+  assert.ok(win.getBounds().x >= -1920, 'on the external display, the window inside it')
+  // Its resolution drops: still inside the (smaller) display.
   electron.screen.displays = [laptop, { ...external, bounds: { x: -1280, y: 0, width: 1280, height: 720 }, workArea: { x: -1280, y: 0, width: 1280, height: 690 } }]
   electron.screen.emit('display-metrics-changed')
   const b = win.getBounds()
-  assert.ok(b.x >= -1280 - I.SHADOW && b.x + b.width <= I.SHADOW, `x inside (${b.x})`)
-  assert.ok(b.y + b.height <= 690 + I.SHADOW, `y inside (${b.y})`)
-  // Unplugged: top-centre of the laptop.
+  assert.ok(b.x >= -1280 && b.x + b.width <= 0, `x inside (${b.x})`)
+  assert.equal(b.y + b.height, 690, 'flush to the new bottom')
+  // Unplugged: the bottom edge of the laptop, at the same offset.
   electron.screen.displays = [laptop]
   electron.screen.emit('display-removed')
-  assert.deepEqual(win.getBounds(), home)
+  const home = win.getBounds()
+  assert.equal(pillOf(win).edge, 'bottom')
+  assert.equal(home.y + home.height, 982)
+  assert.ok(home.x >= 0, 'on the laptop')
   island.destroy()
   fs.rmSync(dir, { recursive: true, force: true })
 })
@@ -306,23 +322,61 @@ test('the island: only its own page can drag it, and a drag never opens the card
   const { dir, file } = tempPrefs()
   const electron = fakeElectron([laptop])
   const { island, prefs, ipc, win } = await startIsland({ file, electron })
-  const home = win.getBounds()
-  drag(ipc, 'cma-island:drag', win, { x: home.x + 50, y: home.y + 20 }, { x: 300, y: 600 }, 3)
+  drag(ipc, 'cma-island:drag', win, { x: 756, y: 50 }, { x: 300, y: 600 }, 3)
   const moved = win.getBounds()
-  assert.notDeepEqual(moved, home)
+  const saved = prefs.get().islandEdge
+  assert.equal(saved.edge, 'bottom')
   ipc.emit('cma-island:drag', win, { phase: 'start', screenX: 300, screenY: 600 }, { url: 'https://configuremyai.com/' })
   ipc.emit('cma-island:drag', win, { phase: 'move', screenX: 900, screenY: 100 }, { url: 'https://configuremyai.com/' })
   ipc.emit('cma-island:drag', win, { phase: 'end', screenX: 900, screenY: 100 }, { sender: {} })
   ipc.emit('cma-island:drag', win, { phase: 'start', screenX: Infinity, screenY: 0 })
+  ipc.emit('cma-island:move', win, { edge: 'top' }, { url: 'https://configuremyai.com/' })
   assert.deepEqual(win.getBounds(), moved)
-  assert.equal(prefs.get().islandPositions.length, 1)
+  assert.deepEqual(prefs.get().islandEdge, saved)
 
   // Mid-drag, hover events are ignored (the card would grow the window).
-  ipc.emit('cma-island:drag', win, { phase: 'start', screenX: moved.x + 50, screenY: moved.y + 20 })
+  ipc.emit('cma-island:drag', win, { phase: 'start', screenX: 300, screenY: 960 })
   const layouts = win.sent.filter(([c]) => c === 'cma-island:layout').length
   ipc.emit('cma-island:hover', win, true)
   assert.equal(win.sent.filter(([c]) => c === 'cma-island:layout').length, layouts)
-  ipc.emit('cma-island:drag', win, { phase: 'end', screenX: moved.x + 50, screenY: moved.y + 20 })
+  ipc.emit('cma-island:drag', win, { phase: 'end', screenX: 300, screenY: 960 })
+  island.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the island: Alt + arrows move it along the edge (stopping at centre) and to the other edge', async () => {
+  const { dir, file } = tempPrefs()
+  const electron = fakeElectron([laptop])
+  const { island, prefs, ipc, win } = await startIsland({ file, electron })
+  ipc.emit('cma-island:move', win, { step: 1 })
+  assert.equal(prefs.get().islandEdge.offsetX, 0.55)
+  assert.equal(pillOf(win).screenX, Math.round(1512 * 0.55))
+  ipc.emit('cma-island:move', win, { edge: 'bottom' })
+  assert.equal(pillOf(win).edge, 'bottom')
+  ipc.emit('cma-island:move', win, { step: -1 })
+  assert.equal(prefs.get().islandEdge.offsetX, 0.5)
+  ipc.emit('cma-island:move', win, { step: 99 })
+  assert.equal(prefs.get().islandEdge.offsetX, 0.5, 'junk ignored')
+  island.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the island: click-through outside the pill it reports', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  const { dir, file } = tempPrefs()
+  const electron = fakeElectron([laptop])
+  const ignored = []
+  const { island, ipc, win } = await startIsland({ file, electron })
+  win.setIgnoreMouseEvents = (on) => ignored.push(on)
+  const b = win.getBounds()
+  ipc.emit('cma-island:hit-rects', win, [{ x: b.width / 2 - 110, y: 0, width: 220, height: 40 }, { x: 'evil' }])
+  ipc.emit('cma-island:hit-rects', win, [{ x: 0, y: 0, width: 9999, height: 9999 }], { url: 'https://configuremyai.com/' })
+  electron.screen.getCursorScreenPoint = () => ({ x: b.x + 5, y: b.y + 5 })
+  t.mock.timers.tick(40)
+  assert.equal(ignored.at(-1), true, 'over the transparent corner: clicks go through')
+  electron.screen.getCursorScreenPoint = () => ({ x: b.x + b.width / 2, y: b.y + 10 })
+  t.mock.timers.tick(40)
+  assert.equal(ignored.at(-1), false, 'over the pill: the island takes them')
   island.destroy()
   fs.rmSync(dir, { recursive: true, force: true })
 })
