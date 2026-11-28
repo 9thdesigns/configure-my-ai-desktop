@@ -888,6 +888,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .recents-btn:hover { background: rgba(127, 127, 127, 0.2); }
 .recents-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 
+/* A row of the recents card opened: the card grows into the quick chat in
+   its place — 380×560 (widget-window.js THREAD_*), the card's gap from the
+   dock and its 20px corners — with a back chevron in the header. While the
+   morph's clip runs the shadow is off (a clip cuts it), and it comes back
+   once the clip lets go. */
+.popover.is-thread {
+  left: auto;
+  right: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--recents-gap));
+  border-radius: var(--radius-20);
+  animation: none;
+  transition: box-shadow var(--dur-160) var(--ease-out);
+}
+:root[data-side="left"] .popover.is-thread { right: auto; left: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--recents-gap)); }
+.popover.is-morphing { box-shadow: none; transition: none; }
+.btn-back { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; margin-left: -6px; }
+.btn-back[hidden] { display: none; }
+/* The row's title on its way to the header (widget-view.js morphIn). */
+.morph-title {
+  position: fixed;
+  z-index: 10;
+  margin: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: 0 0;
+  font-family: var(--chat-font-family);
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

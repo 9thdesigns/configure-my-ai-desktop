@@ -883,7 +883,10 @@
   recentsEl.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action
     if (!card) return
-    if (action === 'new-chat') api.open(card.botId)
+    if (action === 'new-chat') {
+      if (typeof api.openThread === 'function') api.openThread(card.botId, null)
+      else api.open(card.botId)
+    }
     if (action === 'recents-open-in-app') api.openInApp(card.botId)
   })
 
@@ -991,6 +994,146 @@
     card = null
   }
 
+  // --- The card ↔ chat morph (recents-card.js has the frames) -------------
+
+  const isChat = (m) => m === 'chat' || m === 'thread'
+  let morph = null // what is running: { kind: 'in' | 'back' | 'close', anims, clone }
+  let lastThreadId = null // the row the chat grew out of, to land back on
+
+  function stopMorph () {
+    if (!morph) return
+    for (const a of morph.anims) a.cancel()
+    morph.clone?.remove()
+    popover.classList.remove('is-morphing')
+    morph = null
+  }
+
+  const panelSide = () => (layout.side === 'left' ? 'left' : 'right')
+  const contentNodes = () => [...popover.children].filter((n) => !n.hidden)
+
+  // A row opened: the card grows into the chat. The chat is laid out whole
+  // in the card's place, clipped to the card, and grows on OPEN (height,
+  // then width) under the card, which fades; the row's title flies to the
+  // header; the chat's content fades in at 85%. Held a frame first, while
+  // the window widens (at most 250ms).
+  function morphIn (next) {
+    stopMorph()
+    const reduced = reducedMotion()
+    const row = next.threadId ? rowsOf().find((r) => r.dataset.threadId === next.threadId) : null
+    const fromEl = row && row.querySelector('.recents-title')
+    const m = (morph = { kind: 'in', anims: [], clone: null })
+    popover.classList.add('is-morphing')
+    popover.style.visibility = 'hidden'
+    let done = false
+    const go = () => {
+      if (done || morph !== m) return
+      done = true
+      popover.style.visibility = ''
+      const finish = () => {
+        if (morph !== m) return
+        stopMorph()
+        hideCard()
+        compose.focus()
+        reportLayout()
+      }
+      if (reduced || typeof popover.animate !== 'function') {
+        const f = RC.morphFrames({ reduced: true })
+        if (typeof popover.animate === 'function') m.anims.push(popover.animate(f.keyframes, { duration: f.duration, fill: 'backwards' }))
+        recentsEl.hidden = true
+        return m.anims[0] ? m.anims[0].finished.then(finish, () => {}) : finish()
+      }
+      const f = RC.morphFrames({ width: popover.offsetWidth, height: popover.offsetHeight, cardTop: next.cardTop - next.popoverTop, cardHeight: next.cardHeight, cardWidth: cardWidth(), side: panelSide() })
+      const frame = popover.animate(f.keyframes, { duration: f.duration, easing: 'linear', fill: 'backwards' })
+      m.anims.push(frame)
+      const content = RC.contentFrames({ delay: f.contentDelay })
+      for (const node of contentNodes()) m.anims.push(node.animate(content.keyframes, content.options))
+      m.anims.push(recentsEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }))
+      // The title's flight: a copy from the row to the header, landing as
+      // the header fades in.
+      const toEl = $('[data-role="head-name"]', popover)
+      if (fromEl && toEl) {
+        const from = fromEl.getBoundingClientRect()
+        const to = toEl.getBoundingClientRect()
+        const clone = el('span', 'morph-title', fromEl.textContent)
+        const cs = getComputedStyle(fromEl)
+        clone.style.left = `${from.left}px`
+        clone.style.top = `${from.top}px`
+        clone.style.font = cs.font
+        clone.style.lineHeight = `${from.height}px`
+        document.body.append(clone)
+        m.clone = clone
+        const flightMs = f.contentDelay + RC.CONTENT_MS
+        m.anims.push(clone.animate(RC.flight(from, to, { fromSize: parseFloat(cs.fontSize), toSize: parseFloat(getComputedStyle(toEl).fontSize) }), { duration: flightMs, easing: RC.ROW_EASE, fill: 'forwards' }))
+        m.anims.push(clone.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 80, delay: flightMs - 80, fill: 'forwards', composite: 'add' }))
+      }
+      frame.finished.then(finish, () => {})
+    }
+    requestAnimationFrame(() => requestAnimationFrame(go))
+    setTimeout(go, 250)
+  }
+
+  // Back to the card: the chat shrinks into the card's place on CLOSE
+  // (width, then height), its content going first; the card fades back in
+  // on top as it lands. The window stays wide until main trims it.
+  function backToCard (next) {
+    if (morph && morph.kind === 'back') return placeCard(next)
+    stopMorph()
+    const seat = placeCard(next)
+    card = { botId: next.botId, top: next.cardTop, height: next.cardHeight, seat }
+    cardArm = null
+    cardClosing = false
+    recentsEl.hidden = false
+    recentsEl.style.visibility = ''
+    if (threads.bot_id === next.botId) renderRecentsHead()
+    const threadId = lastThreadId
+    const reduced = reducedMotion()
+    const m = (morph = { kind: 'back', anims: [], clone: null })
+    const finish = () => {
+      if (morph !== m) return
+      stopMorph()
+      popover.hidden = true
+      popover.classList.remove('is-thread')
+      const row = threadId && rowsOf().find((r) => r.dataset.threadId === threadId)
+      if (row) row.focus({ preventScroll: true })
+      else focusRow(0)
+      reportLayout()
+    }
+    if (popover.hidden || typeof popover.animate !== 'function') return finish()
+    const f = RC.morphFrames({ width: popover.offsetWidth, height: popover.offsetHeight, cardTop: next.cardTop - next.popoverTop, cardHeight: next.cardHeight, cardWidth: cardWidth(), side: panelSide(), back: true, reduced })
+    if (!reduced) popover.classList.add('is-morphing')
+    const frame = popover.animate(f.keyframes, { duration: f.duration, easing: 'linear', fill: 'forwards' })
+    m.anims.push(frame)
+    const content = RC.contentFrames({ back: true, reduced })
+    if (content) for (const node of contentNodes()) m.anims.push(node.animate(content.keyframes, content.options))
+    m.anims.push(recentsEl.animate([{ opacity: 0 }, { opacity: 1 }], reduced ? { duration: f.duration, fill: 'backwards' } : { duration: 160, delay: Math.round(f.duration * 0.6), easing: 'ease-out', fill: 'backwards' }))
+    frame.finished.then(finish, () => {})
+  }
+
+  // Closing the chat that grew out of the card: into the seat on CLOSE, in
+  // the still-wide window; then hidden.
+  function closeThread (next) {
+    if (popover.hidden || (morph && morph.kind === 'close')) return
+    stopMorph()
+    hideCard()
+    const m = (morph = { kind: 'close', anims: [], clone: null })
+    popover.dataset.closing = ''
+    const finish = () => {
+      if (morph !== m) return
+      stopMorph()
+      delete popover.dataset.closing
+      popover.hidden = true
+      popover.classList.remove('is-thread')
+      reportLayout()
+    }
+    if (typeof popover.animate !== 'function') return finish()
+    const reduced = reducedMotion()
+    const f = RC.budFrames({ width: popover.offsetWidth, height: popover.offsetHeight, seat: next.seatY - next.popoverTop, travel: budTravel(), side: panelSide(), closing: true, reduced })
+    if (!reduced) popover.classList.add('is-morphing')
+    const frame = popover.animate(f.card, { duration: f.duration, easing: 'linear', fill: 'forwards' })
+    m.anims.push(frame)
+    frame.finished.then(finish, () => {})
+  }
+
   if (typeof api.onThreads === 'function') {
     api.onThreads((next) => {
       if (!next || typeof next.bot_id !== 'string' || !Array.isArray(next.threads)) return
@@ -1006,12 +1149,18 @@
   // would repaint the head.
   const setText = (node, text) => { if (node.textContent !== text) node.textContent = text }
 
+  // A chat grown out of the recents card: the row's title in the header
+  // (it flew there), the bot under it, and the way back to the card.
   function renderHead () {
     const bot = botById(layout.botId)
     if (!bot) return
+    const fromCard = layout.mode === 'thread'
+    const title = fromCard && layout.threadTitle ? layout.threadTitle : null
     paintAvatar($('[data-role="head-avatar"]', popover), bot)
-    setText($('[data-role="head-name"]', popover), bot.name)
-    setText($('[data-role="head-state"]', popover), bot.label)
+    setText($('[data-role="head-name"]', popover), title || bot.name)
+    setText($('[data-role="head-state"]', popover), title ? `${bot.name} · ${bot.label}` : bot.label)
+    const back = $('[data-action="back"]', popover)
+    if (back.hidden === fromCard) back.hidden = !fromCard
     const placeholder = `Message ${bot.name}…`
     placeholderTyping.setHints([placeholder, `Ask ${bot.name} anything…`, `Reply to ${bot.name} or give a new task…`])
     if (compose.getAttribute('aria-label') !== placeholder) compose.setAttribute('aria-label', placeholder)
@@ -1532,13 +1681,17 @@
   popover.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action
     if (action === 'collapse') api.collapse()
+    if (action === 'back' && typeof api.back === 'function') api.back()
     if (action === 'open-in-app' && layout.botId) api.openInApp(layout.botId)
   })
 
   document.addEventListener('keydown', (event) => {
+    // Esc steps back one level: a chat grown out of the card goes back to
+    // the card; anything else closes.
     if (event.key === 'Escape') {
       event.preventDefault()
-      api.collapse()
+      if (layout.expanded && layout.mode === 'thread' && typeof api.back === 'function') api.back()
+      else api.collapse()
       return
     }
     // A–H pick a question's options, unless the user is typing.
@@ -1563,7 +1716,7 @@
     }
     renderWorkspace()
     renderDock()
-    if (layout.expanded && layout.mode === 'chat') {
+    if (layout.expanded && isChat(layout.mode)) {
       renderHead()
       renderMessages() // the typing dots follow the bot's mood
     }
@@ -1584,9 +1737,10 @@
 
   api.onLayout((next) => {
     if (!next) return
-    const opened = next.expanded && next.mode === 'chat' && next.botId !== layout.botId
+    const opened = next.expanded && isChat(next.mode) && (next.botId !== layout.botId || !isChat(layout.mode) || next.threadId !== layout.threadId)
     const pickerOpened = next.expanded && next.mode === 'picker' && !(layout.expanded && layout.mode === 'picker')
     layout = next
+    if (next.expanded && next.mode === 'thread') lastThreadId = next.threadId || null
     document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
     document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
     document.documentElement.toggleAttribute('data-expanded', Boolean(next.expanded))
@@ -1596,12 +1750,19 @@
     if (next.budIn) budIn(next.side)
     autoHideCheck()
     if (tucked) placeStrip()
-    const wantChat = next.expanded && next.mode === 'chat'
+    const wantChat = next.expanded && isChat(next.mode)
     const wantPicker = next.expanded && next.mode === 'picker'
+    // The card growing into the chat (a row opened), the chat shrinking back
+    // into the card, the chat closing into the seat.
+    const morphing = Boolean(next.expanded && next.mode === 'thread' && next.opening && card && !recentsEl.hidden && !cardClosing && card.botId === next.botId && !morph)
+    const stepping = Boolean(next.expanded && next.mode === 'recents' && next.back === true)
+    const closingThread = Boolean(next.closing && next.closingMode === 'thread')
+    popover.classList.toggle('is-thread', Boolean((next.expanded && next.mode === 'thread') || stepping || closingThread))
     for (const [panel, want] of [[popover, wantChat], [picker, wantPicker]]) {
+      if (panel === popover && (stepping || closingThread)) continue
       if (want) {
         delete panel.dataset.closing
-        if (panel.hidden && next.opening) armPanel(panel)
+        if (panel.hidden && next.opening && !(panel === popover && (morphing || morph))) armPanel(panel)
         panel.hidden = false
       } else if (next.closing && !panel.hidden) {
         closePanel(panel)
@@ -1609,9 +1770,11 @@
         panel.hidden = true
       }
     }
-    if (next.expanded && next.mode === 'recents' && Number.isFinite(next.cardTop) && Number.isFinite(next.cardHeight)) showCard(next)
+    if (stepping && Number.isFinite(next.cardTop)) backToCard(next)
+    else if (next.expanded && next.mode === 'recents' && Number.isFinite(next.cardTop) && Number.isFinite(next.cardHeight)) showCard(next)
     else if (next.closing && next.closingMode === 'recents') closeCard()
-    else if (!cardClosing) hideCard()
+    else if (morphing) placeCard(next)
+    else if (!cardClosing && !morph) hideCard()
     for (const panel of [popover, picker]) {
       if (panel.hidden || 'closing' in panel.dataset) continue
       panel.style.top = `${next.popoverTop}px`
@@ -1637,7 +1800,9 @@
       renderPending()
       compose.focus()
     }
-    if (!next.expanded || next.mode !== 'chat') {
+    if (morphing) morphIn(next)
+    if (closingThread) closeThread(next)
+    if (!next.expanded || !isChat(next.mode)) {
       conversation = null
       pendingKey = undefined
     }

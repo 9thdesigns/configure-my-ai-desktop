@@ -85,3 +85,55 @@ test('relative times: now, minutes and hours today, yesterday, a weekday, a date
   assert.equal(RC.relativeTime(null, now), '')
   assert.equal(RC.relativeTime('garbage', now), '')
 })
+
+const morphGeo = { width: 380, height: 560, cardTop: 40, cardHeight: 256, cardWidth: 288 }
+
+test('the morph: from the card\'s rectangle to the whole 380×560 chat on OPEN, height first, then width', () => {
+  const f = RC.morphFrames(morphGeo)
+  const open = Motion.sample('open', { from: 0, to: 1 })
+  const lag = Math.round(RC.WIDTH_LAG_MS / (1000 / 60))
+  assert.equal(f.keyframes.length, open.values.length + lag)
+  assert.equal(f.duration, Math.round((open.values.length - 1 + lag) * 1000 / 60))
+  assert.equal(f.keyframes[0].clipPath, 'inset(40px 0px 264px 92px round 20px)', 'the card: 288 wide at the dock-side edge, where it was')
+  assert.equal(f.keyframes.at(-1).clipPath, 'inset(0px 0px 0px 0px round 20px)')
+  // Height first: for the first frames only the top and bottom move.
+  const parse = (k) => k.clipPath.match(/[\d.]+(?=px)/g).map(Number)
+  const early = parse(f.keyframes[lag])
+  assert.ok(early[2] < 264 && early[0] < 40, 'height under way')
+  assert.equal(early[3], 92, 'width not yet')
+  assert.ok(parse(f.keyframes[lag + 3])[3] < 92, 'then width')
+  assert.equal(f.contentDelay, Math.round(f.duration * 0.85), 'the content at 85%')
+})
+
+test('back to the card on CLOSE, width first; reduced motion is a short fade', () => {
+  const f = RC.morphFrames({ ...morphGeo, back: true })
+  const close = Motion.sample('close', { from: 1, to: 0 })
+  const lag = Math.round(RC.WIDTH_LAG_MS / (1000 / 60))
+  assert.equal(f.keyframes.length, close.values.length + lag)
+  assert.equal(f.keyframes[0].clipPath, 'inset(0px 0px 0px 0px round 20px)')
+  assert.equal(f.keyframes.at(-1).clipPath, 'inset(40px 0px 264px 92px round 20px)')
+  const parse = (k) => k.clipPath.match(/[\d.]+(?=px)/g).map(Number)
+  const early = parse(f.keyframes[lag])
+  assert.ok(early[3] > 0, 'width under way')
+  assert.equal(early[0], 0, 'height not yet')
+  const reduced = RC.morphFrames({ ...morphGeo, reduced: true })
+  assert.ok(reduced.duration <= 150)
+  assert.deepEqual(reduced.keyframes, [{ opacity: 0 }, { opacity: 1 }])
+  assert.deepEqual(RC.morphFrames({ ...morphGeo, reduced: true, back: true }).keyframes, [{ opacity: 1 }, { opacity: 0 }])
+})
+
+test('the left edge mirrors the morph\'s clip', () => {
+  assert.equal(RC.morphFrames({ ...morphGeo, side: 'left' }).keyframes[0].clipPath, 'inset(40px 92px 264px 0px round 20px)')
+})
+
+test('the chat\'s content fades in from .97 after the delay (going back, it goes first); the title\'s flight lands on the header', () => {
+  const c = RC.contentFrames({ delay: 700 })
+  assert.deepEqual(c.keyframes, [{ opacity: 0, transform: 'scale(0.97)' }, { opacity: 1, transform: 'none' }])
+  assert.equal(c.options.delay, 700)
+  assert.equal(c.options.easing, 'cubic-bezier(0.22, 1, 0.36, 1)')
+  assert.deepEqual(RC.contentFrames({ back: true }).keyframes.at(-1), { opacity: 0, transform: 'scale(0.97)' })
+  assert.equal(RC.contentFrames({ reduced: true }), null)
+  const k = RC.flight({ left: 100, top: 200 }, { left: 60, top: 40 }, { fromSize: 14, toSize: 13 })
+  assert.equal(k[0].transform, 'none')
+  assert.equal(k[1].transform, 'translate(-40px, -160px) scale(0.93)')
+})

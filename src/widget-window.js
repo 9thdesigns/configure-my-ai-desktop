@@ -90,6 +90,11 @@ const RECENTS_EDGE_MARGIN = 8
 // (recents-card.js) on its straight edge.
 const RECENTS_ANCHOR = 38
 const RECENTS_WINDOW_WIDTH = RECENTS_SHADOW + RECENTS_WIDTH + RECENTS_GAP + DOCK_BODY_WIDTH
+// A row of the card opened: the card grows into the quick chat, 380×560 (no
+// taller than the work area allows), in the card's place beside the dock.
+const THREAD_WIDTH = 380
+const THREAD_HEIGHT = 560
+const THREAD_WINDOW_WIDTH = RECENTS_SHADOW + THREAD_WIDTH + RECENTS_GAP + DOCK_BODY_WIDTH
 const MAX_RECTS = 16
 const POINTER_POLL_MS = 33
 const CONVERSATION_POLL_MS = 5000
@@ -214,6 +219,36 @@ function recentsLayoutFor ({ workArea, dockHeight, offsetY, side = 'right', seat
     cardTop: cardY - top,
     cardHeight,
     seatY: Math.round(seat - top),
+    expanded: true,
+    side: left ? 'left' : 'right',
+  }
+}
+
+// The window with a row of the card opened as a chat. It holds the card
+// where it was (cardTop, cardHeight: the morph starts there) and the chat
+// panel it grows into (popoverTop, popoverHeight): the panel's top is the
+// card's, lifted only as far as it must be to stay 8px inside the work area.
+// Wider than the card's window; never moved on screen relative to the dock.
+function threadLayoutFor ({ workArea, dockHeight, offsetY, side = 'right', seatY, rows }) {
+  const card = recentsLayoutFor({ workArea, dockHeight, offsetY, side, seatY, rows })
+  const cardY = card.bounds.y + card.cardTop
+  const dockY = card.bounds.y + card.dockTop
+  const seat = card.bounds.y + card.seatY
+  const height = validDockHeight(dockHeight, workArea)
+  const panelHeight = Math.min(THREAD_HEIGHT, workArea.height - 2 * RECENTS_EDGE_MARGIN)
+  const panelY = clamp(cardY, workArea.y + RECENTS_EDGE_MARGIN, workArea.y + workArea.height - RECENTS_EDGE_MARGIN - panelHeight)
+  const top = Math.max(workArea.y, Math.min(dockY, cardY - RECENTS_SHADOW, panelY - RECENTS_SHADOW))
+  const bottom = Math.min(workArea.y + workArea.height, Math.max(dockY + height, cardY + card.cardHeight + RECENTS_SHADOW, panelY + panelHeight + RECENTS_SHADOW))
+  const left = side === 'left'
+  const edgeX = left ? workArea.x + EDGE_MARGIN : workArea.x + workArea.width - EDGE_MARGIN
+  return {
+    bounds: { x: left ? edgeX : edgeX - THREAD_WINDOW_WIDTH, y: top, width: THREAD_WINDOW_WIDTH, height: bottom - top },
+    dockTop: dockY - top,
+    popoverTop: panelY - top,
+    popoverHeight: panelHeight,
+    cardTop: cardY - top,
+    cardHeight: card.cardHeight,
+    seatY: seat - top,
     expanded: true,
     side: left ? 'left' : 'right',
   }
@@ -350,7 +385,10 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let refreshing = null
   // The quick chat pinned to one conversation (a row of the card), or null
   // for the bot's waiting-or-latest one; and where that row opens in the app.
-  let pinned = null // { id, url }
+  let pinned = null // { id, url, title }
+  // Stepping back from a chat to its card: the window stays wide while the
+  // chat shrinks back into the card, and is trimmed to the card after.
+  let steppingBack = false
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
   // Where the dock is: the display, the edge, and the offset down it as a
@@ -429,6 +467,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (open && shown === 'recents') {
       return recentsLayoutFor({ workArea, dockHeight, offsetY, side, seatY: recentsSeat, rows: recentsRows })
     }
+    if (open && shown === 'thread') {
+      return threadLayoutFor({ workArea, dockHeight, offsetY, side, seatY: recentsSeat, rows: recentsRows })
+    }
     return layoutFor({ workArea, dockHeight, offsetY, expanded: open, side, shelf: shelfOpen && !open })
   }
 
@@ -459,9 +500,22 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       }, CLOSE_MS + TRIM_DELAY_MS))
       return
     }
+    if (expanded && mode === 'recents' && steppingBack) {
+      // Back from the chat: keep the chat's window while the chat shrinks
+      // into the card (the card's place in it), then trim to the card.
+      const wide = currentLayout(true, 'thread')
+      send('cma-widget:layout', layoutMessage(wide, { back: true }))
+      trimTimer = unref(timers.setTimeout(() => {
+        trimTimer = null
+        steppingBack = false
+        place()
+      }, CLOSE_MS + TRIM_DELAY_MS))
+      return
+    }
     const layout = currentLayout()
     win.setBounds(layout.bounds)
-    send('cma-widget:layout', layoutMessage(layout, expanded ? { opening: true } : {}))
+    const thread = mode === 'thread' && pinned && pinned.title ? { threadId: pinned.id, threadTitle: pinned.title } : {}
+    send('cma-widget:layout', layoutMessage(layout, expanded ? { opening: true, ...thread } : {}))
   }
 
   // --- Dragging: along the edge only. x stays locked to the edge the dock
@@ -474,6 +528,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   function dragStart (point) {
     if (!draggable || !alive()) return
     recentsSeq++
+    steppingBack = false
     if (expanded) {
       expanded = false
       openBotId = null
@@ -662,12 +717,15 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     send('cma-widget:conversation', await popoverFor(botId, conversation))
   }
 
-  function expand (botId, pin = null) {
+  // fromCard: a row (or "New chat") of the open card — the card grows into
+  // the chat ('thread'); otherwise the quick chat beside the dock ('chat').
+  function expand (botId, pin = null, { fromCard = false } = {}) {
     if (!alive()) return
     recentsSeq++
     pinned = pin
+    steppingBack = false
     openBotId = botId
-    mode = 'chat'
+    mode = fromCard ? 'thread' : 'chat'
     expanded = true
     closing = false
     win.setFocusable(true)
@@ -717,6 +775,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     conversationTimer = null
     openBotId = botId
     mode = 'recents'
+    steppingBack = false
+    pinned = null
     recentsSeat = seatY
     recentsRows = threadCache.get(botId).length
     expanded = true
@@ -747,7 +807,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       sendThreads()
       if (result.threads.length !== recentsRows) {
         recentsRows = result.threads.length
-        place()
+        // Mid-step back, the trim that follows places the card anyway.
+        if (!steppingBack) place()
       }
     })
   }
@@ -805,6 +866,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     conversationTimer = null
     recentsSeq++
     pinned = null
+    steppingBack = false
     if (!expanded || !alive()) return
     closingMode = mode
     expanded = false
@@ -1000,17 +1062,36 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     ipcMain.on('cma-widget:open-thread', (event, input) => {
       if (!fromWidget(event) || !input || typeof input !== 'object') return
       const id = validId(input.bot_id)
+      if (!id) return
+      // From the open card the chat grows out of it ('thread'); thread_id
+      // null is its "New chat" (the bot's chat, unpinned).
+      const fromCard = expanded && mode === 'recents' && openBotId === id
+      if (fromCard && input.thread_id === null) return expand(id, null, { fromCard: true })
       const threadId = validId(input.thread_id)
-      if (!id || !threadId) return
-      if (expanded && mode === 'recents' && openBotId === id) {
+      if (!threadId) return
+      if (fromCard) {
         const thread = (threadCache.get(id) || []).find((t) => t.id === threadId)
-        if (thread) return expand(id, { id: thread.id, url: threadUrl(id, thread) })
+        if (thread) return expand(id, { id: thread.id, url: threadUrl(id, thread), title: thread.title }, { fromCard: true })
       }
       if (arrivalThreads.get(id) === threadId && dockBots(store.get()).some((b) => b.id === id)) {
         haptics?.play('click') // a generic tick, as for any open
         feed.setFocus(id).catch(() => {})
         expand(id, { id: threadId, url: threadUrl(id, { id: threadId }) })
       }
+    })
+
+    // The chat's back chevron (or Esc): back to the card it grew out of.
+    ipcMain.on('cma-widget:back', (event) => {
+      if (!fromWidget(event) || !expanded || mode !== 'thread' || !openBotId) return
+      if (openBotId) screenShare?.discard(openBotId)
+      clearInterval(conversationTimer)
+      conversationTimer = null
+      pinned = null
+      mode = 'recents'
+      steppingBack = true
+      sendThreads()
+      place()
+      refreshThreads()
     })
 
     // A seat's click: its recents card, budding from the seat at seat_y (its
@@ -1153,8 +1234,12 @@ module.exports = {
   RECENTS_GAP,
   RECENTS_SHADOW,
   RECENTS_WINDOW_WIDTH,
+  THREAD_WIDTH,
+  THREAD_HEIGHT,
+  THREAD_WINDOW_WIDTH,
   recentsCardHeight,
   recentsLayoutFor,
+  threadLayoutFor,
   MAX_RECTS,
   PARTITION,
   HTML_URL,
