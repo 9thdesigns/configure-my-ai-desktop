@@ -124,31 +124,129 @@ const drag = (ipc, ch, win, from, to, steps = 4) => {
 
 const lastLayout = (win, ch) => win.sent.filter(([c]) => c === ch).at(-1)[1]
 
-test('the dock: dragged left, it snaps to the left edge, and comes back there after a restart', async () => {
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const ghostOf = (electron) => electron.windows.find((w) => !w.destroyed && /dock-ghost\.html/.test(w.url || ''))
+const layouts = (win) => win.sent.filter(([c]) => c === 'cma-widget:layout').map(([, p]) => p)
+
+test('the dock: dragged along its edge only; past the midline a ghost shows on the other edge; let go there, it tucks out and buds in on the left, and comes back there after a restart', async () => {
   const { dir, file } = tempPrefs()
   const electron = fakeElectron([laptop])
   const { widget, prefs, ipc, win } = await startWidget({ file, electron })
   const start = win.getBounds()
   assert.equal(start.x, 1512 - W.EDGE_MARGIN - W.DOCK_WIDTH, 'right edge by default')
+  assert.equal(start.y, 37 + Math.round((945 - 300) / 2), 'centred')
 
-  // Mid-drag the window follows the pointer, anywhere.
+  // Grabbed 40px down the window. Mid-drag: x stays on the edge, y follows.
   ipc.emit('cma-widget:drag', win, { phase: 'start', screenX: start.x + 30, screenY: start.y + 40 })
+  ipc.emit('cma-widget:drag', win, { phase: 'move', screenX: 1300, screenY: 300 })
+  assert.deepEqual([win.getBounds().x, win.getBounds().y], [start.x, 260], 'x locked to the edge, y = pointer − grab')
+  assert.equal(ghostOf(electron), undefined, 'right half: no ghost')
+  // Past the display's midline (756): a ghost on the left edge, at the dock's height.
   ipc.emit('cma-widget:drag', win, { phase: 'move', screenX: 700, screenY: 300 })
-  assert.deepEqual([win.getBounds().x, win.getBounds().y], [670, 260])
+  assert.equal(win.getBounds().x, start.x, 'the dock itself stays on its edge')
+  const g = ghostOf(electron)
+  assert.ok(g, 'a ghost window')
+  assert.match(g.url, /dock-ghost\.html/)
+  assert.deepEqual([g.getBounds().x, g.getBounds().y, g.getBounds().width], [0, 260, W.DOCK_WIDTH])
+  ipc.emit('cma-widget:drag', win, { phase: 'move', screenX: 200, screenY: 400 })
+  assert.equal(ghostOf(electron).getBounds().y, 360, 'the ghost follows')
+  // Back to the right half: the ghost goes.
+  ipc.emit('cma-widget:drag', win, { phase: 'move', screenX: 1000, screenY: 400 })
+  assert.equal(ghostOf(electron), undefined)
   ipc.emit('cma-widget:drag', win, { phase: 'move', screenX: 200, screenY: 400 })
   ipc.emit('cma-widget:drag', win, { phase: 'end', screenX: 200, screenY: 400 })
+  assert.equal(ghostOf(electron), undefined, 'the ghost goes on release')
 
+  // Released on the left half: tuck out first (still on the right) …
+  assert.equal(win.getBounds().x, start.x)
+  assert.equal(layouts(win).at(-1).tuck, true)
+  // … then across, budding in on the left.
+  await wait(220)
   const b = win.getBounds()
-  assert.equal(b.x, W.EDGE_MARGIN, 'snapped to the left edge')
+  assert.equal(b.x, 0, 'flush to the left edge')
   assert.equal(b.y, 360)
-  assert.equal(lastLayout(win, 'cma-widget:layout').side, 'left')
-  assert.deepEqual(prefs.get().widgetPositions, [{ id: 1, bounds: laptop.bounds, pos: { side: 'left', offsetY: 323 } }])
+  const last = layouts(win).at(-1)
+  assert.equal(last.side, 'left')
+  assert.equal(last.budIn, true)
+  assert.deepEqual(prefs.get().widgetPositions, [{ id: 1, bounds: laptop.bounds, pos: { edge: 'left', offset: Math.round((323 / 645) * 10000) / 10000 } }])
   widget.destroy()
 
   // A restart: the same place.
   const again = await startWidget({ file, electron })
-  assert.deepEqual([again.win.getBounds().x, again.win.getBounds().y], [W.EDGE_MARGIN, 360])
+  assert.deepEqual([again.win.getBounds().x, again.win.getBounds().y], [0, 360])
   again.widget.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the dock: released on its own half, it stays on its edge (no tuck); the place is a fraction of the free height', async () => {
+  const { dir, file } = tempPrefs()
+  const electron = fakeElectron([laptop])
+  const { widget, prefs, ipc, win } = await startWidget({ file, electron })
+  drag(ipc, 'cma-widget:drag', win, { x: 1490, y: 400 }, { x: 1400, y: 20 })
+  assert.equal(win.getBounds().y, 37, 'dragged above the top: at the top')
+  assert.ok(!layouts(win).some((l) => l.tuck))
+  assert.deepEqual(prefs.get().widgetPositions[0].pos, { edge: 'right', offset: 0 })
+  drag(ipc, 'cma-widget:drag', win, { x: 1490, y: 100 }, { x: 1400, y: 5000 })
+  assert.equal(win.getBounds().y + 300, 37 + 945, 'below the bottom: at the bottom')
+  assert.deepEqual(prefs.get().widgetPositions[0].pos, { edge: 'right', offset: 1 })
+  widget.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the dock: main reads the pointer every frame while dragging, so a drag onto another display re-homes it there between page events', async () => {
+  const { dir, file } = tempPrefs()
+  const electron = fakeElectron([laptop, external])
+  const { widget, prefs, ipc, win } = await startWidget({ file, electron })
+  ipc.emit('cma-widget:drag', win, { phase: 'start', screenX: 1490, screenY: 400 })
+  // No page events now: only the cursor moves, onto the external display's right half.
+  electron.screen.getCursorScreenPoint = () => ({ x: -300, y: 600 })
+  await wait(60)
+  const b = win.getBounds()
+  assert.equal(b.x, -W.DOCK_WIDTH, 'the same (right) edge, on the external display')
+  assert.equal(b.y, 600 - (400 - (37 + Math.round((945 - 300) / 2))), 'at the pointer, keeping the grab')
+  ipc.emit('cma-widget:drag', win, { phase: 'end', screenX: -300, screenY: 600 })
+  assert.deepEqual(prefs.get().widgetPositions.map((e) => [e.id, e.pos.edge]), [[2, 'right']])
+  // After the drag, the cursor no longer moves it.
+  electron.screen.getCursorScreenPoint = () => ({ x: -1500, y: 100 })
+  await wait(60)
+  assert.deepEqual(win.getBounds(), b)
+  widget.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the dock: older memory ({ side, offsetY } in px) is migrated to an edge and a fraction the first time its display is used', async () => {
+  const { dir, file } = tempPrefs()
+  fs.writeFileSync(file, JSON.stringify({ widgetPositions: [{ id: 1, bounds: laptop.bounds, pos: { side: 'left', offsetY: 100 } }] }))
+  const electron = fakeElectron([laptop])
+  const { widget, prefs, win } = await startWidget({ file, electron })
+  // Placed from the old memory (startWidget reports a 300px dock after the first placement).
+  assert.equal(win.getBounds().x, 0, 'the left edge, as remembered')
+  const pos = prefs.get().widgetPositions[0].pos
+  assert.equal(pos.edge, 'left')
+  assert.ok(typeof pos.offset === 'number' && pos.offset >= 0 && pos.offset <= 1, 'now a fraction')
+  assert.equal(pos.offsetY, undefined)
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).widgetPositions[0].pos.offsetY, undefined, 'saved migrated')
+  widget.destroy()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the dock: opening widens the window before the panel animates in; closing keeps it wide while the panel animates out, then trims it back', async () => {
+  const { dir, file } = tempPrefs()
+  const electron = fakeElectron([laptop])
+  const { widget, ipc, win } = await startWidget({ file, electron })
+  win.blur = () => {}
+  const narrow = win.getBounds()
+  ipc.emit('cma-widget:open', win, 'manager')
+  const open = win.getBounds()
+  assert.equal(open.width, W.EXPANDED_WIDTH, 'widened at once (setBounds, not animated)')
+  assert.equal(layouts(win).at(-1).opening, true, 'the page is told to animate in')
+  ipc.emit('cma-widget:collapse', win)
+  assert.deepEqual(win.getBounds(), open, 'still wide while the panel animates out')
+  assert.equal(layouts(win).at(-1).closing, true)
+  assert.equal(layouts(win).at(-1).expanded, false)
+  await wait(320 + 700 + 80)
+  assert.deepEqual(win.getBounds(), narrow, 'trimmed back to the dock')
+  widget.destroy()
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
@@ -199,8 +297,8 @@ test('the dock: only the widget page in the widget window can drag it, with a va
   const before = win.getBounds()
   const other = { url: 'https://evil.example/', webContents: {} }
   // Another window's page; the right window but another URL; junk payloads.
-  drag(ipc, 'cma-widget:drag', other, { x: 1400, y: 400 }, { x: 100, y: 400 })
-  drag(ipc, 'cma-widget:drag', win, { x: 1400, y: 400 }, { x: 100, y: 400 }, 4)
+  drag(ipc, 'cma-widget:drag', other, { x: 1490, y: 400 }, { x: 1490, y: 600 })
+  drag(ipc, 'cma-widget:drag', win, { x: 1490, y: 400 }, { x: 1490, y: 600 }, 4)
   assert.notDeepEqual(win.getBounds(), before, 'sanity: the real page can')
   const moved = win.getBounds()
   for (const send of [
@@ -235,7 +333,7 @@ test('the dock on Wayland, or where moves do not land, degrades to not dragging'
   await tick()
   const win = electron.windows.at(-1)
   const before = win.getBounds()
-  drag(ipc, 'cma-widget:drag', win, { x: before.x + 20, y: 300 }, { x: 200, y: 300 })
+  drag(ipc, 'cma-widget:drag', win, { x: before.x + 20, y: 300 }, { x: before.x + 20, y: 600 })
   assert.deepEqual(win.getBounds(), before, 'Wayland: no drag')
   assert.equal(lastLayout(win, 'cma-widget:layout').draggable, false, 'the page is told, so it shows no grab cursor')
   assert.deepEqual(prefs.get().widgetPositions, [])
@@ -244,7 +342,7 @@ test('the dock on Wayland, or where moves do not land, degrades to not dragging'
   // X11 / macOS / Windows, but a window manager that ignores the moves.
   const x = await startWidget({ file, electron })
   x.win.ignoreMoves = true
-  drag(x.ipc, 'cma-widget:drag', x.win, { x: 1450, y: 300 }, { x: 200, y: 300 }, 6)
+  drag(x.ipc, 'cma-widget:drag', x.win, { x: 1490, y: 300 }, { x: 1490, y: 700 }, 6)
   assert.equal(lastLayout(x.win, 'cma-widget:layout').draggable, false, 'gave up after moves that did not land')
   assert.deepEqual(x.prefs.get().widgetPositions, [], 'nothing saved')
   x.widget.destroy()

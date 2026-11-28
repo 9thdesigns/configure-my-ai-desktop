@@ -317,9 +317,116 @@
   // to the nearer side edge on release. A tap stays a click on the bot, the
   // "+" or the workspace mark (drag-gesture.js tells them apart).
 
-  window.DragGesture.attach(dock, (phase, x, y) => api.drag(phase, x, y), {
-    onDragChange: (on) => document.documentElement.toggleAttribute('data-dragging', on),
+  // The feel (dock-shape.js, motion.js): while dragged, the dock's shape
+  // stretches toward where it is going (up to 12px, from the pointer's
+  // speed, sprung 300/30) and its seats lag behind by 0.3 of that; let go,
+  // it wobbles back (210/13). The faces never scale, only the outline.
+  // Off under reduced motion.
+  const Motion = window.Motion
+  const ED = window.EdgeDrag
+  const reducedMotion = () => Motion.prefersReducedMotion(window)
+  const bodyEl = $('.dock-body', dock)
+  const samples = []
+  let feelFrame = null
+  const stretch = Motion.createSpring({
+    value: 0,
+    spring: 'stretch',
+    reduced: false, // the stretch is simply never started under reduced motion
+    onUpdate: (v) => applyStretch(v),
   })
+
+  function applyStretch (v) {
+    const st = ED.stretchStyle(v, dock.offsetHeight)
+    dock.style.setProperty('--stretch-scale', String(st.scale))
+    dock.style.setProperty('--stretch-origin', st.origin === 'start' ? '0%' : '100%')
+    bodyEl.style.transform = st.lag ? `translateY(${st.lag.toFixed(2)}px)` : ''
+  }
+
+  // While dragging: aim the stretch at the pointer's current speed, every
+  // frame (so it relaxes when the pointer stops).
+  function feelTick () {
+    feelFrame = requestAnimationFrame(feelTick)
+    stretch.setTarget(ED.stretchFor(ED.velocity(samples, performance.now())))
+  }
+
+  function onDragPhase (phase, screenY) {
+    if (phase === 'move') {
+      samples.push({ t: performance.now(), v: screenY })
+      if (samples.length > 12) samples.shift()
+    }
+  }
+
+  function onDragChange (on) {
+    document.documentElement.toggleAttribute('data-dragging', on)
+    samples.length = 0
+    if (feelFrame !== null) cancelAnimationFrame(feelFrame)
+    feelFrame = null
+    if (reducedMotion()) return stretch.jump(0)
+    if (on) {
+      stretch.setSpring(ED.SPRINGS.stretch)
+      feelFrame = requestAnimationFrame(feelTick)
+    } else {
+      // Let go: wobble back to rest, carrying the stretch's velocity.
+      stretch.setSpring(ED.SPRINGS.release)
+      stretch.setTarget(0)
+    }
+  }
+
+  window.DragGesture.attach(dock, (phase, x, y) => {
+    api.drag(phase, x, y)
+    onDragPhase(phase, y)
+  }, { onDragChange })
+
+  // Moving across to the other edge: tuck out of this one (160ms, into the
+  // screen edge), then — main moves the window — bud in on the new one
+  // (SOFT). Reduced motion: it just moves.
+  const TUCK_PX = 72
+  let tuckAnim = null
+  function tuck () {
+    if (reducedMotion() || typeof dock.animate !== 'function') return
+    const dir = layout.side === 'left' ? -1 : 1
+    tuckAnim?.cancel()
+    tuckAnim = dock.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${dir * TUCK_PX}px)` }], { duration: 160, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'forwards' })
+  }
+  function budIn (sideNow) {
+    tuckAnim?.cancel()
+    tuckAnim = null
+    const dir = sideNow === 'left' ? -1 : 1
+    Motion.animateSpring(dock, 'soft', { from: dir * TUCK_PX, to: 0, format: (v) => (v ? `translateX(${v}px)` : 'none') })
+  }
+
+  // Opening, the window has just widened: wait a frame (at most 250ms) so
+  // the bigger window is on screen before the panel animates into it.
+  function armPanel (panel) {
+    panel.setAttribute('data-arming', '')
+    let done = false
+    const go = () => {
+      if (done) return
+      done = true
+      panel.removeAttribute('data-arming')
+    }
+    requestAnimationFrame(() => requestAnimationFrame(go))
+    setTimeout(go, 250)
+  }
+
+  // Closing, the window stays wide: the panel animates out, then hides.
+  function closePanel (panel) {
+    if (panel.hidden) return
+    const reduced = reducedMotion()
+    const frames = reduced
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${layout.side === 'left' ? -8 : 8}px) scale(0.98)` }]
+    if (typeof panel.animate !== 'function') { panel.hidden = true; return }
+    const anim = panel.animate(frames, { duration: reduced ? 150 : 200, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'forwards' })
+    panel.dataset.closing = ''
+    anim.finished.then(() => {
+      if (!('closing' in panel.dataset)) return
+      delete panel.dataset.closing
+      panel.hidden = true
+      anim.cancel()
+      reportLayout()
+    }, () => {})
+  }
 
   // --- The popover ---------------------------------------------------------
 
@@ -886,10 +993,23 @@
     document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
     document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
     dock.style.top = `${next.dockTop + SHADOW_TOP}px`
-    popover.hidden = !(next.expanded && next.mode === 'chat')
-    picker.hidden = !(next.expanded && next.mode === 'picker')
+    if (next.tuck) tuck()
+    if (next.budIn) budIn(next.side)
+    const wantChat = next.expanded && next.mode === 'chat'
+    const wantPicker = next.expanded && next.mode === 'picker'
+    for (const [panel, want] of [[popover, wantChat], [picker, wantPicker]]) {
+      if (want) {
+        delete panel.dataset.closing
+        if (panel.hidden && next.opening) armPanel(panel)
+        panel.hidden = false
+      } else if (next.closing && !panel.hidden) {
+        closePanel(panel)
+      } else if (!('closing' in panel.dataset)) {
+        panel.hidden = true
+      }
+    }
     for (const panel of [popover, picker]) {
-      if (panel.hidden) continue
+      if (panel.hidden || 'closing' in panel.dataset) continue
       panel.style.top = `${next.popoverTop}px`
       panel.style.height = `${next.popoverHeight}px`
     }

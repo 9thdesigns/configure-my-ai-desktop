@@ -1,0 +1,16 @@
+/* The ghost of the dock on the edge it would land on: the same outline,
+   dashed, in the brand accent, faintly filled. */
+html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+.ghost { position: absolute; top: 24px; width: 56px; overflow: visible; }
+:root[data-edge="right"] .ghost { right: 0; }
+:root[data-edge="left"] .ghost { left: 0; transform: scaleX(-1); }
+.ghost-outline {
+  fill: color-mix(in srgb, var(--brand-accent) 10%, transparent);
+  stroke: var(--brand-accent);
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+  vector-effect: non-scaling-stroke;
+  animation: ghost-in var(--dur-160) var(--ease-out);
+}
+@keyframes ghost-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .ghost-outline { animation: none; } }

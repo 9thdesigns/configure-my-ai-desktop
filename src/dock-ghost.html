@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Where the dock will land if let go here: an outline of it on the other
+       edge, shown while a drag is past the display's midline
+       (widget-window.js). Local, inert, click-through: no network, no bridge. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Dock ghost</title>
+  <link rel="stylesheet" href="widget-tokens.css">
+  <link rel="stylesheet" href="dock-ghost.css">
+</head>
+<body>
+  <svg class="ghost" aria-hidden="true" focusable="false"><path class="ghost-outline"/></svg>
+  <script src="dock-shape.js"></script>
+  <script src="dock-ghost.js"></script>
+</body>
+</html>

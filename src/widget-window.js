@@ -14,11 +14,17 @@
 //     events on only while it is over one (setIgnoreMouseEvents);
 //   * never focusable, except while the popover is open (so typing works
 //     there and nowhere else steals focus);
-//   * draggable anywhere by the dock itself (drag-gesture.js tells a drag
-//     from a click; main moves the window), snapping to the nearer side edge
-//     of the display it is dropped on and remembered per display in the prefs
-//     store (widget-placement.js). Not on Wayland, which does not let an app
-//     place its windows: there the compositor decides, as before.
+//   * draggable by the dock itself (drag-gesture.js tells a drag from a
+//     click; main moves the window), along its edge only: x stays on the
+//     edge, y follows the pointer. Past the display's midline a ghost shows
+//     on the other edge, and letting go there moves the dock across. Onto
+//     another display, it re-homes to the same edge there. Remembered per
+//     display as an edge and a fraction of the free height
+//     (dock-placement.js, widget-placement.js). Not on Wayland, which does
+//     not let an app place its windows: there the compositor decides.
+//   * setBounds is never animated: opening, the window widens first and the
+//     page animates the panel in; closing, the panel animates out and the
+//     window is trimmed back to the dock after it settles.
 //
 // The renderer (src/widget.html) is a local file in its own in-memory
 // session: it never holds the site's cookies, has no network access of its
@@ -37,6 +43,8 @@ const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
+const dockPlace = require('./dock-placement')
+const edgeDrag = require('./edge-drag')
 const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
 
 // The dock grows out of the screen edge (widget.css): the window is flush
@@ -241,9 +249,22 @@ const MAX_MISSED_MOVES = 3
 // ---------------------------------------------------------------------------
 
 const HTML_PATH = path.join(__dirname, 'widget.html')
+const GHOST_PATH = path.join(__dirname, 'dock-ghost.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron') }) {
+// How long the dock takes to tuck into the edge it is leaving before it
+// moves across (the renderer's tuck is 160ms), how often main reads the
+// pointer while dragging, how long the widened window waits after the panel
+// has closed before it is trimmed back to the dock.
+// Main-process timers that must never keep the process alive on their own.
+const unref = (t) => { if (t && typeof t.unref === 'function') t.unref(); return t }
+
+const SWITCH_DELAY_MS = 170
+const DRAG_TICK_MS = 16
+const TRIM_DELAY_MS = 700
+const CLOSE_MS = 320
+
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -252,11 +273,20 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let mode = 'chat' // what the expanded window shows: 'chat' or 'picker'
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
-  // Where the dock is: the display, the side, the offset down the work area.
+  // Where the dock is: the display, the edge, and the offset down it as a
+  // fraction of the free height (dock-placement.js).
   let displayId = null
   let side = 'right'
-  let offsetY = null
-  const legacyOffset = positionFile ? loadOffset(positionFile) : null
+  let offset = 0.5
+  // Older memory, in px (the right edge only): turned into a fraction the
+  // first time it is used, once the work area and the dock's height are known.
+  let legacyOffset = positionFile ? loadOffset(positionFile) : null
+  let pendingLegacy = null
+  let ghost = null
+  let dragTimer = null
+  let switchTimer = null
+  let trimTimer = null
+  let closing = false
   // Wayland: the compositor places windows, so the dock does not drag.
   let draggable = !placement.likelyWayland(platform, env)
   let missedMoves = 0
@@ -283,68 +313,183 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     const saved = placement.findSaved(prefs.get().widgetPositions, displays)
     if (saved) {
       displayId = saved.display.id
-      side = saved.pos.side
-      offsetY = saved.pos.offsetY
+      side = saved.pos.edge
+      if (saved.pos.legacy) {
+        // { side, offsetY } from before: a fraction from now on, saved once.
+        const pos = dockPlace.migrate(saved.pos, saved.display.workArea, dockHeight)
+        offset = pos.offset
+        prefs.set({ widgetPositions: placement.remember(prefs.get().widgetPositions, saved.display, pos) })
+      } else {
+        offset = saved.pos.offset
+      }
       return saved.display
     }
     const main = getMainWindow()
     const chosen = main && !main.isDestroyed() ? screen.getDisplayMatching(main.getBounds()) : screen.getPrimaryDisplay()
     displayId = chosen.id
     side = 'right'
-    offsetY = legacyOffset
+    offset = Number.isFinite(legacyOffset) ? dockPlace.offsetFor(chosen.workArea, dockHeight, legacyOffset) : 0.5
+    legacyOffset = null
     return chosen
   }
 
+  // The layout for where the dock is now (layoutFor works in px down the
+  // work area).
+  function currentLayout (open = expanded) {
+    const workArea = display().workArea
+    const offsetY = dockPlace.dockTop(workArea, validDockHeight(dockHeight, workArea), offset) - workArea.y
+    return layoutFor({ workArea, dockHeight, offsetY, expanded: open, side })
+  }
+
+  function layoutMessage (layout, extra = {}) {
+    return { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode, side: layout.side, draggable, ...extra }
+  }
+
+  // setBounds is never animated: the window jumps to its new size and the
+  // page animates inside it. Opening, the window widens first (the renderer
+  // waits a frame before it animates the panel in); closing, it stays wide
+  // while the panel animates out, and is trimmed back TRIM_DELAY_MS after.
   function place () {
     if (!alive() || drag) return
-    const workArea = display().workArea
-    const layout = layoutFor({ workArea, dockHeight, offsetY, expanded, side })
+    timers.clearTimeout(trimTimer)
+    trimTimer = null
+    if (!expanded && closing) {
+      // Keep the open window's bounds; tell the page to close the panel.
+      const wide = currentLayout(true)
+      const narrow = currentLayout(false)
+      send('cma-widget:layout', layoutMessage(narrow, { closing: true, dockTop: wide.dockTop, popoverTop: wide.popoverTop, popoverHeight: wide.popoverHeight }))
+      trimTimer = unref(timers.setTimeout(() => {
+        trimTimer = null
+        closing = false
+        place()
+      }, CLOSE_MS + TRIM_DELAY_MS))
+      return
+    }
+    const layout = currentLayout()
     win.setBounds(layout.bounds)
-    send('cma-widget:layout', { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode, side: layout.side, draggable })
+    send('cma-widget:layout', layoutMessage(layout, expanded ? { opening: true } : {}))
   }
 
-  // --- Dragging: the renderer says where the pointer is; the window follows,
-  // kept inside the work area of the display under the pointer, and snaps to
-  // the nearer side edge when dropped.
+  // --- Dragging: along the edge only. x stays locked to the edge the dock
+  // is on; y follows the pointer (where on the dock it was grabbed stays
+  // under it). Main reads the pointer every frame as well as taking the
+  // page's moves, so a drag onto another display re-homes the dock there —
+  // the same edge, at the pointer's height — even between page events.
+  // Crossing the display's vertical midline shows a ghost on the other
+  // edge; letting go there tucks the dock out and buds it in over there.
   function dragStart (point) {
     if (!draggable || !alive()) return
-    if (expanded) collapse()
-    drag = { startBounds: win.getBounds(), startPoint: point, bounds: win.getBounds() }
+    if (expanded) {
+      expanded = false
+      openBotId = null
+      mode = 'chat'
+      win.setFocusable(false)
+    }
+    closing = false
+    timers.clearTimeout(trimTimer)
+    timers.clearTimeout(switchTimer)
+    trimTimer = switchTimer = null
+    const d = display()
+    const layout = currentLayout(false)
+    win.setBounds(layout.bounds)
+    send('cma-widget:layout', layoutMessage(layout, { dragging: true }))
+    drag = { grab: point.screenY - layout.bounds.y, displayId: d.id, edge: side, target: side, top: layout.bounds.y, offset, ghost: false, last: null }
     missedMoves = 0
     setIgnore(false)
+    timers.clearInterval(dragTimer)
+    dragTimer = unref(timers.setInterval(() => dragTo(null), DRAG_TICK_MS))
   }
 
-  function dragMove (point) {
+  // The pointer: the page's point when it sends one, else the cursor.
+  function dragTo (point) {
     if (!drag || !alive()) return
-    const at = placement.dragPosition(drag.startBounds, drag.startPoint, point)
-    const d = placement.displayNearest(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
-    const next = d ? placement.clampToArea({ ...drag.startBounds, ...at }, d.workArea) : { ...drag.startBounds, ...at }
+    const p = point ? { x: point.screenX, y: point.screenY } : screen.getCursorScreenPoint()
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return
+    if (drag.last && drag.last.x === p.x && drag.last.y === p.y) return
+    drag.last = p
+    const d = edgeDrag.displayAt(screen.getAllDisplays(), p)
+    if (!d) return
+    if (d.id !== drag.displayId) {
+      // Onto another display: the same edge there.
+      drag.displayId = d.id
+      displayId = d.id
+    }
+    const height = validDockHeight(dockHeight, d.workArea)
+    const at = edgeDrag.dragTo({ display: d, edge: drag.edge, size: height, grab: drag.grab, point: p, anchor: dockPlace.ANCHOR })
+    const next = { x: edgeDrag.crossPosition(d.workArea, drag.edge, DOCK_WIDTH), y: at.pos, width: DOCK_WIDTH, height }
     win.setBounds(next)
-    drag.bounds = next
+    drag.top = at.pos
+    drag.offset = at.fraction
+    drag.target = at.target
+    showGhost(at.ghost ? { display: d, edge: at.target, top: at.pos, height } : null)
     // A platform that ignores client positioning (some Wayland setups behind
     // XWayland): stop trying, and put the dock back.
     if (placement.landed(next, win.getBounds())) missedMoves = 0
     else if (++missedMoves >= MAX_MISSED_MOVES) {
       draggable = false
-      drag = null
+      endDrag()
       place()
     }
   }
 
+  function dragMove (point) {
+    dragTo(point)
+  }
+
+  function endDrag () {
+    timers.clearInterval(dragTimer)
+    dragTimer = null
+    showGhost(null)
+    drag = null
+  }
+
   function dragEnd (point) {
     if (!drag || !alive()) return
-    dragMove(point)
+    dragTo(point)
     if (!drag) return
-    const bounds = drag.bounds
-    drag = null
-    const d = placement.displayNearest(screen.getAllDisplays(), { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 })
-    if (!d) return place()
-    const pos = placement.snapWidget(bounds, d.workArea)
+    const { displayId: id, target, edge, offset: dropped } = drag
+    endDrag()
+    const d = screen.getAllDisplays().find((x) => x.id === id) || display()
     displayId = d.id
-    side = pos.side
-    offsetY = pos.offsetY
-    prefs.set({ widgetPositions: placement.remember(prefs.get().widgetPositions, d, pos) })
-    place()
+    offset = dropped
+    prefs.set({ widgetPositions: placement.remember(prefs.get().widgetPositions, d, { edge: target, offset: dropped }) })
+    if (target === edge) return place()
+    // Across: tuck out of this edge, then bud in on the other.
+    send('cma-widget:layout', layoutMessage(currentLayout(false), { tuck: true }))
+    switchTimer = unref(timers.setTimeout(() => {
+      switchTimer = null
+      side = target
+      if (!alive() || drag) return
+      const layout = currentLayout(false)
+      win.setBounds(layout.bounds)
+      send('cma-widget:layout', layoutMessage(layout, { budIn: true }))
+    }, SWITCH_DELAY_MS))
+  }
+
+  // The ghost: an outline of the dock on the edge it would land on, in a
+  // window of its own (click-through, never focused), shown only while the
+  // drag is past the midline.
+  function showGhost (at) {
+    if (!at) {
+      if (ghost && !ghost.isDestroyed()) ghost.destroy()
+      ghost = null
+      return
+    }
+    const bounds = { x: dockPlace.edgeX(at.display.workArea, at.edge, DOCK_WIDTH), y: at.top, width: DOCK_WIDTH, height: at.height }
+    if (ghost && !ghost.isDestroyed() && ghost.cmaEdge === at.edge) {
+      ghost.setBounds(bounds)
+      return
+    }
+    if (ghost && !ghost.isDestroyed()) ghost.destroy()
+    ghost = new BrowserWindow({ ...widgetWindowOptions({ platform, preload: undefined }), ...bounds, show: false })
+    ghost.cmaEdge = at.edge
+    ghost.setBounds(bounds)
+    ghost.setIgnoreMouseEvents(true)
+    ghost.setAlwaysOnTop(true, 'floating')
+    ghost.webContents.on('will-navigate', (event) => event.preventDefault())
+    ghost.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    ghost.loadFile(GHOST_PATH, { query: { edge: at.edge, h: String(Math.round(at.height)) } })
+    ghost.once('ready-to-show', () => { if (ghost && !ghost.isDestroyed()) ghost.showInactive() })
   }
 
   function setIgnore (ignore) {
@@ -410,12 +555,13 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     openBotId = botId
     mode = 'chat'
     expanded = true
+    closing = false
     win.setFocusable(true)
     place()
     win.focus()
     loadConversation()
     clearInterval(conversationTimer)
-    conversationTimer = setInterval(loadConversation, CONVERSATION_POLL_MS)
+    conversationTimer = unref(setInterval(loadConversation, CONVERSATION_POLL_MS))
   }
 
   // The "+" picker: the same expanded window, showing the bot list instead
@@ -472,8 +618,12 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     expanded = false
     openBotId = null
     mode = 'chat'
+    // The panel animates out in the still-wide window (place()); focus goes
+    // back to whatever had it before the panel opened.
+    closing = true
     place()
     win.setFocusable(false)
+    if (typeof win.blur === 'function') win.blur()
   }
 
   function create () {
@@ -501,13 +651,19 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       clearInterval(pointerTimer)
       clearInterval(conversationTimer)
       pointerTimer = null
+      timers.clearInterval(dragTimer)
+      timers.clearTimeout(switchTimer)
+      timers.clearTimeout(trimTimer)
+      dragTimer = switchTimer = trimTimer = null
+      closing = false
+      showGhost(null)
     })
     win.once('ready-to-show', () => {
       place()
       win.showInactive()
     })
     win.loadFile(HTML_PATH)
-    pointerTimer = setInterval(pollPointer, POINTER_POLL_MS)
+    pointerTimer = unref(setInterval(pollPointer, POINTER_POLL_MS))
   }
 
   // Shown while the pref is on and there is somebody to show (signed in);
