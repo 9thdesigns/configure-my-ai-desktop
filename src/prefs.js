@@ -22,6 +22,8 @@
 //                             (dock-placement.js validates them; an older
 //                             { side, offsetY } is migrated the first time
 //                             its display is used).
+//   hapticsEnabled          — haptic feedback on the trackpad (macOS; the
+//                             island and the dock, haptics.js). On by default.
 //   islandShortcut          — the global shortcut that opens the island's
 //                             Manager composer, one of island-composer.js
 //                             SHORTCUTS ('ctrl-alt-space' by default, 'off').
@@ -55,6 +57,7 @@ function defaults (platform = process.platform) {
     widgetPositions: [],
     islandEdge: null,
     islandShortcut: DEFAULT_SHORTCUT,
+    hapticsEnabled: true,
   }
 }
 

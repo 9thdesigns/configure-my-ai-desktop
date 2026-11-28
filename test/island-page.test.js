@@ -21,7 +21,7 @@ function stubBridge () {
   const on = (name) => (fn) => { cma[name] = fn }
   const call = (name) => (...args) => { cma.calls.push([name, ...args]) }
   window.cmaIsland = {
-    ...Object.fromEntries(['ready', 'drag', 'hover', 'activate', 'collapse', 'openInApp', 'openApp', 'move', 'reportHitRects', 'reportHeight'].map((n) => [n, call(n)])),
+    ...Object.fromEntries(['ready', 'drag', 'hover', 'activate', 'collapse', 'openInApp', 'openApp', 'move', 'reportHitRects', 'reportHeight', 'haptic'].map((n) => [n, call(n)])),
     onView: on('view'),
     onLayout: on('layout'),
     onAvatarCss: on('css'),
@@ -180,4 +180,17 @@ pageTest('the island is a polite live region; the page cannot drag when main say
   await page.hover('[data-role="bar"]')
   await settle(page, 300)
   assert.equal(await style(page, '.grabber', 'display'), 'none')
+})
+
+pageTest('haptics: reaching the grabber (once it shows) asks for one tick, leaving rests it', async (page) => {
+  await layout(page)
+  await settle(page)
+  await page.hover('[data-role="bar"]', { position: { x: 30, y: 10 } })
+  await settle(page, 600)
+  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => c[0] === 'haptic')), [], 'not near the grabber yet')
+  const g = await box(page, '.grabber')
+  await page.mouse.move(g.x + g.width / 2, g.y + 1)
+  await page.mouse.move(g.x + g.width / 2 + 2, g.y + 1)
+  await page.mouse.move(g.x - 60, g.y - 12)
+  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => c[0] === 'haptic')), [['haptic', 'hover', 'grabber'], ['haptic', 'leave', 'grabber']])
 })

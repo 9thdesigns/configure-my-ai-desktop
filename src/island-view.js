@@ -262,7 +262,20 @@
     refresh()
     api.hover(true)
   })
+  // Haptics (main's haptics.js): a tick on reaching the grabber — a zone a
+  // little bigger than it, since it doesn't take the pointer itself.
+  let onGrabber = false
+  island.addEventListener('pointermove', (event) => {
+    if (typeof api.haptic !== 'function') return
+    const g = grabber.getBoundingClientRect()
+    const near = Number(grabber.style.opacity || 0) > 0.5 && event.clientX >= g.left - 8 && event.clientX <= g.right + 8 && event.clientY >= g.top - 6 && event.clientY <= g.bottom + 6
+    if (near === onGrabber) return
+    onGrabber = near
+    api.haptic(near ? 'hover' : 'leave', 'grabber')
+  })
   island.addEventListener('mouseleave', () => {
+    if (onGrabber && typeof api.haptic === 'function') api.haptic('leave', 'grabber')
+    onGrabber = false
     island.classList.remove('is-hover')
     hovering = false
     refresh()
