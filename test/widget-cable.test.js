@@ -19,12 +19,17 @@ test('the subscribe command is Turbo::StreamsChannel with the signed name', () =
   assert.deepEqual(JSON.parse(cmd.identifier), { channel: 'Turbo::StreamsChannel', signed_stream_name: STREAM })
 })
 
-test('a "threads" ping on our identifier (an object or JSON text) refetches the open recents card, not widget.json', () => {
+test('the ping\'s reason: "threads" refetches the open recents card, not widget.json; needs, seats, or none refetch widget.json as before', () => {
   const frame = (message) => JSON.stringify({ identifier: C.identifierFor(STREAM), message })
-  assert.deepEqual(C.classify(frame({ type: 'threads' }), STREAM), { kind: 'threads' })
-  assert.deepEqual(C.classify(frame('{"type":"threads","bot_id":"x"}'), STREAM), { kind: 'threads' })
-  assert.deepEqual(C.classify(frame({ type: 'other' }), STREAM), { kind: 'ignore' })
-  assert.deepEqual(C.classify(JSON.stringify({ identifier: 'someone else', message: { type: 'threads' } }), STREAM), { kind: 'ignore' })
+  const ping = (reason) => `<turbo-stream action="replace" target="desktop_widget"><template><meta name="desktop_widget" content="refresh" data-reason="${reason}" data-workspace-id="ws-1"></template></turbo-stream>`
+  assert.deepEqual(C.classify(frame(ping('threads')), STREAM), { kind: 'threads' })
+  assert.deepEqual(C.classify(frame(ping('needs')), STREAM), { kind: 'refetch', reason: 'needs' })
+  assert.deepEqual(C.classify(frame(ping('seats')), STREAM), { kind: 'refetch', reason: 'seats' })
+  assert.deepEqual(C.classify(frame(ping('later_thing')), STREAM), { kind: 'refetch', reason: 'later_thing' }, 'an unknown reason: the full refresh')
+  assert.deepEqual(C.classify(frame('<turbo-stream action="replace" target="desktop_widget"><template><meta name="desktop_widget" content="refresh"></template></turbo-stream>'), STREAM), { kind: 'refetch' })
+  assert.deepEqual(C.classify(frame('<turbo-stream action="replace" target="badge"><template><meta data-reason="threads"></template></turbo-stream>'), STREAM), { kind: 'ignore' }, 'another target, whatever it says')
+  assert.deepEqual(C.classify(frame({ type: 'threads' }), STREAM), { kind: 'ignore' })
+  assert.deepEqual(C.classify(JSON.stringify({ identifier: 'someone else', message: ping('threads') }), STREAM), { kind: 'ignore' })
 })
 
 test('frames are classified; only a desktop_widget stream on our identifier refetches', () => {
@@ -81,9 +86,10 @@ function harness () {
     }
   }
   const refetches = []
-  const cable = C.createCable({ WebSocketImpl: FakeSocket, getCookieHeader: async () => 'remember_user_token=abc; _session=xyz', onRefetch: () => refetches.push(now), timers, random: () => 0.5 })
+  const threads = []
+  const cable = C.createCable({ WebSocketImpl: FakeSocket, getCookieHeader: async () => 'remember_user_token=abc; _session=xyz', onRefetch: () => refetches.push(now), onThreads: () => threads.push(now), timers, random: () => 0.5 })
   const tick = () => new Promise((resolve) => setImmediate(resolve))
-  return { sockets, cable, advance, refetches, tick }
+  return { sockets, cable, advance, refetches, threads, tick }
 }
 
 test('connects with cookies, our Origin and the cable protocol; subscribes on welcome; refetches on a ping', async () => {
@@ -104,6 +110,26 @@ test('connects with cookies, our Origin and the cable protocol; subscribes on we
   ws.server({ identifier: C.identifierFor(STREAM), message: '<turbo-stream action="replace" target="desktop_widget"></turbo-stream>' })
   h.advance(300)
   assert.equal(h.refetches.length, 2, 'a burst of pings is one refetch')
+})
+
+test('a threads ping (the element as ActionCable delivers it) refetches the open recents card, never widget.json; a needs ping refetches widget.json', async () => {
+  const h = harness()
+  h.cable.setStream(STREAM)
+  await h.tick()
+  const ws = h.sockets[0]
+  ws.onopen()
+  ws.server({ type: 'welcome' })
+  ws.server({ identifier: C.identifierFor(STREAM), type: 'confirm_subscription' })
+  h.advance(300)
+  const before = h.refetches.length
+  ws.server({ identifier: C.identifierFor(STREAM), message: '<turbo-stream action="replace" target="desktop_widget"><template><meta name="desktop_widget" content="refresh" data-reason="threads" data-workspace-id="…"></template></turbo-stream>' })
+  h.advance(300)
+  assert.equal(h.threads.length, 1)
+  assert.equal(h.refetches.length, before, 'widget.json left alone')
+  ws.server({ identifier: C.identifierFor(STREAM), message: '<turbo-stream action="replace" target="desktop_widget"><template><meta name="desktop_widget" content="refresh" data-reason="needs" data-workspace-id="…"></template></turbo-stream>' })
+  h.advance(300)
+  assert.equal(h.refetches.length, before + 1)
+  assert.equal(h.threads.length, 1)
 })
 
 test('a dropped socket reconnects with backoff; a silent one is treated as dropped', async () => {
