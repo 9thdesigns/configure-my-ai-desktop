@@ -140,6 +140,11 @@
           if (event.detail === 2 || event.altKey || typeof api.recents !== 'function') return api.open(bot.id)
           api.recents(bot.id, seatCentre(button))
         })
+        // Haptics (main's haptics.js): a tick on entering a seat.
+        if (typeof api.haptic === 'function') {
+          button.addEventListener('mouseenter', () => api.haptic('hover', bot.id))
+          button.addEventListener('mouseleave', () => api.haptic('leave', bot.id))
+        }
         button.addEventListener('contextmenu', (event) => {
           event.preventDefault()
           api.contextMenu(bot.id)

@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('cmaIsland', {
   reportHitRects: (rects) => ipcRenderer.send('cma-island:hit-rects', rects),
   move: (input) => ipcRenderer.send('cma-island:move', input),
   hover: (inside) => ipcRenderer.send('cma-island:hover', inside === true),
+  haptic: (kind, element) => ipcRenderer.send('cma-island:haptic', { kind: String(kind), element: String(element) }),
   activate: () => ipcRenderer.send('cma-island:activate'),
   compose: () => ipcRenderer.send('cma-island:compose'),
   send: (text) => ipcRenderer.invoke('cma-island:send', typeof text === 'string' ? text : ''),
