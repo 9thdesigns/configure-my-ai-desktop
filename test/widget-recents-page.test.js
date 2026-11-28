@@ -28,7 +28,7 @@ function stubBridge () {
   const on = (name) => (fn) => { cma[name] = fn }
   const call = (name) => (...args) => { cma.calls.push([name, ...args]) }
   window.cmaWidget = {
-    ...Object.fromEntries(['ready', 'drag', 'open', 'recents', 'collapse', 'contextMenu', 'picker', 'workspaceMenu', 'pin', 'openInApp'].map((n) => [n, call(n)])),
+    ...Object.fromEntries(['ready', 'drag', 'open', 'openThread', 'recents', 'collapse', 'contextMenu', 'picker', 'workspaceMenu', 'pin', 'openInApp'].map((n) => [n, call(n)])),
     onState: on('state'), onLayout: on('layout'), onConversation: on('conversation'), onAvatarCss: on('css'), onChatCss: on('chatCss'), onThreads: on('threads'),
     reportHitRects () {}, sendMessage: async () => null, answer: async () => null, decide: async () => null,
   }
@@ -272,7 +272,7 @@ pageTest('keyboard: arrows move between rows, Enter opens one; the controls open
   await page.click('[data-action="new-chat"]')
   await page.click('[data-action="recents-open-in-app"]')
   await page.keyboard.press('Escape')
-  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => ['open', 'openInApp', 'collapse'].includes(c[0]))), [['open', 'bot-1'], ['open', 'bot-1'], ['openInApp', 'bot-1'], ['collapse']])
+  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => ['open', 'openThread', 'openInApp', 'collapse'].includes(c[0]))), [['openThread', 'bot-1', 't1'], ['open', 'bot-1'], ['openInApp', 'bot-1'], ['collapse']], 'a row opens its own conversation; New chat the bot\'s chat')
 })
 
 for (const side of ['right', 'left']) {

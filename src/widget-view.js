@@ -520,10 +520,12 @@
     row.focus({ preventScroll: true })
   }
 
-  // Opens the quick chat (the chat UI the widget has); the thread is the
-  // bot's conversation there.
-  function openThread (_threadId) {
-    if (card) api.open(card.botId)
+  // Opens the quick chat pinned to that conversation (main checks the row
+  // is one it sent, and opens it in the app if the server can't pin).
+  function openThread (threadId) {
+    if (!card) return
+    if (typeof api.openThread === 'function') api.openThread(card.botId, threadId)
+    else api.open(card.botId)
   }
 
   recentsList.addEventListener('keydown', (event) => {

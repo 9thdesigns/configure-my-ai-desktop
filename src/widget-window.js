@@ -44,7 +44,7 @@ const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
-const { UNSUPPORTED_RETRY_MS } = require('./widget-threads')
+const { UNSUPPORTED_RETRY_MS, rendererThreads, threadUrl } = require('./widget-threads')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
 const dockPlace = require('./dock-placement')
@@ -339,6 +339,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let recentsSeq = 0
   let threadsOffUntil = 0
   let refreshing = null
+  // The quick chat pinned to one conversation (a row of the card), or null
+  // for the bot's waiting-or-latest one; and where that row opens in the app.
+  let pinned = null // { id, url }
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
   // Where the dock is: the display, the edge, and the offset down it as a
@@ -615,20 +618,34 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   // The popover's view of a bot: the server's history when there is one, the
   // pending card from the widget state either way (widget-chat.js).
   async function popoverFor (botId, conversation) {
-    if (conversation === undefined) conversation = await feed.conversation(botId).catch(() => null)
+    if (conversation === undefined) conversation = await feed.conversation(botId, pinnedFor(botId)).catch(() => null)
     return popoverConversation(botId, conversation, store.get())
   }
+
+  // The conversation the open chat is pinned to, for writes to this bot.
+  const pinnedFor = (botId) => (pinned && botId === openBotId ? pinned.id : null)
+  const pinOptions = (botId) => (pinnedFor(botId) ? { conversationId: pinnedFor(botId) } : {})
 
   async function loadConversation () {
     if (!openBotId) return
     const botId = openBotId
-    const view = await popoverFor(botId)
-    if (botId === openBotId) send('cma-widget:conversation', view)
+    const pin = pinned
+    const conversation = await feed.conversation(botId, pinnedFor(botId)).catch(() => null)
+    if (botId !== openBotId || pin !== pinned) return
+    // Pinned, but the server answered with another conversation: an older
+    // server that ignores conversation_id. Open the row in the app instead.
+    if (pin && conversation && conversation.conversation_id && conversation.conversation_id !== pin.id) {
+      collapse()
+      openBot(botId, pin.url)
+      return
+    }
+    send('cma-widget:conversation', await popoverFor(botId, conversation))
   }
 
-  function expand (botId) {
+  function expand (botId, pin = null) {
     if (!alive()) return
     recentsSeq++
+    pinned = pin
     openBotId = botId
     mode = 'chat'
     expanded = true
@@ -662,7 +679,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   }
 
   function sendThreads () {
-    if (openBotId) send('cma-widget:threads', { bot_id: openBotId, threads: threadCache.get(openBotId) || [] })
+    if (openBotId) send('cma-widget:threads', { bot_id: openBotId, threads: rendererThreads(threadCache.get(openBotId)) })
   }
 
   async function openRecents (botId, seatY) {
@@ -767,6 +784,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     clearInterval(conversationTimer)
     conversationTimer = null
     recentsSeq++
+    pinned = null
     if (!expanded || !alive()) return
     closingMode = mode
     expanded = false
@@ -871,7 +889,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     }
     const held = can ? screenShare.peek(botId) : null
     const attachment = held ? attachmentPayload(held) : null
-    const result = attachment ? await feed.sendMessage(input, { attachment }) : await feed.sendMessage(input)
+    const pin = pinOptions(botId)
+    const result = attachment ? await feed.sendMessage(input, { attachment, ...pin }) : (pin.conversationId ? await feed.sendMessage(input, pin) : await feed.sendMessage(input))
     // The server refused the screenshot (413 / 422): resending it won't
     // help, so it is dropped, and the message (not sent) waits for a retry.
     if (result && result.attachment_error) {
@@ -921,6 +940,18 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       expand(id)
     })
 
+    // A row of the recents card: the quick chat pinned to that conversation.
+    // Only a row the card was given, for the bot whose card is open.
+    ipcMain.on('cma-widget:open-thread', (event, input) => {
+      if (!fromWidget(event) || !input || typeof input !== 'object') return
+      const id = validId(input.bot_id)
+      const threadId = validId(input.thread_id)
+      if (!id || !threadId || !expanded || mode !== 'recents' || openBotId !== id) return
+      const thread = (threadCache.get(id) || []).find((t) => t.id === threadId)
+      if (!thread) return
+      expand(id, { id: thread.id, url: threadUrl(id, thread) })
+    })
+
     // A seat's click: its recents card, budding from the seat at seat_y (its
     // centre, px down the collapsed dock window). Again on the open bot
     // closes it.
@@ -962,11 +993,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       if (fromWidget(event)) collapse()
     })
 
+    // The bot in the main window; from a chat pinned to a row, that row.
     ipcMain.on('cma-widget:open-in-app', (event, botId) => {
       const id = validId(botId)
       if (!fromWidget(event) || !id) return
+      const url = pinnedFor(id) ? pinned.url : null
       collapse()
-      openBot(id)
+      if (url) openBot(id, url)
+      else openBot(id)
     })
 
     // Each answers with the popover's refreshed view, or null when the server
@@ -985,7 +1019,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       const view = await popoverFor(conversation.bot_id, conversation)
       return shown ? { ...view, screen: shown } : view
     })
-    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
+    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input, pinOptions(validId(input?.bot_id)))))
 
     // Share screen: only for the chat that is open, only for a user action
     // (the button, or a message asking about the screen), and only while
@@ -1011,7 +1045,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     ipcMain.on('cma-widget:set-share-screen', (event, on) => {
       if (fromWidget(event)) prefs.set({ shareScreen: on === true })
     })
-    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input)))
+    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input, pinOptions(validId(input?.bot_id)))))
   }
 
   return {
@@ -1023,6 +1057,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     // "Viewing your screen" for as long as the island does.
     setCapturing: (on) => send('cma-widget:screen', { capturing: Boolean(on) }),
     isWidgetWindow: (w) => Boolean(w && w === win),
+    // The cable's "threads" ping (widget-cable.js): refetch the open card.
+    refreshThreads: () => refreshThreads(),
     destroy () {
       offStore()
       offPrefs()

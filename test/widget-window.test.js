@@ -136,7 +136,7 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const src = fs.readFileSync(path.join(__dirname, '../src/widget-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
-  assert.equal(handlers.length, 18)
+  assert.equal(handlers.length, 19)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromWidget\(event\)|, reply\(/, handler.slice(0, 40))
   }

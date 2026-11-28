@@ -145,12 +145,28 @@ test('a seat\'s recent chats: GET through the wrapper (limit 5); a 404 says the 
     [`GET /desktop/widget/bots/${OPS}/threads?limit=5`]: { status: 500 },
   })
   const feed = createWidgetFeed({ store, request: server.request })
-  assert.deepEqual(await feed.threads(LIN), { status: 'ok', threads: [{ id: 't1', title: 'Plan', preview: 'Draft ready', updated_at: '2026-11-28T10:00:00.000Z', unread: true }] })
+  assert.deepEqual(await feed.threads(LIN), { status: 'ok', threads: [{ id: 't1', title: 'Plan', preview: 'Draft ready', updated_at: '2026-11-28T10:00:00.000Z', unread: true, url: null }] })
   assert.deepEqual(await feed.threads('manager'), { status: 'ok', threads: [] })
   assert.deepEqual(await feed.threads(ADA), { status: 'unsupported' })
   assert.equal(await feed.threads(OPS), null)
   assert.equal(await feed.threads('../x'), null)
   assert.ok(!server.calls.some((c) => c.path.includes('..')), 'a bad id never reaches the network')
+})
+
+test('a chat pinned to a recents row: conversation_id on the GET (query) and on every write (body); the conversation says which one it is', async () => {
+  const store = createWidgetStore()
+  const conversation = { bot_id: LIN, session_id: 'sess-2', messages: [], pending: null }
+  const server = fakeServer({
+    [`GET /desktop/widget/bots/${LIN}/messages?limit=20&conversation_id=sess-2`]: { status: 200, json: conversation },
+    [`POST /desktop/widget/bots/${LIN}/messages`]: { status: 201, json: conversation },
+  })
+  const feed = createWidgetFeed({ store, request: server.request })
+  await feed.refresh()
+  assert.equal((await feed.conversation(LIN, 'sess-2')).conversation_id, 'sess-2')
+  await feed.sendMessage({ bot_id: LIN, body: 'hi' }, { conversationId: 'sess-2' })
+  assert.deepEqual(server.calls.find((c) => c.method === 'POST').body, { body: 'hi', conversation_id: 'sess-2' })
+  await feed.conversation(LIN, '../x')
+  assert.equal(server.calls.at(-1).path, `/desktop/widget/bots/${LIN}/messages?limit=20`, 'a bad id is dropped, never sent')
 })
 
 test('answers and approvals post to the wrappers and come back as the conversation', async () => {
@@ -162,7 +178,7 @@ test('answers and approvals post to the wrappers and come back as the conversati
   })
   const feed = createWidgetFeed({ store, request: server.request })
   await feed.refresh()
-  assert.deepEqual(await feed.answer({ bot_id: OPS, pending_id: OPS_MESSAGE, option_ids: ['eu-west-1'] }), { bot_id: OPS, url: null, messages: [{ id: 'm9', role: 'user', body: 'EU West', created_at: null }], pending: null })
+  assert.deepEqual(await feed.answer({ bot_id: OPS, pending_id: OPS_MESSAGE, option_ids: ['eu-west-1'] }), { bot_id: OPS, url: null, conversation_id: null, messages: [{ id: 'm9', role: 'user', body: 'EU West', created_at: null }], pending: null })
   assert.deepEqual(server.calls.find((c) => c.path.endsWith('/answer')).body, { pending_id: OPS_MESSAGE, option_ids: ['eu-west-1'], text: '' })
   assert.equal(await feed.decide({ bot_id: LIN, decision: 'approve' }), null, 'a refusal is null')
   assert.equal(server.calls.some((c) => c.path.includes('/autopilot/')), false, 'never the web form routes')

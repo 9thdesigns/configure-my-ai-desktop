@@ -238,8 +238,8 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
       return send('PATCH', WIDGET_PATH, { enabled: Boolean(enabled) })
     },
 
-    async conversation (botId) {
-      const path = messagesPath(botId)
+    async conversation (botId, conversationId = null) {
+      const path = messagesPath(botId, conversationId)
       if (!path) return null
       const res = await request({ method: 'GET', path })
       return res.status === 200 ? conversationFrom(res.json, botId) : null
@@ -252,8 +252,8 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
       return threadsResult(await request({ method: 'GET', path }))
     },
     sendMessage: (input, options) => conversationWrite(composeFrom(input, options)),
-    answer: (input) => conversationWrite(answerFrom(input, store.get())),
-    decide: (input) => conversationWrite(decisionFrom(input, store.get())),
+    answer: (input, options) => conversationWrite(answerFrom(input, store.get(), options)),
+    decide: (input, options) => conversationWrite(decisionFrom(input, store.get(), options)),
 
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)

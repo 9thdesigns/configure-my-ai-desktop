@@ -90,7 +90,11 @@ function fakeFeed () {
     pending,
     calls: [],
     isSignedIn: () => true,
-    conversation: async () => null,
+    conversations: [],
+    conversationAnswer: null,
+    sends: [],
+    async conversation (botId, conversationId) { this.conversations.push([botId, conversationId]); return this.conversationAnswer },
+    async sendMessage (input, options) { this.sends.push([input, options]); return null },
     setFocus: async () => {},
     threads (botId) {
       this.calls.push(botId)
@@ -107,7 +111,7 @@ async function start ({ feed = fakeFeed() } = {}) {
   const opened = []
   const electron = fakeElectron()
   const ipc = fakeIpc()
-  const widget = W.createWidgetController({ store, prefs, feed, getMainWindow: () => null, openBot: (id) => opened.push(id), electron, platform: 'darwin', env: {} })
+  const widget = W.createWidgetController({ store, prefs, feed, getMainWindow: () => null, openBot: (id, url) => opened.push(url ? [id, url] : id), electron, platform: 'darwin', env: {} })
   widget.registerIpc(ipc)
   widget.sync()
   await tick()
@@ -254,4 +258,74 @@ test('the recents channel takes only the widget page, a docked bot and a seat in
   assert.deepEqual(feed.calls, [])
   ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 300 })
   assert.deepEqual(feed.calls, [ADA])
+})
+
+const ROWS = [{ ...THREADS[0], url: 'https://configuremyai.com/autopilot/bots/x/sessions/t1' }, { ...THREADS[1], url: null }]
+
+test('the renderer gets the rows without their urls', async () => {
+  const { ipc, win, feed } = await start()
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  assert.ok(sentOn(win, 'cma-widget:threads').at(-1).threads.every((t) => !('url' in t)))
+})
+
+test('a row opens the quick chat pinned to its conversation: read and sent with conversation_id', async () => {
+  const { ipc, win, feed } = await start()
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  feed.conversationAnswer = { bot_id: ADA, conversation_id: 't1', messages: [], pending: null, url: null }
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't1' })
+  await tick()
+  assert.equal(lastLayout(win).mode, 'chat')
+  assert.deepEqual(feed.conversations.at(-1), [ADA, 't1'])
+  assert.ok(sentOn(win, 'cma-widget:conversation').length > 0, 'the pinned conversation is shown')
+  await ipc.emit('cma-widget:send', win, { bot_id: ADA, body: 'hello' })
+  assert.deepEqual(feed.sends.at(-1), [{ bot_id: ADA, body: 'hello' }, { conversationId: 't1' }])
+})
+
+test('an older server ignores the pin (it answers with another conversation): the row opens in the app instead', async () => {
+  const { ipc, win, feed, opened } = await start()
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  feed.conversationAnswer = { bot_id: ADA, conversation_id: 'latest', messages: [], pending: null, url: null }
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't2' })
+  await tick()
+  assert.deepEqual(opened, [[ADA, `https://configuremyai.com/autopilot/bots/${ADA}/sessions/t2`]], 'no url on the row: the session page')
+  assert.equal(lastLayout(win).closing, true)
+})
+
+test('"Open in app" from a pinned chat opens that row; unpinned, the bot', async () => {
+  const { ipc, win, feed, opened } = await start()
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  feed.conversationAnswer = { bot_id: ADA, conversation_id: 't1', messages: [], pending: null, url: null }
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't1' })
+  await tick()
+  ipc.emit('cma-widget:open-in-app', win, ADA)
+  ipc.emit('cma-widget:open', win, ADA)
+  ipc.emit('cma-widget:open-in-app', win, ADA)
+  assert.deepEqual(opened, [[ADA, ROWS[0].url], ADA])
+  assert.deepEqual(feed.conversations.at(-1), [ADA, null], 'the double-click chat is the bot\'s latest, unpinned')
+})
+
+test('the open-thread channel takes only a row the open card was given', async () => {
+  const { ipc, win, feed } = await start()
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't1' })
+  assert.equal(feed.conversations.length, 0, 'no card open')
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  for (const input of [null, { bot_id: ADA }, { bot_id: ADA, thread_id: 'nope' }, { bot_id: MANAGER, thread_id: 't1' }, { bot_id: ADA, thread_id: '../t1' }]) ipc.emit('cma-widget:open-thread', win, input)
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't1' }, { url: 'https://evil.example/' })
+  assert.equal(lastLayout(win).mode, 'recents')
+  assert.equal(feed.conversations.length, 0)
+})
+
+test('the cable\'s threads ping refetches the open card', async () => {
+  const { widget, ipc, win, feed } = await start()
+  widget.refreshThreads()
+  assert.equal(feed.calls.length, 0, 'nothing open: nothing fetched')
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  widget.refreshThreads()
+  assert.equal(feed.calls.length, 2)
 })

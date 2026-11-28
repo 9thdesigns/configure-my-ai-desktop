@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   reportHitRects: (rects, dockHeight) => ipcRenderer.send('cma-widget:hit-rects', { rects, dockHeight }),
   drag: (phase, screenX, screenY) => ipcRenderer.send('cma-widget:drag', { phase, screenX, screenY }),
   open: (botId) => ipcRenderer.send('cma-widget:open', botId),
+  openThread: (botId, threadId) => ipcRenderer.send('cma-widget:open-thread', { bot_id: botId, thread_id: threadId }),
   recents: (botId, seatY) => ipcRenderer.send('cma-widget:recents', { bot_id: botId, seat_y: seatY }),
   collapse: () => ipcRenderer.send('cma-widget:collapse'),
   contextMenu: (botId) => ipcRenderer.send('cma-widget:context-menu', botId),

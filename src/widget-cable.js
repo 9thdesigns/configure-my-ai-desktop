@@ -9,8 +9,10 @@
 // app). Main subscribes to it over ActionCable at wss://configuremyai.com/
 // cable (Turbo::StreamsChannel { signed_stream_name }) and, on any message
 // that targets "desktop_widget", refetches widget.json. The message itself is
-// never parsed beyond that — it is a ping, not data. The ≤30s poll stays as
-// the fallback for when the socket is down.
+// never parsed beyond that — it is a ping, not data. A "threads" ping (a
+// message whose type is "threads") says a bot's recent chats changed: the
+// dock refetches the recents card that is open, if one is. The ≤30s poll
+// stays as the fallback for when the socket is down.
 //
 // The socket runs in the main process with the default session's cookies
 // (ActionCable authenticates the connection from them) and our own Origin;
@@ -46,6 +48,16 @@ function subscribeCommand (streamName) {
   return JSON.stringify({ command: 'subscribe', identifier: identifierFor(streamName) })
 }
 
+// { type: 'threads' }, as an object or as JSON text.
+function isThreadsPing (message) {
+  let m = message
+  if (typeof m === 'string') {
+    if (!m.trimStart().startsWith('{')) return false
+    try { m = JSON.parse(m) } catch { return false }
+  }
+  return Boolean(m && typeof m === 'object' && m.type === 'threads')
+}
+
 // One frame from the server → what to do about it.
 //   welcome | ping | confirm | reject | refetch | disconnect | ignore
 function classify (data, streamName) {
@@ -64,6 +76,7 @@ function classify (data, streamName) {
     case 'disconnect': return { kind: 'disconnect', reconnect: frame.reconnect !== false }
   }
   if (frame.identifier !== identifierFor(streamName)) return { kind: 'ignore' }
+  if (isThreadsPing(frame.message)) return { kind: 'threads' }
   const message = typeof frame.message === 'string' ? frame.message : ''
   // <turbo-stream action="…" target="desktop_widget"> — or targets=… with it.
   return /\btargets?=["'][^"']*\bdesktop_widget\b/.test(message) ? { kind: 'refetch' } : { kind: 'ignore' }
@@ -79,7 +92,7 @@ function backoff (attempt, random = Math.random) {
 // createCable({ WebSocketImpl, getCookieHeader, onRefetch }) → { setStream,
 // stop, state }. setStream(name) (re)subscribes when the name changes — a
 // workspace switch or a new session — and null closes the socket.
-function createCable ({ WebSocketImpl, getCookieHeader, onRefetch, timers = { setTimeout, clearTimeout }, random = Math.random }) {
+function createCable ({ WebSocketImpl, getCookieHeader, onRefetch, onThreads = () => {}, timers = { setTimeout, clearTimeout }, random = Math.random }) {
   let streamName = null
   let socket = null
   let attempt = 0
@@ -157,6 +170,7 @@ function createCable ({ WebSocketImpl, getCookieHeader, onRefetch, timers = { se
         refetchSoon()
       }
       if (action.kind === 'refetch') refetchSoon()
+      if (action.kind === 'threads') onThreads()
       if (action.kind === 'reject') {
         // A stream name the server no longer accepts (signed out, rotated):
         // wait for the next widget.json to bring a fresh one.

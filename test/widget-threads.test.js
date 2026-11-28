@@ -21,8 +21,8 @@ test('a list is checked row by row: one-line text, capped; a real time or none; 
     { id: 't4' }, { id: 't5' }, { id: 't6' },
   ])
   assert.equal(rows.length, 5)
-  assert.deepEqual(rows[0], { id: 't1', title: 'Plan for Q1', preview: 'line one line two', updated_at: '2026-11-28T09:00:00.000Z', unread: true })
-  assert.deepEqual(rows[1], { id: 't2', title: T.UNTITLED, preview: '', updated_at: null, unread: false })
+  assert.deepEqual(rows[0], { id: 't1', title: 'Plan for Q1', preview: 'line one line two', updated_at: '2026-11-28T09:00:00.000Z', unread: true, url: null })
+  assert.deepEqual(rows[1], { id: 't2', title: T.UNTITLED, preview: '', updated_at: null, unread: false, url: null })
   assert.equal(rows[2].id, '3')
   assert.equal(rows[2].title.length, T.MAX_TITLE)
   assert.ok(rows[2].title.endsWith('…'))
@@ -37,8 +37,26 @@ test('the body may be a bare array or { threads }; anything else is no list', ()
   for (const bad of [null, {}, 'x', 1, { threads: 'x' }]) assert.equal(T.threadsFrom(bad), null)
 })
 
-test('a response: 200 with a list is ok, 404 is an older server, anything else fails soft', () => {
+test('a response: 200 with a list is ok, a bare 404 is an older server, the route\'s own 404 (JSON) and anything else fail soft', () => {
   assert.deepEqual(T.threadsResult({ status: 200, json: [{ id: 'a' }] }).status, 'ok')
   assert.deepEqual(T.threadsResult({ status: 404 }), { status: 'unsupported' })
+  assert.deepEqual(T.threadsResult({ status: 404, json: null }), { status: 'unsupported' })
+  assert.equal(T.threadsResult({ status: 404, json: { error: 'Not found', code: 'not_found' } }), null, 'not this user\'s bot: just this click')
   for (const res of [null, { status: 0 }, { status: 401 }, { status: 500 }, { status: 302 }, { status: 200, json: 'html' }]) assert.equal(T.threadsResult(res), null, JSON.stringify(res))
+})
+
+test('a row\'s url: only our own pages; the renderer never gets it; without one, the session page or Home with the thread active', () => {
+  const [ok, evil, rel] = T.threadsFrom([
+    { id: 's1', url: 'https://configuremyai.com/autopilot/bots/b1/sessions/s1' },
+    { id: 's2', url: 'https://evil.example/x' },
+    { id: 's3', url: '/home?active=s3' },
+  ])
+  assert.equal(ok.url, 'https://configuremyai.com/autopilot/bots/b1/sessions/s1')
+  assert.equal(evil.url, null)
+  assert.equal(rel.url, 'https://configuremyai.com/home?active=s3')
+  assert.ok(T.rendererThreads([ok]).every((r) => !('url' in r)))
+  assert.equal(T.threadUrl('b1', ok), ok.url)
+  assert.equal(T.threadUrl('b1', evil), 'https://configuremyai.com/autopilot/bots/b1/sessions/s2')
+  assert.equal(T.threadUrl('manager', { id: 'th9', url: null }), 'https://configuremyai.com/home?active=th9')
+  assert.equal(T.threadUrl('../x', ok), null)
 })

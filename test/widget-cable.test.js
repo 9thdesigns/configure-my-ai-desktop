@@ -19,6 +19,14 @@ test('the subscribe command is Turbo::StreamsChannel with the signed name', () =
   assert.deepEqual(JSON.parse(cmd.identifier), { channel: 'Turbo::StreamsChannel', signed_stream_name: STREAM })
 })
 
+test('a "threads" ping on our identifier (an object or JSON text) refetches the open recents card, not widget.json', () => {
+  const frame = (message) => JSON.stringify({ identifier: C.identifierFor(STREAM), message })
+  assert.deepEqual(C.classify(frame({ type: 'threads' }), STREAM), { kind: 'threads' })
+  assert.deepEqual(C.classify(frame('{"type":"threads","bot_id":"x"}'), STREAM), { kind: 'threads' })
+  assert.deepEqual(C.classify(frame({ type: 'other' }), STREAM), { kind: 'ignore' })
+  assert.deepEqual(C.classify(JSON.stringify({ identifier: 'someone else', message: { type: 'threads' } }), STREAM), { kind: 'ignore' })
+})
+
 test('frames are classified; only a desktop_widget stream on our identifier refetches', () => {
   const id = C.identifierFor(STREAM)
   assert.deepEqual(C.classify('{"type":"welcome"}', STREAM), { kind: 'welcome' })
