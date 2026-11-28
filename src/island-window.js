@@ -29,6 +29,8 @@ const { widgetWindowOptions, validRects, cursorOverRects } = require('./widget-w
 const placement = require('./widget-placement')
 const edges = require('./island-placement')
 const composer = require('./island-composer')
+const actions = require('./island-actions')
+const { attachmentPayload, serverRefusal } = require('./screen-share')
 
 const ISLAND_WIDTH = edges.EXPANDED_WIDTH // the open card
 const COMPACT_HEIGHT = edges.PILL_HEIGHT // the floating pill (island.css --pill-h)
@@ -149,6 +151,15 @@ function withArrival (view, arrival, state) {
 // While the widget's Share screen is capturing (screen-share.js), the pill
 // says so, whatever else it was showing: the user always sees when their
 // screen is being looked at.
+// Recording (the actions menu's Record screen or Voice note): the pill says
+// so with the red dot and a timer, and a click stops it. `elapsedMs` is
+// how long it had run when sent; the page counts on from there.
+function withRecording (view, recording, now = Date.now()) {
+  if (!view || !recording) return view
+  const label = recording.kind === 'voice' ? 'Voice note' : 'Recording'
+  return { ...view, mode: 'recording', chip: { kind: 'recording', label }, recording: { kind: recording.kind === 'voice' ? 'voice' : 'screen', elapsedMs: Math.max(0, now - recording.startedAt) } }
+}
+
 const SCREEN_CHIP = Object.freeze({ kind: 'screen', label: 'Viewing your screen' })
 function withScreenIndicator (view, capturing) {
   if (!view || !capturing) return view
@@ -230,7 +241,14 @@ function islandPlace ({ saved, displays, fallback, height = 0, platform = proces
 
 const sameBounds = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, chatCss = null, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
+// The actions menu's helpers, injected (main.js wires them; tests fake them):
+//   screenShare   — screen-share.js broker (shared with the dock)
+//   recorder      — recorder.js ({ start(kind), stop() })
+//   pickFile()    — the native open dialog; resolves a path or null
+//   statFile(p)   — { isFile, size } or null
+//   showInFolder(p), openScreenSettings()
+//   localTools()  — "Allow Bots to Ask to Use This Computer" is on
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, chatCss = null, screenShare = null, recorder = null, pickFile = async () => null, statFile = () => null, showInFolder = () => {}, openScreenSettings = () => {}, localTools = () => true, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
   const { BrowserWindow, screen, session, globalShortcut } = electron
 
   let win = null
@@ -259,6 +277,16 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   // The global shortcut registered now, and whether the OS refused it.
   let registeredShortcut = null
   let shortcutTaken = false
+  // The actions menu: what is attached (the screenshot itself is held by the
+  // broker, for the Manager), a recording just saved, a notice, whether a
+  // dialog or overlay we opened has the focus (so the island stays open),
+  // and a recording in progress.
+  let attachedShot = null
+  let attachedFile = null
+  let savedRecording = null
+  let notice = null
+  let holdOpen = 0
+  let recording = null
   let pointerTimer = null
   // Where it is right now (islandPlace), and a drag in progress: where the
   // pill's centre and the pointer were at the start, and the place it is
@@ -421,7 +449,12 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   }
 
   function pushComposer () {
-    send('cma-island:composer', composer.composerView({ manager: managerView(), conversation: managerConversation, sent, awaiting, error: composeError }))
+    send('cma-island:composer', {
+      ...composer.composerView({ manager: managerView(), conversation: managerConversation, sent, awaiting, error: composeError }),
+      attachments: actions.attachmentsView({ screenshot: attachedShot, file: attachedFile, saved: savedRecording, notice, localTools: localTools() }),
+      screenshots: screenshotsAvailable(),
+      revealLabel: platform === 'darwin' ? 'Show in Finder' : platform === 'win32' ? 'Show in Explorer' : 'Show in Folder',
+    })
   }
 
   async function loadManager () {
@@ -432,7 +465,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   }
 
   // Click on the island (or the shortcut): open into the composer, focused.
-  function openComposer () {
+  function openComposer ({ keepNotice = false } = {}) {
     if (!alive() || !view) return
     clearTimeout(previewTimer)
     clearTimeout(collapseTimer)
@@ -445,6 +478,8 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       sent = null
       composeError = null
     }
+    // A notice is for the moment it was given.
+    if (!keepNotice) notice = null
     if (!win.isVisible()) win.showInactive()
     if (!focused) {
       focused = true
@@ -467,6 +502,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     stopReplyPoll()
     replyDeadline = Date.now() + composer.REPLY_TIMEOUT_MS
     replyTimer = setInterval(pollReply, composer.REPLY_POLL_MS)
+    replyTimer.unref?.()
   }
 
   // Waiting for the Manager's answer: refetch until it is there (or give up
@@ -498,22 +534,137 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     pushComposer()
   }
 
+  // The server takes a screenshot on a chat turn (widget.json says so).
+  const screenshotsAvailable = () => {
+    const kinds = store.get()?.chat_attachments
+    return Boolean(screenShare && Array.isArray(kinds) && kinds.includes('screenshot'))
+  }
+
+  // Enter: the text (with the attached file's line), and the screenshot held
+  // for the Manager when there is one. The screenshot goes once the server
+  // has it; refused (413 / 422) it is dropped and the text waits.
   async function sendToManager (text) {
-    const body = typeof text === 'string' ? text : ''
-    if (!composing || awaiting || !body.trim()) return false
+    const typed = typeof text === 'string' ? text : ''
+    const held = screenshotsAvailable() ? screenShare.peek(composer.MANAGER_ID) : null
+    const attachment = held ? attachmentPayload(held) : null
+    const body = actions.withFile(typed, attachedFile?.path)
+    if (!composing || awaiting || (!body && !attachment)) return false
     composeError = null
-    const conversation = await Promise.resolve(feed?.sendMessage?.({ bot_id: composer.MANAGER_ID, body })).catch(() => null)
+    notice = null
+    const input = { bot_id: composer.MANAGER_ID, body }
+    const conversation = await Promise.resolve(attachment ? feed?.sendMessage?.(input, { attachment }) : feed?.sendMessage?.(input)).catch(() => null)
+    if (conversation && conversation.attachment_error) {
+      screenShare.discard(composer.MANAGER_ID)
+      attachedShot = null
+      notice = actions.noticeFromRefusal(serverRefusal(conversation.attachment_error))
+      pushComposer()
+      return false
+    }
     if (!conversation || !Array.isArray(conversation.messages)) {
       composeError = 'send'
       pushComposer()
       return false
     }
+    if (attachment) {
+      screenShare.discard(composer.MANAGER_ID)
+      attachedShot = null
+    }
+    attachedFile = null
     managerConversation = conversation
-    sent = composer.sentIn(conversation, body)
+    sent = composer.sentIn(conversation, body || 'Shared my screen')
     awaiting = !composer.replyTo(sent, conversation)
     pushComposer()
     if (awaiting) startReplyPoll()
     return true
+  }
+
+  // --- The actions menu --------------------------------------------------------
+
+  // While a dialog, the explainer or the area overlay has the focus, the
+  // island stays open (it would close on blur), and takes it back after.
+  async function holding (run) {
+    holdOpen++
+    try {
+      return await run()
+    } finally {
+      holdOpen--
+      if (alive() && composing && holdOpen === 0) {
+        win.setFocusable(true)
+        win.focus()
+      }
+    }
+  }
+
+  async function screenshot (source, { sendNow = false } = {}) {
+    if (!screenshotsAvailable()) {
+      notice = { message: actions.NOTICES.no_screenshots }
+      return pushComposer()
+    }
+    notice = null
+    pushComposer()
+    const result = await holding(() => screenShare.request({ reason: 'button', botId: composer.MANAGER_ID, source })).catch(() => null)
+    if (!result || result.status !== 'ok') {
+      notice = actions.noticeFromRefusal(result) || { message: 'Couldn’t capture your screen. Try again.' }
+      return pushComposer()
+    }
+    attachedShot = { preview: result.preview, width: result.width, height: result.height, source: source === 'window' ? 'window' : 'display' }
+    pushComposer()
+    if (sendNow) await sendToManager('')
+  }
+
+  async function attachFile () {
+    const file = await holding(() => pickFile()).catch(() => null)
+    if (!file) return
+    const info = await Promise.resolve(statFile(file)).catch(() => null)
+    if (!info || !info.isFile) {
+      notice = { message: actions.NOTICES.file_unreadable }
+      return pushComposer()
+    }
+    attachedFile = { path: file, size: info.size }
+    notice = null
+    pushComposer()
+  }
+
+  async function startRecording (kind) {
+    if (!recorder) return
+    notice = null
+    savedRecording = null
+    // Collapse to the pill: it carries the red dot and the timer.
+    const started = await holding(() => recorder.start(kind)).catch(() => false)
+    if (started && composing) collapse()
+  }
+
+  async function runAction (id) {
+    const action = actions.validAction(id)
+    if (!action || !composing) return false
+    if (action === 'open-app') {
+      collapse()
+      openBot(composer.MANAGER_ID)
+      return true
+    }
+    if (action in actions.SCREENSHOT_SOURCE) await screenshot(actions.SCREENSHOT_SOURCE[action], { sendNow: action === 'share' })
+    else if (action === 'attach') await attachFile()
+    else if (action === 'record') await startRecording('screen')
+    else if (action === 'voice') await startRecording('voice')
+    return true
+  }
+
+  // The recorder's news (main.js wires recorder.js to these).
+  function setRecording (state) {
+    recording = state && state.recording ? { kind: state.recording.kind, startedAt: state.recording.startedAt } : null
+    sync()
+  }
+
+  function recordingSaved (saved) {
+    savedRecording = saved && saved.path ? { kind: saved.kind, name: saved.name, path: saved.path, durationMs: saved.durationMs } : null
+    notice = null
+    if (alive() && view) openComposer({ keepNotice: true })
+    else pushComposer()
+  }
+
+  function recordingError (code, kind) {
+    notice = { message: actions.NOTICES[code === 'permission' ? (kind === 'voice' ? 'voice_permission' : 'recording_permission') : code === 'busy' ? 'recording_busy' : 'recording_failed'], settings: code === 'permission' && platform === 'darwin' && kind !== 'voice' }
+    if (alive() && view) openComposer({ keepNotice: true })
   }
 
   // The global shortcut (prefs.islandShortcut, a fixed list): registered
@@ -555,7 +706,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     if (platform === 'darwin') win.excludedFromShownWindowsMenu = true
     win.webContents.on('will-navigate', (event) => event.preventDefault())
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    win.on('blur', collapse)
+    win.on('blur', () => { if (!holdOpen) collapse() })
     win.on('closed', () => {
       win = null
       drag = null
@@ -588,7 +739,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     const state = store.get()
     if (awaiting && replyTimer) pollReply()
     const next = prefs.get().showIsland
-      ? withScreenIndicator(withArrival(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), arrivalFor(state), state), capturing)
+      ? withRecording(withScreenIndicator(withArrival(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), arrivalFor(state), state), capturing), recording)
       : null
     const pendingChanged = JSON.stringify(next?.pending) !== JSON.stringify(view?.pending) || next?.bot.id !== view?.bot.id || next?.mode !== view?.mode
     view = next
@@ -734,6 +885,45 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       return sendToManager(text)
     })
 
+    // The actions menu: one of a fixed list (island-actions.js).
+    ipcMain.handle('cma-island:action', async (event, id) => {
+      if (!fromIsland(event)) return false
+      return runAction(id)
+    })
+
+    // The pill's click while recording: stop.
+    ipcMain.on('cma-island:stop-recording', (event) => {
+      if (fromIsland(event) && recorder && recording) recorder.stop()
+    })
+
+    // The composer's chips: remove one, or show the file / recording in
+    // Finder. Main holds the paths; the page only names which.
+    ipcMain.on('cma-island:attachment', (event, input) => {
+      if (!fromIsland(event) || !input || typeof input !== 'object') return
+      const what = input.what
+      if (input.op === 'remove') {
+        if (what === 'screenshot') { screenShare?.discard(composer.MANAGER_ID); attachedShot = null }
+        else if (what === 'file') attachedFile = null
+        else if (what === 'saved') savedRecording = null
+        else if (what === 'notice') notice = null
+        else return
+        return pushComposer()
+      }
+      if (input.op === 'reveal') {
+        if (what === 'file' && attachedFile) showInFolder(attachedFile.path)
+        else if (what === 'saved' && savedRecording) showInFolder(savedRecording.path)
+        return
+      }
+      // A notice's buttons: the share-screen switch on, or the fixed
+      // Screen Recording pane.
+      if (input.op === 'turn-on') {
+        prefs.set({ shareScreen: true })
+        notice = null
+        return pushComposer()
+      }
+      if (input.op === 'settings') openScreenSettings()
+    })
+
     ipcMain.on('cma-island:activate', (event) => {
       if (fromIsland(event)) expand({ focus: true })
     })
@@ -799,6 +989,9 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       sync()
     },
     openComposer,
+    setRecording,
+    recordingSaved,
+    recordingError,
     shortcutUnavailable: () => shortcutTaken,
     destroy () {
       clearTimeout(collapseTimer)
@@ -835,6 +1028,7 @@ module.exports = {
   MODES,
   previews,
   withArrival,
+  withRecording,
   HOVER_PREVIEW_MS,
   HOVER_LEAVE_MS,
   CLOSE_TRIM_MS,

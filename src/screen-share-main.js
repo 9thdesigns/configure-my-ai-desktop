@@ -45,6 +45,24 @@ async function captureDisplay ({ maxWidth, ownWindows = [], electron = require('
   }
 }
 
+// The front-most window that isn't one of ours (the island, the dock): the
+// window the user was in when they opened the island. desktopCapturer lists
+// windows front to back on macOS and Windows; on X11 in stacking order.
+async function captureWindow ({ maxWidth, ownWindows = [], electron = require('electron') }) {
+  const { desktopCapturer, screen } = electron
+  const display = targetDisplay(screen)
+  const scale = display.scaleFactor || 1
+  const width = Math.min(maxWidth, Math.round(display.size.width * scale))
+  const height = Math.round(width * (display.size.height / display.size.width))
+  const own = new Set()
+  for (const w of ownWindows) {
+    try { if (w && !w.isDestroyed()) own.add(w.getMediaSourceId()) } catch {}
+  }
+  const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width, height } })
+  const match = sources.find((s) => !own.has(s.id) && s.thumbnail && !s.thumbnail.isEmpty())
+  return match ? match.thumbnail : null
+}
+
 // Open macOS's Screen Recording pane. A fixed URL; nothing from a renderer
 // is ever opened here.
 function openScreenSettings ({ platform = process.platform, electron = require('electron') } = {}) {
@@ -56,7 +74,7 @@ function openScreenSettings ({ platform = process.platform, electron = require('
 // The widget's screen share, wired to Electron. `isEnabled` reads the
 // "Let Manager see your screen" pref; `onIndicator(on)` drives the island and
 // the widget; `ownWindows()` lists our floating windows to keep out of shot.
-function createElectronScreenShare ({ isEnabled, onIndicator = () => {}, ownWindows = () => [], platform = process.platform, env = process.env, electron = require('electron') }) {
+function createElectronScreenShare ({ isEnabled, onIndicator = () => {}, ownWindows = () => [], selectArea = async () => null, platform = process.platform, env = process.env, electron = require('electron') }) {
   const { dialog, systemPreferences } = electron
   return createScreenShare({
     isEnabled,
@@ -74,9 +92,13 @@ function createElectronScreenShare ({ isEnabled, onIndicator = () => {}, ownWind
       })
       return response === 0
     },
-    capture: ({ maxWidth }) => captureDisplay({ maxWidth, ownWindows: ownWindows(), electron }),
+    capture: ({ maxWidth, source }) => (source === 'window'
+      ? captureWindow({ maxWidth, ownWindows: ownWindows(), electron })
+      : captureDisplay({ maxWidth, ownWindows: ownWindows(), electron })),
+    // Select area (the island's Screenshot menu): area-select.js.
+    select: (image) => selectArea(image),
     indicator: createIndicator({ onChange: onIndicator }),
   })
 }
 
-module.exports = { targetDisplay, captureDisplay, openScreenSettings, createElectronScreenShare }
+module.exports = { targetDisplay, captureDisplay, captureWindow, openScreenSettings, createElectronScreenShare }

@@ -3,7 +3,7 @@
 // 32px and lifts the avatar (1.2x, 10px out, 4px away from the edge) on a
 // bouncy spring; a change of state fades the old content out over 160ms
 // (0.985, 4px blur) and springs the new one in from 0.965 with the blur
-// clearing; reduced motion just swaps; the recording dot; the jelly-badge
+// clearing; reduced motion just swaps; the recording dot; the jelly badge
 // hook. Skipped where Playwright (or its Chromium) is not installed.
 
 const test = require('node:test')
@@ -150,15 +150,30 @@ pageTest('recording: a red 8px dot, pulsing once every 1.2s', async (page) => {
   assert.equal(await page.locator('#island').getAttribute('data-mode'), 'recording')
 })
 
-pageTest('without the jelly badge the slot stays empty', async (page) => {
-  await show(page, VIEWS.message)
-  assert.equal(await page.locator('[data-role="badge"]').isHidden(), true)
-})
-
-pageTest('the jelly badge hook: window.CmaJellyBadge paints the count', async (page) => {
+pageTest('the jelly badge (jelly-badge.js) paints the island\'s count on the avatar, and nothing when there is nothing to count', async (page) => {
   await show(page, VIEWS.message)
   assert.equal(await page.locator('[data-role="badge"]').isHidden(), false)
-  assert.deepEqual(await page.evaluate(() => window.__painted), [{ count: 2, mode: 'message' }])
+  const jelly = await page.evaluate(() => {
+    const j = document.querySelector('[data-role="badge"] .jelly')
+    return { kind: j.dataset.kind, glyph: j.querySelector('.jelly-glyph').textContent, ring: getComputedStyle(j).getPropertyValue('--jelly-ring').trim() }
+  })
+  assert.deepEqual([jelly.kind, jelly.glyph], ['unread', '2'], 'a message: the indigo count')
+  assert.match(jelly.ring, /#000|#0a0a0a|var\(--pill/, 'the ring is the island\'s fill')
+  // Nothing to count: the slot stays and the badge plays itself out
+  // (jelly-badge.js leave), rather than vanishing at once.
   await show(page, VIEWS.idle)
-  assert.equal(await page.locator('[data-role="badge"]').isHidden(), true, 'nothing to count')
-}, { init: () => { window.__painted = []; window.CmaJellyBadge = { paint: (el, opts) => { el.textContent = String(opts.count); if (opts.count) window.__painted.push(opts) } } } })
+  assert.equal(await page.locator('[data-role="badge"]').evaluate((n) => n.hidden), false, 'the slot stays for the out animation')
+  assert.ok(await page.evaluate(() => document.querySelector('[data-role="badge"] .jelly').getAnimations({ subtree: true }).length > 0), 'the out animation is playing')
+})
+
+pageTest('working comes with a count of 0: the slot stays and paint shows the working dots', async (page) => {
+  await show(page, VIEWS.working)
+  assert.equal(await page.locator('[data-role="badge"]').evaluate((n) => n.hidden), false)
+  assert.equal(await page.locator('[data-role="badge"] .jelly').evaluate((n) => n.hasAttribute('data-working')), true)
+})
+
+pageTest('reduced motion: nothing to count empties the badge at once', async (page) => {
+  await show(page, VIEWS.message)
+  await show(page, VIEWS.idle)
+  assert.equal(await page.locator('[data-role="badge"] .jelly').evaluate((n) => n.hasAttribute('data-empty')), true)
+}, { reducedMotion: 'reduce' })

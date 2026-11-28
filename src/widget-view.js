@@ -162,19 +162,16 @@
   }
 
   // Waiting: an orange count (or dot); a fresh reply: a blue dot.
+  // The seat's jelly badge (jelly-badge.js): the count, "?" or "!" on the
+  // face's corner, or the working dots under it; it animates its own changes.
   function paintBadge (button, bot) {
-    let badge = button.querySelector('.dock-badge')
-    const waiting = bot.mood === 'waiting' || Boolean(bot.waiting)
-    const show = !bot.paused && (waiting || bot.mood === 'responded')
-    if (!show) return badge?.remove()
-    if (!badge) {
-      badge = el('span', 'dock-badge')
-      badge.setAttribute('aria-hidden', 'true')
-      button.append(badge)
+    let slot = button.querySelector('.jelly-slot')
+    if (!slot) {
+      slot = el('span', 'jelly-slot')
+      slot.setAttribute('aria-hidden', 'true')
+      button.append(slot)
     }
-    const n = waiting ? bot.needs_count : 0
-    badge.textContent = n > 0 ? (n > 9 ? '9+' : String(n)) : ''
-    badge.classList.toggle('is-dot', n === 0)
+    window.CmaJellyBadge.paint(slot, window.CmaJellyBadge.forBot(bot))
   }
 
   addButton.addEventListener('click', () => api.picker())

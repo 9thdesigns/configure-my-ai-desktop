@@ -247,51 +247,18 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--dock-fill), 0 0 0 4px var(--ink); }
 
-/* Mood rings: working pulses softly (the web avatar's thinking glow),
-   waiting wears an orange count, failed a red ring, a fresh reply a dot,
-   paused goes quiet. */
-.dock-bot[data-mood="working"] .avatar { animation: thinking var(--dur-thinking) ease-in-out infinite; }
+/* Moods: failed wears a red ring, paused goes quiet. The count, "?" or "!"
+   and the working dots are the jelly badge (jelly-badge.js/.css). */
 .dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--dock-fill), 0 0 0 4px var(--failed); }
 .dock-bot[data-paused] .avatar { filter: grayscale(1); opacity: 0.55; animation: none; }
 
-@keyframes thinking {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(47, 111, 235, 0); }
-  50% { box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.28); }
-}
-
-/* The count sits on the face's top-right corner, inside the seat (so the
-   scrolling column never clips it). */
-.dock-badge {
-  position: absolute;
-  top: calc((var(--dock-seat) - var(--dock-face)) / 2 - 5px);
-  right: calc((var(--dock-seat) - var(--dock-face)) / 2 - 6px);
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--waiting);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-  box-shadow: 0 0 0 2px var(--dock-fill);
-  animation: badge-in var(--dur-badge-in) var(--ease-entrance);
-}
-.dock-badge.is-dot {
-  min-width: 8px;
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  top: calc((var(--dock-seat) - var(--dock-face)) / 2 - 1px);
-  right: calc((var(--dock-seat) - var(--dock-face)) / 2 - 1px);
-}
-.dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
-
-@keyframes badge-in {
-  from { transform: scale(0.4); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
+/* The jelly badge in a seat: the pill on the face's bottom-right, its ring
+   kept inside the 40px seat (so the scrolling column never clips it); the
+   working dots under the face. */
+.jelly-slot { position: absolute; inset: 0; pointer-events: none; }
+.jelly-slot .jelly { position: absolute; inset: 0; }
+.jelly-slot .jelly-pill { position: absolute; right: 3px; bottom: 3px; }
+.jelly-slot .jelly-dots { position: absolute; left: 50%; bottom: 1px; transform: translateX(-50%); }
 
 /* "+": a seat like the others, a dashed ring the size of a face. */
 .dock-add {
