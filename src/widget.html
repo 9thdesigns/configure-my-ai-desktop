@@ -51,12 +51,30 @@
     <ul class="picker-list" data-role="picker-list"></ul>
   </section>
   <nav id="dock" class="dock" aria-label="Bots">
-    <div class="dock-grip" data-role="grip" title="Drag to move"></div>
-    <button type="button" class="dock-workspace" data-role="workspace" hidden><span class="workspace-mark"></span></button>
-    <div class="dock-bots" data-role="bots"></div>
-    <button type="button" class="dock-add" data-role="add" title="Add a bot" aria-label="Add a bot">+</button>
+    <!-- The dock's one filled shape, growing out of the screen edge
+         (dock-shape.js draws the path), and the rim light along the seam. -->
+    <svg class="dock-shape" data-role="shape" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="dock-rim-fade" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+          <stop offset="0.14" stop-color="#fff" stop-opacity="1"/>
+          <stop offset="0.86" stop-color="#fff" stop-opacity="1"/>
+          <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </linearGradient>
+        <mask id="dock-rim-mask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#dock-rim-fade)"/></mask>
+      </defs>
+      <path class="dock-fill" data-role="fill"/>
+      <rect class="dock-rim" data-role="rim" width="2" mask="url(#dock-rim-mask)"/>
+    </svg>
+    <div class="dock-body">
+      <button type="button" class="dock-workspace" data-role="workspace" hidden><span class="workspace-mark"></span></button>
+      <div class="dock-bots" data-role="bots"></div>
+      <button type="button" class="dock-add" data-role="add" title="Add a bot" aria-label="Add a bot"><span>+</span></button>
+      <div class="dock-grip" data-role="grip" title="Drag to move"><span class="dock-grip-bar"></span></div>
+    </div>
   </nav>
   <script src="motion.js"></script>
+  <script src="dock-shape.js"></script>
   <script src="drag-gesture.js"></script>
   <script src="avatar-render.js"></script>
   <script src="chat-format.js"></script>

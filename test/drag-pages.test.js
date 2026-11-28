@@ -176,11 +176,14 @@ pageTest('quick chat: selecting text or dragging in the composer never moves the
 })
 
 pageTest('dock on the left edge: the dock hugs the left and the popover opens to its right', async (page) => {
+  // The page at the expanded window's real width (widget-window.js).
+  await page.setViewportSize({ width: require('../src/widget-window').EXPANDED_WIDTH, height: 560 })
   await showDock(page, { side: 'left', expanded: true, mode: 'chat', botId: 'bot-1', popoverHeight: 520 })
+  await page.evaluate(() => document.getAnimations().forEach((a) => { if (a.effect.getComputedTiming().endTime !== Infinity) a.finish() }))
   const dock = await page.locator('.dock').boundingBox()
   const pop = await page.locator('#popover').boundingBox()
-  assert.equal(dock.x, 4)
-  assert.ok(pop.x > dock.x + dock.width, 'popover to the right of the dock')
+  assert.equal(dock.x, 0, 'flush to the left edge')
+  assert.equal(pop.x - (dock.x + dock.width), 18, 'the popover opens 18px to the right of the dock')
 })
 
 pageTest('a page told it cannot drag (Wayland) only clicks', async (page) => {

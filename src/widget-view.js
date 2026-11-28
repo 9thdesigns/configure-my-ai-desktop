@@ -9,6 +9,11 @@
   const api = window.cmaWidget
   if (!api) return
 
+  // Room inside the window for the dock's shadow, above and below it
+  // (widget-window.js DOCK_SHADOW_TOP/BOTTOM say the same).
+  const SHADOW_TOP = 24
+  const SHADOW_BOTTOM = 40
+
   const $ = (sel, root = document) => root.querySelector(sel)
   const dock = $('#dock')
   const botsEl = $('[data-role="bots"]', dock)
@@ -141,6 +146,9 @@
       button.title = `${bot.name} — ${bot.label}`
       button.setAttribute('aria-label', `${bot.name}, ${bot.label}`)
     })
+    const activity = window.DockShape.rimActivity(view.bots)
+    if (dock.dataset.activity !== activity) dock.dataset.activity = activity
+    markOverflow()
     reportLayout()
   }
 
@@ -251,14 +259,55 @@
           const r = node.getBoundingClientRect()
           return { x: r.left, y: r.top, width: r.width, height: r.height }
         })
-      // The dock plus its 6px margins top and bottom.
-      api.reportHitRects(rects, Math.ceil(dock.offsetHeight + 12))
+      // The dock plus room for its shadow above and below.
+      api.reportHitRects(rects, Math.ceil(dock.offsetHeight + SHADOW_TOP + SHADOW_BOTTOM))
     })
   }
+
+  // --- The dock's shape ----------------------------------------------------
+  // One filled outline (dock-shape.js) sized to the dock, its fillets and
+  // corners from the tokens; redrawn only when the dock's size changes.
+
+  const shapeSvg = $('[data-role="shape"]', dock)
+  const shapeFill = $('[data-role="fill"]', dock)
+  const shapeRim = $('[data-role="rim"]', dock)
+  let shapeKey = ''
+  const tokenPx = (name, fallback) => {
+    const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name))
+    return Number.isFinite(v) ? v : fallback
+  }
+
+  function drawShape () {
+    const w = dock.offsetWidth
+    const h = dock.offsetHeight
+    const fillet = tokenPx('--dock-fillet', 14)
+    const corner = tokenPx('--dock-corner', 22)
+    const key = `${w}x${h}:${fillet}:${corner}`
+    if (!w || !h || key === shapeKey) return
+    shapeKey = key
+    shapeSvg.setAttribute('viewBox', `0 0 ${w} ${h}`)
+    shapeFill.setAttribute('d', window.DockShape.dockPath(w, h, { fillet, corner }))
+    shapeRim.setAttribute('x', String(w - 2))
+    shapeRim.setAttribute('y', '0')
+    shapeRim.setAttribute('height', String(h))
+  }
+
+  // The seat column scrolls past seven; it fades out at the end with more.
+  function markOverflow () {
+    const above = botsEl.scrollTop > 1
+    const below = botsEl.scrollTop + botsEl.clientHeight < botsEl.scrollHeight - 1
+    const more = above && below ? 'both' : above ? 'above' : below ? 'below' : ''
+    if ((botsEl.dataset.more || '') !== more) {
+      if (more) botsEl.dataset.more = more
+      else delete botsEl.dataset.more
+    }
+  }
+  botsEl.addEventListener('scroll', markOverflow, { passive: true })
 
   if (typeof ResizeObserver === 'function') {
     const observer = new ResizeObserver(reportLayout)
     observer.observe(dock)
+    new ResizeObserver(() => { drawShape(); markOverflow() }).observe(dock)
     observer.observe(popover)
     observer.observe(picker)
   }
@@ -836,7 +885,7 @@
     layout = next
     document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
     document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
-    dock.style.top = `${next.dockTop}px`
+    dock.style.top = `${next.dockTop + SHADOW_TOP}px`
     popover.hidden = !(next.expanded && next.mode === 'chat')
     picker.hidden = !(next.expanded && next.mode === 'picker')
     for (const panel of [popover, picker]) {

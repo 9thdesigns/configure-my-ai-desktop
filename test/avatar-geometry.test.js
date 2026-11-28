@@ -23,7 +23,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const H = require('./support/cfa-harness')
 const { COMPACT_HEIGHT } = require('../src/island-window')
-const { DOCK_WIDTH, EDGE_MARGIN } = require('../src/widget-window')
+const { DOCK_WIDTH, DOCK_BODY_WIDTH, EDGE_MARGIN } = require('../src/widget-window')
 
 const WIDGET_CSS = fs.readFileSync(path.join(__dirname, '../src/widget.css'), 'utf8')
 const ISLAND_CSS = fs.readFileSync(path.join(__dirname, '../src/island.css'), 'utf8')
@@ -70,11 +70,14 @@ test('every slot sizes its box and its --cfa-size from the same whole-pixel valu
 test('the windows fit the smaller pill and dock', () => {
   assert.equal(COMPACT_HEIGHT, Number(TOKENS_CSS.match(/--island-pill-h:\s*(\d+)px/)[1]), 'the island window is the pill')
   assert.match(ISLAND_CSS, /--pill-h: var\(--island-pill-h\);/)
-  assert.match(WIDGET_CSS, /\.dock \{[^}]*?\n  width: var\(--dock-seat\);/)
-  const dockWidth = Number(TOKENS_CSS.match(/--dock-seat:\s*(\d+)px;/)[1])
-  const dockRight = Number(WIDGET_CSS.match(/\.dock \{[^}]*?\n  right: (\d+)px;/)[1])
-  assert.ok(DOCK_WIDTH >= dockWidth + dockRight + 4, 'the dock column holds the dock and a little shadow')
-  assert.ok(EDGE_MARGIN >= 0)
+  // The dock body is a seat plus padding either side, flush to the edge.
+  assert.match(WIDGET_CSS, /--dock-width: calc\(var\(--dock-seat\) \+ 2 \* var\(--dock-pad\)\);/)
+  assert.match(WIDGET_CSS, /\.dock \{[^}]*?\n  right: 0;/)
+  const seat = Number(TOKENS_CSS.match(/--dock-seat:\s*(\d+)px;/)[1])
+  const pad = Number(TOKENS_CSS.match(/--dock-pad:\s*(\d+)px;/)[1])
+  assert.equal(DOCK_BODY_WIDTH, seat + 2 * pad, 'main knows the body width')
+  assert.ok(DOCK_WIDTH >= DOCK_BODY_WIDTH + 16, 'the dock window holds the body and its shadow')
+  assert.equal(EDGE_MARGIN, 0, 'flush to the edge')
 })
 
 test('hovering a dock face does not scale it (a scaled face blurs)', () => {

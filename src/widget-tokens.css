@@ -66,12 +66,27 @@
   --spring-tuck: 260 22;
 
   /* --- The dock -------------------------------------------------------------- */
-  --dock-face: 28px;          /* the bot's face in the dock (Dave: 28 since v0.4.1) */
+  --dock-face: 28px;          /* the bot's face in the dock (Dave: 28 since v0.4.1; 32 also tried) */
   --chat-face: 22px;          /* the face in the quick-chat header */
-  --dock-seat: 44px;          /* now: the dock's column (the rebuilt dock: 40px seats) */
+  --dock-seat: 40px;          /* a seat: the button around a face */
   --dock-gap: 10px;           /* between seats */
-  --dock-radius: 22px;        /* now: the dock's rounded ends */
+  --dock-pad: 8px;            /* inside the dock body, around the seats */
+  --dock-fillet: 14px;        /* the concave flare where the dock meets the edge */
+  --dock-corner: 22px;        /* the dock body's inner corners */
+  --dock-seats-visible: 7;    /* then the seats scroll, with a fade */
+  --dock-fade: 24px;
+  --dock-shadow-blur: 24px;   /* the shadow falls away from the edge only */
+  --dock-shadow-y: 8px;
+  --dock-shadow-color: rgba(0, 0, 0, 0.18);
+  --dock-fill: #f8f7f5;       /* the theme frame colour */
+  --brand-accent: #6d5efc;
+  --amber: #ff9a1f;
+  --grip-w: 24px;             /* the grab handle: at rest, hovered, dragging */
+  --grip-w-hover: 28px;
+  --grip-w-drag: 32px;
+  --grip-h: 4px;
   --panel-width: 380px;       /* the quick-chat panel */
+  --panel-gap: 18px;          /* between the dock and the panel */
   --panel-radius: 16px;       /* now (the rebuilt panel: 24px) */
 
   /* --- The island ------------------------------------------------------------ */
@@ -92,4 +107,11 @@
   --ease-entrance: ease-out;   /* now: entrances (the scale: --ease-out) */
   --dur-thinking: 1.8s;        /* the working glow's breath */
   --dur-pulse: 1s;             /* the recording dot */
+  --dur-rim-pulse: 1.8s;       /* the rim light breathing while a bot works */
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --dock-fill: #121110;
+  }
 }
