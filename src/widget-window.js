@@ -3,11 +3,14 @@
 // The floating bot dock: a column of bot avatars on a side edge of the
 // screen (the right, until the user drags it), above every app and on every
 // Space, that stays put while the main window is minimised, hidden or closed.
-// Clicking an avatar focuses that bot and opens a quick-chat popover beside
-// the dock.
+// Clicking an avatar focuses that bot and opens its recents card (its last
+// chats, budding out of the seat); a row, a double-click or an Option-click
+// opens the quick-chat popover beside the dock. An older server without the
+// threads route: the click opens the quick chat, as it did before the card.
 //
 // One transparent, frameless, non-activating window (an NSPanel on macOS):
-//   * sized to the dock, or to dock + popover while the popover is open,
+//   * sized to the dock, or to dock + popover (or the recents card) while
+//     one is open,
 //     growing inward from the edge the dock is on;
 //   * click-through everywhere but the dock and the popover — the renderer
 //     reports those rectangles, and main polls the cursor and turns mouse
@@ -41,6 +44,7 @@ const { pathToFileURL } = require('node:url')
 const { validId, dockBots, stateLabel, focusedBot } = require('./widget-state')
 const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
+const { UNSUPPORTED_RETRY_MS, rendererThreads, threadUrl } = require('./widget-threads')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
 const dockPlace = require('./dock-placement')
@@ -62,6 +66,25 @@ const POPOVER_HEIGHT = 520
 const PANEL_GAP = 18 // between the dock body and the quick-chat panel
 const EXPANDED_WIDTH = POPOVER_WIDTH + PANEL_GAP + DOCK_BODY_WIDTH
 const MIN_DOCK_HEIGHT = 64
+// The recents card (a seat's recent chats, widget-threads.js): 288 wide,
+// 8px of padding, a 44px header (name and status), 52px rows, and the "New
+// chat" / "Open in app" controls (32px, 8px below the rows). It sits
+// RECENTS_GAP from the dock body, bridged to the seat; the window holds it
+// plus RECENTS_SHADOW of room for its shadow, and keeps it
+// RECENTS_EDGE_MARGIN inside the work area. widget.css says the same.
+const RECENTS_WIDTH = 288
+const RECENTS_PAD = 8
+const RECENTS_HEAD = 44
+const RECENTS_ROW = 52
+const RECENTS_ACTIONS = 40
+const RECENTS_GAP = 10
+const RECENTS_SHADOW = 24
+const RECENTS_EDGE_MARGIN = 8
+// The seat's centre sits this far below the card's top: level with the
+// header, and below the card's 20px corner with room for the bridge
+// (recents-card.js) on its straight edge.
+const RECENTS_ANCHOR = 38
+const RECENTS_WINDOW_WIDTH = RECENTS_SHADOW + RECENTS_WIDTH + RECENTS_GAP + DOCK_BODY_WIDTH
 const MAX_RECTS = 16
 const POINTER_POLL_MS = 33
 const CONVERSATION_POLL_MS = 5000
@@ -150,6 +173,40 @@ function layoutFor ({ workArea, dockHeight, offsetY, expanded, side = 'right' })
     dockTop: dockY - top,
     popoverTop: popoverY - top,
     popoverHeight,
+    expanded: true,
+    side: left ? 'left' : 'right',
+  }
+}
+
+// The recents card's height for `rows` rows.
+function recentsCardHeight (rows) {
+  const n = Math.max(0, Math.min(5, Math.trunc(Number(rows)) || 0))
+  return 2 * RECENTS_PAD + RECENTS_HEAD + n * RECENTS_ROW + RECENTS_ACTIONS
+}
+
+// The window with a seat's recents card open. The card's header lines up
+// with the seat (RECENTS_ANCHOR; seatY: the seat's centre, px down the collapsed dock
+// window), unless that would take it off the top or bottom of the work
+// area; the window widens inward only as far as the card (and its shadow)
+// needs, and the dock never moves on screen.
+function recentsLayoutFor ({ workArea, dockHeight, offsetY, side = 'right', seatY, rows }) {
+  const height = validDockHeight(dockHeight, workArea)
+  const dockY = workArea.y + dockOffset(offsetY, workArea, height)
+  const left = side === 'left'
+  const edgeX = left ? workArea.x + EDGE_MARGIN : workArea.x + workArea.width - EDGE_MARGIN
+  const seat = dockY + clamp(Number.isFinite(seatY) ? seatY : height / 2, 0, height)
+  const cardHeight = Math.min(recentsCardHeight(rows), workArea.height - 2 * RECENTS_EDGE_MARGIN)
+  const cardY = clamp(Math.round(seat - RECENTS_ANCHOR), workArea.y + RECENTS_EDGE_MARGIN, workArea.y + workArea.height - RECENTS_EDGE_MARGIN - cardHeight)
+  const top = Math.max(workArea.y, Math.min(dockY, cardY - RECENTS_SHADOW))
+  const bottom = Math.min(workArea.y + workArea.height, Math.max(dockY + height, cardY + cardHeight + RECENTS_SHADOW))
+  return {
+    bounds: { x: left ? edgeX : edgeX - RECENTS_WINDOW_WIDTH, y: top, width: RECENTS_WINDOW_WIDTH, height: bottom - top },
+    dockTop: dockY - top,
+    popoverTop: 0,
+    popoverHeight: 0,
+    cardTop: cardY - top,
+    cardHeight,
+    seatY: Math.round(seat - top),
     expanded: true,
     side: left ? 'left' : 'right',
   }
@@ -270,7 +327,21 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let win = null
   let expanded = false
   let openBotId = null
-  let mode = 'chat' // what the expanded window shows: 'chat' or 'picker'
+  let mode = 'chat' // what the expanded window shows: 'chat', 'picker' or 'recents'
+  let closingMode = null // what the closing panel showed
+  // The recents card: the seat it buds from (px down the collapsed dock
+  // window), each bot's last list, a sequence that drops answers arriving
+  // after the user has moved on, and until when the route is taken to be
+  // missing (an older server: the seat opens the quick chat instead).
+  let recentsSeat = null
+  let recentsRows = 0
+  const threadCache = new Map()
+  let recentsSeq = 0
+  let threadsOffUntil = 0
+  let refreshing = null
+  // The quick chat pinned to one conversation (a row of the card), or null
+  // for the bot's waiting-or-latest one; and where that row opens in the app.
+  let pinned = null // { id, url }
   let dockHeight = MIN_DOCK_HEIGHT
   let rects = []
   // Where the dock is: the display, the edge, and the offset down it as a
@@ -335,14 +406,19 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 
   // The layout for where the dock is now (layoutFor works in px down the
   // work area).
-  function currentLayout (open = expanded) {
+  function currentLayout (open = expanded, shown = mode) {
     const workArea = display().workArea
     const offsetY = dockPlace.dockTop(workArea, validDockHeight(dockHeight, workArea), offset) - workArea.y
+    if (open && shown === 'recents') {
+      return recentsLayoutFor({ workArea, dockHeight, offsetY, side, seatY: recentsSeat, rows: recentsRows })
+    }
     return layoutFor({ workArea, dockHeight, offsetY, expanded: open, side })
   }
 
+  const cardPart = (layout) => (layout.cardHeight ? { cardTop: layout.cardTop, cardHeight: layout.cardHeight, seatY: layout.seatY } : {})
+
   function layoutMessage (layout, extra = {}) {
-    return { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode, side: layout.side, draggable, ...extra }
+    return { expanded: layout.expanded, dockTop: layout.dockTop, popoverTop: layout.popoverTop, popoverHeight: layout.popoverHeight, botId: openBotId, mode, side: layout.side, draggable, ...cardPart(layout), ...extra }
   }
 
   // setBounds is never animated: the window jumps to its new size and the
@@ -355,12 +431,13 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     trimTimer = null
     if (!expanded && closing) {
       // Keep the open window's bounds; tell the page to close the panel.
-      const wide = currentLayout(true)
+      const wide = currentLayout(true, closingMode || 'chat')
       const narrow = currentLayout(false)
-      send('cma-widget:layout', layoutMessage(narrow, { closing: true, dockTop: wide.dockTop, popoverTop: wide.popoverTop, popoverHeight: wide.popoverHeight }))
+      send('cma-widget:layout', layoutMessage(narrow, { closing: true, closingMode: closingMode || 'chat', dockTop: wide.dockTop, popoverTop: wide.popoverTop, popoverHeight: wide.popoverHeight, ...cardPart(wide) }))
       trimTimer = unref(timers.setTimeout(() => {
         trimTimer = null
         closing = false
+        closingMode = null
         place()
       }, CLOSE_MS + TRIM_DELAY_MS))
       return
@@ -379,6 +456,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   // edge; letting go there tucks the dock out and buds it in over there.
   function dragStart (point) {
     if (!draggable || !alive()) return
+    recentsSeq++
     if (expanded) {
       expanded = false
       openBotId = null
@@ -386,6 +464,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       win.setFocusable(false)
     }
     closing = false
+    closingMode = null
     timers.clearTimeout(trimTimer)
     timers.clearTimeout(switchTimer)
     trimTimer = switchTimer = null
@@ -539,19 +618,34 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   // The popover's view of a bot: the server's history when there is one, the
   // pending card from the widget state either way (widget-chat.js).
   async function popoverFor (botId, conversation) {
-    if (conversation === undefined) conversation = await feed.conversation(botId).catch(() => null)
+    if (conversation === undefined) conversation = await feed.conversation(botId, pinnedFor(botId)).catch(() => null)
     return popoverConversation(botId, conversation, store.get())
   }
+
+  // The conversation the open chat is pinned to, for writes to this bot.
+  const pinnedFor = (botId) => (pinned && botId === openBotId ? pinned.id : null)
+  const pinOptions = (botId) => (pinnedFor(botId) ? { conversationId: pinnedFor(botId) } : {})
 
   async function loadConversation () {
     if (!openBotId) return
     const botId = openBotId
-    const view = await popoverFor(botId)
-    if (botId === openBotId) send('cma-widget:conversation', view)
+    const pin = pinned
+    const conversation = await feed.conversation(botId, pinnedFor(botId)).catch(() => null)
+    if (botId !== openBotId || pin !== pinned) return
+    // Pinned, but the server answered with another conversation: an older
+    // server that ignores conversation_id. Open the row in the app instead.
+    if (pin && conversation && conversation.conversation_id && conversation.conversation_id !== pin.id) {
+      collapse()
+      openBot(botId, pin.url)
+      return
+    }
+    send('cma-widget:conversation', await popoverFor(botId, conversation))
   }
 
-  function expand (botId) {
+  function expand (botId, pin = null) {
     if (!alive()) return
+    recentsSeq++
+    pinned = pin
     openBotId = botId
     mode = 'chat'
     expanded = true
@@ -564,10 +658,85 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     conversationTimer = unref(setInterval(loadConversation, CONVERSATION_POLL_MS))
   }
 
+  // --- The recents card: a seat's last chats, budding out of the seat. The
+  // list is fetched first (so the window is sized to it); a bot with none
+  // goes straight to the quick chat's composer, and so does every seat when
+  // the server has no such route (404) or can't be reached — the click then
+  // does exactly what it did before the card.
+
+  const threadsMissing = () => typeof feed.threads !== 'function' || Date.now() < threadsOffUntil
+
+  // A threads answer into the cache: true when there is a list.
+  function takeThreads (botId, result) {
+    if (result && result.status === 'unsupported') {
+      threadsOffUntil = Date.now() + UNSUPPORTED_RETRY_MS
+      threadCache.clear()
+      return false
+    }
+    if (!result || result.status !== 'ok') return false
+    threadCache.set(botId, result.threads)
+    return true
+  }
+
+  function sendThreads () {
+    if (openBotId) send('cma-widget:threads', { bot_id: openBotId, threads: rendererThreads(threadCache.get(openBotId)) })
+  }
+
+  async function openRecents (botId, seatY) {
+    if (!alive()) return
+    const seq = ++recentsSeq
+    if (threadsMissing()) return expand(botId)
+    const cached = threadCache.get(botId)
+    if (!cached) {
+      const result = await feed.threads(botId).catch(() => null)
+      if (seq !== recentsSeq || !alive()) return
+      if (!takeThreads(botId, result)) return expand(botId)
+    }
+    if (!threadCache.get(botId).length) return expand(botId)
+    clearInterval(conversationTimer)
+    conversationTimer = null
+    openBotId = botId
+    mode = 'recents'
+    recentsSeat = seatY
+    recentsRows = threadCache.get(botId).length
+    expanded = true
+    closing = false
+    closingMode = null
+    win.setFocusable(true)
+    sendThreads()
+    place()
+    win.focus()
+    // Shown from the cache: fetch the fresh list behind it.
+    if (cached) refreshThreads()
+  }
+
+  // The open card's list again (a cable broadcast, a reopen from the
+  // cache): resent when it changed, the window re-placed when the number of
+  // rows did. One request at a time; a list that comes back empty or
+  // missing leaves the card as it is.
+  function refreshThreads () {
+    if (!expanded || mode !== 'recents' || !openBotId || refreshing || threadsMissing()) return
+    const botId = openBotId
+    const before = threadCache.get(botId) || []
+    refreshing = feed.threads(botId).catch(() => null).then((result) => {
+      refreshing = null
+      if (!result || result.status !== 'ok' || !result.threads.length) return
+      threadCache.set(botId, result.threads)
+      if (!expanded || mode !== 'recents' || openBotId !== botId) return
+      if (JSON.stringify(result.threads) === JSON.stringify(before)) return
+      sendThreads()
+      if (result.threads.length !== recentsRows) {
+        recentsRows = result.threads.length
+        place()
+      }
+    })
+  }
+
   // The "+" picker: the same expanded window, showing the bot list instead
   // of a conversation.
   function openPicker () {
     if (!alive()) return
+    recentsSeq++
     clearInterval(conversationTimer)
     conversationTimer = null
     openBotId = null
@@ -614,7 +783,10 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (openBotId) screenShare?.discard(openBotId)
     clearInterval(conversationTimer)
     conversationTimer = null
+    recentsSeq++
+    pinned = null
     if (!expanded || !alive()) return
+    closingMode = mode
     expanded = false
     openBotId = null
     mode = 'chat'
@@ -676,7 +848,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (show && !alive()) create()
     if (!show && alive()) win.destroy()
     if (show) pushState()
+    if (!state) threadCache.clear()
     if (expanded && openBotId && !dockBots(state).some((b) => b.id === openBotId)) collapse()
+    else if (expanded && openBotId && mode === 'recents') refreshThreads()
     else if (expanded && openBotId) loadConversation()
   }
 
@@ -715,7 +889,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     }
     const held = can ? screenShare.peek(botId) : null
     const attachment = held ? attachmentPayload(held) : null
-    const result = attachment ? await feed.sendMessage(input, { attachment }) : await feed.sendMessage(input)
+    const pin = pinOptions(botId)
+    const result = attachment ? await feed.sendMessage(input, { attachment, ...pin }) : (pin.conversationId ? await feed.sendMessage(input, pin) : await feed.sendMessage(input))
     // The server refused the screenshot (413 / 422): resending it won't
     // help, so it is dropped, and the message (not sent) waits for a retry.
     if (result && result.attachment_error) {
@@ -754,12 +929,40 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       else dragEnd(d)
     })
 
+    // Straight to the quick chat: a double-click or Option-click on a seat,
+    // or a row / "New chat" in the recents card. Again on the bot whose chat
+    // is open closes it.
     ipcMain.on('cma-widget:open', (event, botId) => {
       const id = validId(botId)
       if (!fromWidget(event) || !id) return
-      if (expanded && openBotId === id) return collapse()
+      if (expanded && mode === 'chat' && openBotId === id) return collapse()
       feed.setFocus(id).catch(() => {})
       expand(id)
+    })
+
+    // A row of the recents card: the quick chat pinned to that conversation.
+    // Only a row the card was given, for the bot whose card is open.
+    ipcMain.on('cma-widget:open-thread', (event, input) => {
+      if (!fromWidget(event) || !input || typeof input !== 'object') return
+      const id = validId(input.bot_id)
+      const threadId = validId(input.thread_id)
+      if (!id || !threadId || !expanded || mode !== 'recents' || openBotId !== id) return
+      const thread = (threadCache.get(id) || []).find((t) => t.id === threadId)
+      if (!thread) return
+      expand(id, { id: thread.id, url: threadUrl(id, thread) })
+    })
+
+    // A seat's click: its recents card, budding from the seat at seat_y (its
+    // centre, px down the collapsed dock window). Again on the open bot
+    // closes it.
+    ipcMain.on('cma-widget:recents', (event, input) => {
+      if (!fromWidget(event) || !input || typeof input !== 'object') return
+      const id = validId(input.bot_id)
+      const seatY = Number(input.seat_y)
+      if (!id || !Number.isFinite(seatY) || seatY < 0 || seatY > dockHeight || !dockBots(store.get()).some((b) => b.id === id)) return
+      if (expanded && mode !== 'picker' && openBotId === id) return collapse()
+      feed.setFocus(id).catch(() => {})
+      openRecents(id, Math.round(seatY))
     })
 
     ipcMain.on('cma-widget:context-menu', (event, botId) => {
@@ -790,11 +993,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       if (fromWidget(event)) collapse()
     })
 
+    // The bot in the main window; from a chat pinned to a row, that row.
     ipcMain.on('cma-widget:open-in-app', (event, botId) => {
       const id = validId(botId)
       if (!fromWidget(event) || !id) return
+      const url = pinnedFor(id) ? pinned.url : null
       collapse()
-      openBot(id)
+      if (url) openBot(id, url)
+      else openBot(id)
     })
 
     // Each answers with the popover's refreshed view, or null when the server
@@ -813,7 +1019,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       const view = await popoverFor(conversation.bot_id, conversation)
       return shown ? { ...view, screen: shown } : view
     })
-    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
+    ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input, pinOptions(validId(input?.bot_id)))))
 
     // Share screen: only for the chat that is open, only for a user action
     // (the button, or a message asking about the screen), and only while
@@ -839,7 +1045,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     ipcMain.on('cma-widget:set-share-screen', (event, on) => {
       if (fromWidget(event)) prefs.set({ shareScreen: on === true })
     })
-    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input)))
+    ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input, pinOptions(validId(input?.bot_id)))))
   }
 
   return {
@@ -851,6 +1057,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     // "Viewing your screen" for as long as the island does.
     setCapturing: (on) => send('cma-widget:screen', { capturing: Boolean(on) }),
     isWidgetWindow: (w) => Boolean(w && w === win),
+    // The cable's "threads" ping (widget-cable.js): refetch the open card.
+    refreshThreads: () => refreshThreads(),
     destroy () {
       offStore()
       offPrefs()
@@ -873,6 +1081,16 @@ module.exports = {
   POPOVER_HEIGHT,
   EXPANDED_WIDTH,
   MIN_DOCK_HEIGHT,
+  RECENTS_WIDTH,
+  RECENTS_PAD,
+  RECENTS_HEAD,
+  RECENTS_ROW,
+  RECENTS_ACTIONS,
+  RECENTS_GAP,
+  RECENTS_SHADOW,
+  RECENTS_WINDOW_WIDTH,
+  recentsCardHeight,
+  recentsLayoutFor,
   MAX_RECTS,
   PARTITION,
   HTML_URL,

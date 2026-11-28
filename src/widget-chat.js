@@ -9,10 +9,17 @@
 // calls them with the default session (X-CMA-Desktop: 1); only the
 // validated conversation below reaches the widget renderer.
 //
-//   GET  /desktop/widget/bots/:id/messages?limit=20
-//   POST /desktop/widget/bots/:id/messages   { body, attachments? }
-//   POST /desktop/widget/bots/:id/answer     { pending_id?, option_ids, text } | { pending_id?, skip: true }
-//   POST /desktop/widget/bots/:id/approval   { pending_id?, decision }
+//   GET  /desktop/widget/bots/:id/messages?limit=20[&conversation_id=…]
+//   POST /desktop/widget/bots/:id/messages   { body, attachments?, conversation_id? }
+//   POST /desktop/widget/bots/:id/answer     { pending_id?, option_ids, text, conversation_id? } | { pending_id?, skip: true, … }
+//   POST /desktop/widget/bots/:id/approval   { pending_id?, decision, conversation_id? }
+//
+// Without conversation_id they use the bot's waiting-or-latest
+// conversation (the manager: its latest thread); with it (a row of the
+// recents card, widget-threads.js) that conversation is read, sent to and
+// settled in. An older server ignores it: the conversation it answers with
+// then reports another session_id / thread_id (conversation_id below), and
+// main opens the row in the app instead.
 //
 // Each answers with the conversation (refusals are 422 with it attached):
 //   { bot_id, status, url, session_id | thread_id,
@@ -45,9 +52,17 @@ function botPath (botId, leaf) {
   return id ? `/desktop/widget/bots/${encodeURIComponent(id)}/${leaf}` : null
 }
 
-function messagesPath (botId) {
+function messagesPath (botId, conversationId = null) {
   const path = botPath(botId, 'messages')
-  return path ? `${path}?limit=${MESSAGE_LIMIT}` : null
+  if (!path) return null
+  const pinned = validId(conversationId)
+  return `${path}?limit=${MESSAGE_LIMIT}${pinned ? `&conversation_id=${encodeURIComponent(pinned)}` : ''}`
+}
+
+// A write's body, pinned to a conversation when there is one.
+function pinTo (body, conversationId) {
+  const pinned = validId(conversationId)
+  return pinned ? { ...body, conversation_id: pinned } : body
 }
 
 // Message bodies keep their line breaks (it is a chat), but lose other control
@@ -126,7 +141,10 @@ function conversationFrom (input, expectedBotId) {
   const messages = Array.isArray(input.messages)
     ? input.messages.slice(-MESSAGE_LIMIT * 2).map(validMessage).filter(Boolean).slice(-MESSAGE_LIMIT)
     : []
-  return { bot_id: botId, url: validAppUrl(input.url), messages, pending: validPending(input.pending) }
+  // Which conversation this is (main checks a pinned chat got the one it
+  // asked for); never sent to the renderer.
+  const conversationId = validId(input.session_id) || validId(input.thread_id)
+  return { bot_id: botId, url: validAppUrl(input.url), conversation_id: conversationId, messages, pending: validPending(input.pending) }
 }
 
 // What the widget renderer may ask main to send — rebuilt like everything
@@ -134,7 +152,7 @@ function conversationFrom (input, expectedBotId) {
 // `attachment` never comes from the renderer: it is the screenshot main is
 // holding for this bot (screen-share.js attachmentPayload), and with one the
 // text may be empty ("here's my screen").
-function composeFrom (input, { attachment = null } = {}) {
+function composeFrom (input, { attachment = null, conversationId = null } = {}) {
   if (!input || typeof input !== 'object') return null
   const botId = validId(input.bot_id)
   const body = cleanBody(input.body, MAX_COMPOSE)
@@ -142,7 +160,7 @@ function composeFrom (input, { attachment = null } = {}) {
   return {
     botId,
     path: botPath(botId, 'messages'),
-    body: attachment ? { body, attachments: [attachment] } : { body },
+    body: pinTo(attachment ? { body, attachments: [attachment] } : { body }, conversationId),
     // An upload of a few MB needs longer than a text reply.
     ...(attachment ? { timeoutMs: ATTACHMENT_TIMEOUT_MS } : {}),
   }
@@ -171,7 +189,7 @@ function withPendingId (body, input) {
 }
 
 // { bot_id, pending_id?, option_ids, text } or { bot_id, pending_id?, skip }
-function answerFrom (input, state) {
+function answerFrom (input, state, { conversationId = null } = {}) {
   if (!input || typeof input !== 'object') return null
   const bot = waitingBot(state, input.bot_id, 'question')
   if (!bot) return null
@@ -181,15 +199,15 @@ function answerFrom (input, state) {
   const text = cleanBody(input.text, MAX_COMPOSE)
   const skip = input.skip === true
   if (!skip && optionIds.length === 0 && !text) return null
-  return { botId: bot.id, path: botPath(bot.id, 'answer'), body: withPendingId(skip ? { skip: true } : { option_ids: optionIds, text }, input) }
+  return { botId: bot.id, path: botPath(bot.id, 'answer'), body: pinTo(withPendingId(skip ? { skip: true } : { option_ids: optionIds, text }, input), conversationId) }
 }
 
 // { bot_id, pending_id?, decision: 'approve' | 'decline' }
-function decisionFrom (input, state) {
+function decisionFrom (input, state, { conversationId = null } = {}) {
   if (!input || typeof input !== 'object' || !DECISIONS.includes(input.decision)) return null
   const bot = waitingBot(state, input.bot_id, 'approval')
   if (!bot) return null
-  return { botId: bot.id, path: botPath(bot.id, 'approval'), body: withPendingId({ decision: input.decision }, input) }
+  return { botId: bot.id, path: botPath(bot.id, 'approval'), body: pinTo(withPendingId({ decision: input.decision }, input), conversationId) }
 }
 
 // The pending card from the widget state (which carries the first
