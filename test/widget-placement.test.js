@@ -1,7 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const P = require('../src/widget-placement')
-const { islandBounds, islandPlacement, COMPACT_HEIGHT, SHADOW, ISLAND_WIDTH } = require('../src/island-window')
 
 // A laptop with an external display to its left (negative coordinates) and
 // one above-right, as macOS and Windows report them.
@@ -48,43 +47,6 @@ test('while dragged, the window follows the pointer and stays in the work area',
   assert.deepEqual(P.clampToArea({ ...start, x: 1600, y: -40 }, laptop.workArea), { ...start, x: 1512 - 72, y: 37 })
   // The island's shadow margin may hang over the edges.
   assert.deepEqual(P.clampToArea({ x: -50, y: 0, width: 380, height: 56 }, laptop.workArea, 10), { x: -10, y: 27, width: 380, height: 56 })
-})
-
-// --- The island ---------------------------------------------------------------
-
-test('the island snaps home to top-centre within 48px, and stays put further out', () => {
-  const wa = laptop.workArea
-  const home = islandBounds(wa, COMPACT_HEIGHT)
-  assert.equal(P.SNAP_DISTANCE, 48)
-  assert.deepEqual(P.snapIsland(home, home, wa), { snap: 'top-center' })
-  assert.deepEqual(P.snapIsland({ ...home, x: home.x + 30, y: home.y + 30 }, home, wa), { snap: 'top-center' }, '42px away')
-  assert.deepEqual(P.snapIsland({ ...home, x: home.x + 48 }, home, wa), { snap: 'top-center' }, 'exactly 48px')
-  assert.deepEqual(P.snapIsland({ ...home, x: home.x + 49 }, home, wa), { dx: home.x + 49, dy: home.y - 37 })
-  assert.deepEqual(P.snapIsland({ ...home, x: 200, y: 600 }, home, wa), { dx: 200, dy: 563 })
-})
-
-test('the island on another display snaps to that display\'s top-centre', () => {
-  const wa = leftScreen.workArea
-  const home = islandBounds(wa, COMPACT_HEIGHT)
-  assert.equal(home.x + home.width / 2, -1280)
-  assert.deepEqual(P.snapIsland({ ...home, x: home.x - 20, y: home.y + 10 }, home, wa), { snap: 'top-center' })
-  const free = P.snapIsland({ ...home, x: -2400, y: 500 }, home, wa)
-  assert.deepEqual(free, { dx: 160, dy: 675 })
-  assert.deepEqual(islandPlacement(wa, COMPACT_HEIGHT, free), { ...home, x: -2400, y: 500 }, 'restored relative to the work area')
-})
-
-test('the island\'s saved spot is clamped to the work area, open card included', () => {
-  const wa = laptop.workArea
-  const h = COMPACT_HEIGHT + SHADOW * 2
-  // Saved near the bottom: the compact pill fits; open, it lifts so the card does too.
-  const low = { dx: 300, dy: 945 - h + SHADOW }
-  assert.equal(islandPlacement(wa, COMPACT_HEIGHT, low).y, 37 + 945 - h + SHADOW)
-  const open = islandPlacement(wa, 300, low)
-  assert.equal(open.y + open.height, 37 + 945 + SHADOW, 'the open card ends at the bottom of the work area')
-  // Snapped: home, whatever the size.
-  assert.deepEqual(islandPlacement(wa, COMPACT_HEIGHT, { snap: 'top-center' }), islandBounds(wa, COMPACT_HEIGHT))
-  assert.deepEqual(islandPlacement(wa, COMPACT_HEIGHT, null), islandBounds(wa, COMPACT_HEIGHT))
-  assert.equal(ISLAND_WIDTH + SHADOW * 2, islandBounds(wa, COMPACT_HEIGHT).width)
 })
 
 // --- Remembered per display -------------------------------------------------

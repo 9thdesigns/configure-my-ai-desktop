@@ -75,8 +75,8 @@
   --panel-radius: 16px;       /* now (the rebuilt panel: 24px) */
 
   /* --- The island ------------------------------------------------------------ */
-  --island-pill-h: 36px;
-  --island-face: 22px;
+  --island-pill-h: 32px;   /* the floating pill (island-placement.js PILL_HEIGHT) */
+  --island-face: 20px;
 
   /* --- Motion in use now (kept exactly; moved onto the scale later) ------- */
   --dur-hover: 150ms;          /* hovers and small state changes */

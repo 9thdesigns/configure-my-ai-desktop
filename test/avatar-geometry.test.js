@@ -6,7 +6,7 @@
 // app's real markup for every shape, idle and working.
 //
 //   * each slot's --cfa-size is its box, in whole pixels, at the target size
-//     (dock and seat rows 28px; quick chat header and island 22px);
+//     (dock and seat rows 28px; quick chat header 22px; island 20px);
 //   * where a face actually puts ink — diffed from screenshots, sampled
 //     through its animation so a bob or a sway counts at its extreme — stays
 //     inside whatever would clip it, clear of its neighbours and the text
@@ -30,7 +30,7 @@ const ISLAND_CSS = fs.readFileSync(path.join(__dirname, '../src/island.css'), 'u
 // The sizes themselves are tokens, shared by both sheets (widget-tokens.css).
 const TOKENS_CSS = fs.readFileSync(path.join(__dirname, '../src/widget-tokens.css'), 'utf8')
 
-const TARGET = { dock: 28, seat: 28, chat: 22, island: 22 }
+const TARGET = { dock: 28, seat: 28, chat: 22, island: 20 }
 const SLOTS = {
   dock: '.dock-bot .avatar',
   seat: '.picker-item .avatar',
@@ -226,7 +226,7 @@ for (const scheme of ['light', 'dark']) {
     })
   }
 
-  browserTest(`island (${scheme}): a 22px face inside the pill for every shape, idle and working`, async () => {
+  browserTest(`island (${scheme}): a 20px face inside the pill for every shape, idle and working`, async () => {
     for (const state of STATES) {
       for (const shape of H.SHAPES) {
         const { page, context } = await H.openPage(browser, H.ISLAND_URL, { colorScheme: scheme, width: 380, height: 64 })
@@ -239,15 +239,15 @@ for (const scheme of ['light', 'dark']) {
           const pill = await H.rectOf(page, '.island')
           const name = await H.rectOf(page, '.island-name')
           assert.equal(pill.bottom - pill.top, COMPACT_HEIGHT, 'the compact pill is the window height')
-          // The pill clips (overflow: hidden, rounded ends): keep the ink off
-          // its top and bottom edges and inside the rounded end.
+          // The pill clips (overflow: hidden): it hangs from the top edge,
+          // square there and rounded below (island.css --radius). Keep the
+          // ink off its edges and inside the rounded bottom-left corner.
           assert.ok(inside(f.ink, pill, 1), `island ${shape} ${state}: ink ${fmt(f.ink)} inside the pill ${fmt(pill)}`)
-          const r = (pill.bottom - pill.top) / 2
+          const r = parseFloat(await page.locator('.island-clip').evaluate((n) => getComputedStyle(n).borderBottomLeftRadius))
           const cx = pill.left + r
-          const cy = pill.top + r
-          for (const [x, y] of [[f.ink.left, f.ink.top], [f.ink.left, f.ink.bottom]]) {
-            if (x < cx) assert.ok(Math.hypot(cx - x, cy - y) <= r + 1.5, `island ${shape} ${state}: inside the rounded end`)
-          }
+          const cy = pill.bottom - r
+          const [x, y] = [f.ink.left, f.ink.bottom]
+          if (x < cx && y > cy) assert.ok(Math.hypot(cx - x, cy - y) <= r + 1.5, `island ${shape} ${state}: inside the rounded corner`)
           assert.ok(f.ink.right <= name.left - 2, `island ${shape} ${state}: clear of the name`)
         } finally {
           await context.close()

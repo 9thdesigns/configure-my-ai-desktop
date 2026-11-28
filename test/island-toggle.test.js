@@ -20,7 +20,7 @@ const quietState = widgetStateFrom({ ...fixture, manager: idleManager, seats: []
 const busyState = widgetStateFrom(fixture)
 
 // A MacBook Pro 14": the menu bar (with the notch in it) is 37pt tall.
-const NOTCH = { id: 1, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 37, width: 1512, height: 945 } }
+const NOTCH = { id: 1, internal: true, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 37, width: 1512, height: 945 } }
 // A 1080p monitor to the left, a little higher, with a 48px taskbar at the top.
 const LEFT = { id: 2, bounds: { x: -1920, y: -200, width: 1920, height: 1080 }, workArea: { x: -1920, y: -152, width: 1920, height: 1032 } }
 
@@ -50,6 +50,8 @@ function fakeElectron ({ displays = [NOTCH], primary = NOTCH } = {}) {
     showInactive () { this.visible = true }
     hide () { this.visible = false }
     setBounds (b) { this.bounds = b }
+    getBounds () { return { ...(this.bounds || { x: 0, y: 0, width: this.options.width, height: this.options.height }) } }
+    setIgnoreMouseEvents () {}
     setFocusable () {}
     focus () {}
     destroy () { this.destroyed = true; this.emit('closed') }
@@ -59,6 +61,7 @@ function fakeElectron ({ displays = [NOTCH], primary = NOTCH } = {}) {
     primary,
     getAllDisplays () { return this.displays },
     getPrimaryDisplay () { return this.primary },
+    getCursorScreenPoint () { return { x: -1, y: -1 } },
   })
   const session = { fromPartition: () => ({ setPermissionRequestHandler () {}, setPermissionCheckHandler () {} }) }
   return { BrowserWindow, screen, session, windows }
@@ -206,20 +209,30 @@ test('the idle pill renders the manager\'s mark and status; the page knows the i
   assert.match(page, /if \(view\?\.idle\) return api\.openApp\(\)/)
 })
 
-test('notched MacBook: the pill sits centred just under the menu bar, never behind the notch', () => {
-  const b = I.islandBounds(NOTCH.workArea, I.COMPACT_HEIGHT)
-  assert.equal(b.x + b.width / 2, 756)
-  const pillTop = b.y + I.SHADOW
-  assert.ok(pillTop >= NOTCH.workArea.y, `pill top ${pillTop} is below the 37pt menu bar`)
-  assert.equal(pillTop, 37 + I.TOP_MARGIN)
+// Where the page is told the pill is, in screen x, and the edge it is on.
+const lastPill = (win) => win.sent.filter(([c]) => c === 'cma-island:layout').at(-1)[1].pill
+
+test('notched MacBook: at top centre the pill wraps the notch, at the very top', async () => {
+  const { island, win } = setup()
+  await tick()
+  const pill = lastPill(win())
+  assert.equal(pill.screenX, 756, 'centred on the notch')
+  assert.equal(pill.wrap, true)
+  assert.equal(pill.height, 37, 'as tall as the notch (the menu bar)')
+  assert.equal(win().bounds.y, 0)
+  island.destroy()
 })
 
-test('secondary display: the pill follows the main window there, centred in that work area', () => {
+test('secondary display: the pill follows the main window there, flush under its top taskbar', async () => {
   const d = I.islandDisplay({ displays: [NOTCH, LEFT], primary: NOTCH, mainBounds: { x: -1500, y: 0, width: 1200, height: 800 } })
   assert.equal(d.id, 2)
-  const b = I.islandBounds(d.workArea, I.COMPACT_HEIGHT)
-  assert.equal(b.x + b.width / 2, -1920 + 960)
-  assert.equal(b.y + I.SHADOW, -152 + I.TOP_MARGIN, 'under the top taskbar')
+  const { island, win } = setup({ electronOptions: { displays: [NOTCH, LEFT], primary: NOTCH }, mainBounds: { x: -1500, y: 0, width: 1200, height: 800 } })
+  await tick()
+  const pill = lastPill(win())
+  assert.equal(pill.screenX, -1920 + 960)
+  assert.equal(pill.wrap, false, 'no notch on a monitor')
+  assert.equal(win().bounds.y, -152, 'under the top taskbar')
+  island.destroy()
 })
 
 test('display removed, main window gone or off every display: back to the primary', () => {
@@ -228,23 +241,29 @@ test('display removed, main window gone or off every display: back to the primar
   assert.equal(I.islandDisplay({ displays: [LEFT], primary: undefined }).id, 2)
 })
 
-test('a narrow or portrait work area keeps the pill on screen', () => {
-  const b = I.islandBounds({ x: 100, y: 0, width: 300, height: 800 }, I.COMPACT_HEIGHT)
-  assert.equal(b.x + I.SHADOW, 100, 'the pill starts at the left edge of the work area')
+test('a narrow or portrait work area keeps the pill on screen', async () => {
+  const narrow = { id: 5, bounds: { x: 100, y: 0, width: 420, height: 800 }, workArea: { x: 100, y: 0, width: 420, height: 800 } }
+  const { island, win } = setup({ electronOptions: { displays: [narrow], primary: narrow } })
+  await tick()
+  const b = win().bounds
+  assert.ok(b.x >= 100 && b.x + b.width <= 520, `window on the display (${b.x}, ${b.width})`)
+  const pill = lastPill(win())
+  assert.ok(pill.screenX - pill.width / 2 >= 100 && pill.screenX + pill.width / 2 <= 520)
+  island.destroy()
 })
 
 test('display changes re-place the window on the display the main window is now on', async () => {
   const { electron, island, win } = setup({ electronOptions: { displays: [NOTCH, LEFT], primary: NOTCH }, mainBounds: { x: -1500, y: 0, width: 1200, height: 800 } })
   await tick()
-  assert.equal(win().bounds.x + win().bounds.width / 2, -960, 'on the left monitor with the app')
+  assert.equal(lastPill(win()).screenX, -960, 'on the left monitor with the app')
   // Unplug the left monitor.
   electron.screen.displays = [NOTCH]
   electron.screen.emit('display-removed')
-  assert.equal(win().bounds.x + win().bounds.width / 2, 756, 'back on the MacBook')
-  // Resolution change on the MacBook (More Space): wider work area.
-  electron.screen.displays = [{ ...NOTCH, workArea: { x: 0, y: 37, width: 1800, height: 1132 } }]
+  assert.equal(lastPill(win()).screenX, 756, 'back on the MacBook')
+  // Resolution change on the MacBook (More Space): a bigger display.
+  electron.screen.displays = [{ ...NOTCH, bounds: { x: 0, y: 0, width: 1800, height: 1169 }, workArea: { x: 0, y: 37, width: 1800, height: 1132 } }]
   electron.screen.primary = electron.screen.displays[0]
   electron.screen.emit('display-metrics-changed')
-  assert.equal(win().bounds.x + win().bounds.width / 2, 900)
+  assert.equal(lastPill(win()).screenX, 900)
   island.destroy()
 })

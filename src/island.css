@@ -1,8 +1,12 @@
-/* The island: a dark pill by the notch, in the app's ink, that opens into
-   the pending question card. */
+/* The island: a black pill attached to the top or bottom edge of the
+   screen — round the notch at top centre of a MacBook, elsewhere hanging
+   from the edge with concave shoulders — that opens into the pending
+   question card. island-placement.js does the geometry; the page is told
+   the pill's centre, width and edge (cma-island:layout) and draws it inside
+   a window that never moves while it animates. */
 
 :root {
-  --pill: #0a0a0a;
+  --pill: #000;
   --pill-2: #1d1c1b;
   --ink: #f5f4f2;
   --muted: #a39e9a;
@@ -11,13 +15,19 @@
   --working: #2f6feb;
   --failed: #e5484d;
   --ok: #30a46c;
-  /* Whole pixels so the face lands on the pixel grid at 1x and 2x: a 22px
-     face in a 36px pill, 7px from the top, the bottom and the rounded end
-     (so it sits concentric with the end cap). The face's bob reaches about
-     3px past its box while it works; 7px keeps it inside the pill, which
-     clips. island-window.js COMPACT_HEIGHT matches the pill. */
+  /* Whole pixels so the face lands on the pixel grid at 1x and 2x: a 20px
+     face in a 32px pill, 6px from the top, the bottom and the end. Around a
+     notch the pill takes the notch's height (--pill-h, set by the page).
+     island-placement.js PILL_HEIGHT matches --island-pill-h
+     (widget-tokens.css). */
   --pill-h: var(--island-pill-h);
   --face: var(--island-face);
+  --pill-w: 212px;
+  --cx: 50%;
+  --nudge: 0px;
+  --radius: 16px;
+  --shoulder: 6px;
+  --notch-w: 0px;
   color-scheme: dark;
 }
 
@@ -38,35 +48,102 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .island {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  width: 360px;
-  background: var(--pill);
-  border-radius: 18px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-  transition: border-radius var(--dur-island-shape) var(--ease-hover);
+  top: 0;
+  /* Centred on --cx by its left edge, not a transform: a transformed
+     ancestor would put the face off the pixel grid (and blur it). */
+  width: var(--w, var(--pill-w));
+  left: calc(var(--cx) - var(--w, var(--pill-w)) / 2 + var(--nudge));
+  color: var(--ink);
+  /* Width, the nudge, the hover growth and the grabber are springs
+     (island-view.js, motion.js); only the shadow is a transition. */
+  transition: filter var(--dur-island-shape) var(--ease-hover);
   animation: island-in var(--dur-island-in) var(--ease-island-in);
 }
-.island.is-expanded { border-radius: 18px; }
+.island[data-edge="bottom"] { top: auto; bottom: 0; }
 
-@keyframes island-in {
-  from { transform: scale(0.85); opacity: 0; }
-  to { transform: none; opacity: 1; }
+/* The shape: square where it meets the edge, rounded away from it. */
+.island-clip {
+  position: relative;
+  background: var(--pill);
+  border-radius: 0 0 var(--radius) var(--radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
+.island[data-edge="bottom"] .island-clip { border-radius: var(--radius) var(--radius) 0 0; flex-direction: column-reverse; }
+.island[data-wrap] { --radius: 14px; }
+
+/* Concave shoulders: where the pill meets the edge it flares out into it,
+   a quarter circle cut from a small square either side. */
+.shoulder {
+  position: absolute;
+  top: 0;
+  width: var(--shoulder);
+  height: var(--shoulder);
+  pointer-events: none;
+}
+.shoulder-start { left: calc(-1 * var(--shoulder)); background: radial-gradient(circle at 0 100%, transparent calc(var(--shoulder) - 0.5px), var(--pill) var(--shoulder)); }
+.shoulder-end { right: calc(-1 * var(--shoulder)); background: radial-gradient(circle at 100% 100%, transparent calc(var(--shoulder) - 0.5px), var(--pill) var(--shoulder)); }
+.island[data-edge="bottom"] .shoulder { top: auto; bottom: 0; }
+.island[data-edge="bottom"] .shoulder-start { background: radial-gradient(circle at 0 0, transparent calc(var(--shoulder) - 0.5px), var(--pill) var(--shoulder)); }
+.island[data-edge="bottom"] .shoulder-end { background: radial-gradient(circle at 100% 0, transparent calc(var(--shoulder) - 0.5px), var(--pill) var(--shoulder)); }
+
+/* Lifted while it is hovered, open or carried. */
+.island.is-hover, .island.is-expanded, :root[data-dragging] .island { filter: drop-shadow(0 0 10px rgba(0, 0, 0, 0.6)); }
+
+/* The grabber: on the side away from the edge, 6px in. It fades in on
+   hover (and keyboard focus) and widens while dragging; the pill grows by
+   --grow (0 → 8px) to make room for it, away from the edge. Its
+   opacity and width, and --grow, are springs set by island-view.js. */
+.grabber {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  opacity: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.island[data-edge="bottom"] .grabber { bottom: auto; top: 6px; }
+:root[data-no-drag] .grabber { display: none; }
+
+/* A notch in the way: the avatar in the left ear, the state in the right,
+   the notch's width of nothing between them. The name is in the bar's
+   label (and the card). */
+.notch-gap { display: none; }
+.island[data-wrap] .notch-gap { display: block; flex: none; width: var(--notch-w); }
+.island[data-wrap] .island-name { display: none; }
+.island[data-wrap] .island-bar { justify-content: space-between; padding-inline: 10px; }
+.island[data-wrap] .chip { flex: none; font-size: 0; padding: 0 !important; gap: 0; width: 8px; height: 8px; border-radius: 50%; background: currentColor !important; }
+.island[data-wrap][data-chip="idle"] .chip,
+.island[data-wrap][data-chip="offline"] .chip,
+.island[data-wrap][data-chip="screen"] .chip { background: none !important; }
+.island[data-wrap] .chip::before { flex: none; width: 8px !important; height: 8px !important; margin: 0 !important; }
+
+.island-bar:focus-visible, .btn:focus-visible, .option:focus-visible, .btn-link:focus-visible {
+  outline: 2px solid #8fb3ff;
+  outline-offset: 2px;
+}
+.island-bar:focus-visible { outline-offset: -4px; border-radius: inherit; }
 
 .island-bar {
-  width: 100%;
   height: var(--pill-h);
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 7px;
+  gap: 8px;
+  padding: 0 6px;
   line-height: 18px;
+  box-sizing: content-box;
   border: 0;
   background: none;
   text-align: left;
 }
+/* The hover growth, away from the edge (--grow, a spring). */
+.island .island-bar { padding-bottom: var(--grow, 0px); }
+.island[data-edge="bottom"] .island-bar { padding-bottom: 0; padding-top: var(--grow, 0px); }
 
 .avatar {
   width: var(--face);
@@ -145,8 +222,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) { .island[data-chip="screen"] .chip::before { animation: none; } }
 
 /* Idle: the same pill, quieter — the manager's mark, a muted name and a
-   small green dot, so it reads as "on, nothing for you" at a glance. */
-.island.is-idle { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); }
+   small green dot, so it reads as "on, nothing for you" at a glance. (No
+   shadow at rest: it is lifted only while hovered, open or carried.) */
 .island.is-idle .island-name { color: var(--muted); font-weight: 500; }
 .island[data-chip="idle"] .chip,
 .island[data-chip="offline"] .chip {

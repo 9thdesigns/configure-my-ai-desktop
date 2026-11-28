@@ -1,7 +1,7 @@
 'use strict'
 
-// The island: a status pill centred at the top of the screen, by the notch on
-// a MacBook, showing the bot that needs you — its avatar, name and a state
+// The island: a status pill attached to the top or bottom edge of the screen
+// (top centre until dragged; wrapped around the notch on a MacBook), showing the bot that needs you — its avatar, name and a state
 // chip (Questions, Working…, New message, Needs approval, Failed). Hovering
 // or clicking it opens the pending question card right there: lettered
 // options with A–D shortcuts, "Something else", Skip and Done, or Approve and
@@ -25,22 +25,24 @@ const path = require('node:path')
 const { pathToFileURL } = require('node:url')
 const { validId, focusedBot, dockBots } = require('./widget-state')
 const { pendingFromState } = require('./widget-chat')
-const { widgetWindowOptions } = require('./widget-window')
+const { widgetWindowOptions, validRects, cursorOverRects } = require('./widget-window')
 const placement = require('./widget-placement')
+const edges = require('./island-placement')
 
-const ISLAND_WIDTH = 360
-const COMPACT_HEIGHT = 36 // the pill (island.css --pill-h)
+const ISLAND_WIDTH = edges.EXPANDED_WIDTH // the open card
+const COMPACT_HEIGHT = edges.PILL_HEIGHT // the floating pill (island.css --pill-h)
 const MAX_HEIGHT = 440
-const TOP_MARGIN = 6
-const SHADOW = 10 // room around the pill for its shadow
 const PARTITION = 'cma-island'
 
 function islandWindowOptions ({ platform = process.platform, preload }) {
   const base = widgetWindowOptions({ platform, preload })
+  // The envelope for the floating pill at top centre; place() sizes it for
+  // where it really is before it is shown.
+  const half = Math.ceil(Math.max(ISLAND_WIDTH, edges.COMPACT_WIDTH + edges.HOVER_GROW_W) / 2) + edges.SHOULDER
   return {
     ...base,
-    width: ISLAND_WIDTH + SHADOW * 2,
-    height: COMPACT_HEIGHT + SHADOW * 2,
+    width: 2 * (half + edges.PAD),
+    height: COMPACT_HEIGHT + edges.HOVER_GROW_H + edges.PAD,
     webPreferences: { ...base.webPreferences, partition: PARTITION },
   }
 }
@@ -114,19 +116,6 @@ function withScreenIndicator (view, capturing) {
   return { ...view, chip: SCREEN_CHIP, capturing: true }
 }
 
-// Centred at the top of the work area. The work area is the display minus
-// the menu bar (macOS — the notch lives inside the menu bar, so this is just
-// under it), the taskbar (Windows, when docked at the top) or the panel
-// (Linux): the pill never hides behind any of them. Kept inside the work
-// area on a narrow or portrait display.
-function islandBounds (workArea, height) {
-  const h = Math.min(Math.max(Math.round(Number(height)) || COMPACT_HEIGHT, COMPACT_HEIGHT), Math.min(MAX_HEIGHT, workArea.height)) + SHADOW * 2
-  const w = ISLAND_WIDTH + SHADOW * 2
-  const centred = workArea.x + Math.round((workArea.width - w) / 2)
-  const x = Math.max(workArea.x - SHADOW, Math.min(centred, workArea.x + workArea.width - w + SHADOW))
-  return { x, y: workArea.y + TOP_MARGIN - SHADOW, width: w, height: h }
-}
-
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
   Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y))
 
@@ -181,15 +170,24 @@ const HTML_URL = pathToFileURL(HTML_PATH).href
 const HOVER_COLLAPSE_MS = 600
 const DISPLAY_SETTLE_MS = 300
 const MAX_MISSED_MOVES = 3
+const POINTER_POLL_MS = 33
 
-// The island's window for where the user left it on this display: top-centre
-// (islandBounds) when snapped there or never moved, otherwise the spot it was
-// dropped at, kept — pill and open card — inside the work area.
-function islandPlacement (workArea, height, pos) {
-  return placement.islandPlaced(islandBounds(workArea, height), workArea, pos, SHADOW)
+// Where the island goes, and its window: the saved place (or the one a drag
+// is proposing) resolved against the connected displays — the saved display
+// while it is there, else the same edge on the fallback display — and the
+// envelope and pill for it (island-placement.js). `height` is the pill's
+// natural height while open on the card; 0 when compact.
+function islandPlace ({ saved, displays, fallback, height = 0, platform = process.platform, simulateNotch = null }) {
+  const at = edges.resolvePlace(saved, displays, fallback)
+  if (!at) return null
+  const notch = edges.notchFor(at.display, { platform, simulate: simulateNotch })
+  const geometry = edges.islandGeometry({ display: at.display, edge: at.edge, offsetX: at.offsetX, notch, height, maxHeight: MAX_HEIGHT })
+  return { ...at, notch, ...geometry }
 }
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
+const sameBounds = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -199,15 +197,22 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   let view = null
   let collapseTimer = null
   let settleTimer = null
-  // Where the user dragged it: the display, and the position there (null:
-  // top-centre). Until then it follows the main window's display.
-  let placedDisplayId = null
-  let pos = null
+  let pointerTimer = null
+  // Where it is right now (islandPlace), and a drag in progress: where the
+  // pill's centre and the pointer were at the start, and the place it is
+  // proposing (saved on the drop).
+  let current = null
   let drag = null
   let missedMoves = 0
   // Wayland: the compositor places windows (see the README's Hyprland rules).
   let draggable = !placement.likelyWayland(platform, env)
   let capturing = false
+  // Click-through outside the pill and its card (the page reports them).
+  let rects = []
+  let ignoring = null
+  // A notch to draw on a display that has none: development and the Linux
+  // recordings only (CMA_SIMULATE_NOTCH=185x32, unpackaged builds).
+  const simulateNotch = devOverrides ? edges.parseNotch(env.CMA_SIMULATE_NOTCH) : null
 
   const islandSession = session.fromPartition(PARTITION)
   islandSession.setPermissionRequestHandler((_c, _p, callback) => callback(false))
@@ -216,52 +221,66 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   const alive = () => Boolean(win && !win.isDestroyed())
   const send = (channel, payload) => { if (alive()) win.webContents.send(channel, payload) }
 
-  // The display it is on: the one it was dropped on while that is connected;
-  // else the newest remembered display that is; else (never dragged, or the
-  // display is gone) the main window's display at top-centre.
-  function display () {
-    const displays = screen.getAllDisplays()
-    const kept = placedDisplayId !== null && displays.find((d) => d.id === placedDisplayId)
-    if (kept) return kept
-    const saved = placement.findSaved(prefs.get().islandPositions, displays)
-    if (saved) {
-      placedDisplayId = saved.display.id
-      pos = saved.pos
-      return saved.display
-    }
-    placedDisplayId = null
-    pos = null
+  function fallbackDisplay (displays) {
     const main = getMainWindow()
     const mainBounds = main && !main.isDestroyed() && !main.isMinimized?.() ? main.getBounds() : null
     return islandDisplay({ displays, primary: screen.getPrimaryDisplay(), mainBounds })
   }
 
-  function place () {
-    if (!alive() || drag) return
-    const d = display()
-    if (!d) return
-    win.setBounds(islandPlacement(d.workArea, expanded ? height : COMPACT_HEIGHT, pos))
-    send('cma-island:layout', { expanded, focused, draggable })
+  function resolve () {
+    const displays = screen.getAllDisplays()
+    return islandPlace({
+      saved: drag ? drag.place : prefs.get().islandEdge,
+      displays,
+      fallback: fallbackDisplay(displays),
+      height: expanded ? height : 0,
+      platform,
+      simulateNotch,
+    })
   }
 
-  // --- Dragging by the bar: the window follows the pointer, kept inside the
-  // work area under it, and snaps home to top-centre when dropped near it.
+  // Size and move the window for where the island is (once — the pill's own
+  // motion happens inside it) and tell the page where the pill sits.
+  function place () {
+    if (!alive()) return
+    const next = resolve()
+    if (!next) return
+    current = next
+    if (!sameBounds(win.getBounds(), next.window)) win.setBounds(next.window)
+    send('cma-island:layout', {
+      expanded,
+      focused,
+      draggable,
+      dragging: Boolean(drag),
+      snapped: Boolean(drag && drag.snapped),
+      pill: { ...next.pill, screenX: next.window.x + next.pill.centre },
+    })
+  }
+
+  // --- Dragging: the pill slides along the edge under the pointer, flips to
+  // the other edge past the display's middle, and is caught by the centre
+  // magnet; the drop is saved.
   function dragStart (point) {
     if (!draggable || !alive()) return
     clearTimeout(collapseTimer)
     if (expanded || focused) collapse()
-    drag = { startBounds: win.getBounds(), startPoint: point, bounds: win.getBounds() }
+    if (!current) place()
+    if (!current) return
+    drag = { startCentre: edges.screenCentre(current), startPoint: point, place: null, snapped: false }
     missedMoves = 0
+    setIgnore(false)
   }
 
   function dragMove (point) {
     if (!drag || !alive()) return
-    const at = placement.dragPosition(drag.startBounds, drag.startPoint, point)
     const d = placement.displayNearest(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
-    const next = d ? placement.clampToArea({ ...drag.startBounds, ...at }, d.workArea, SHADOW) : { ...drag.startBounds, ...at }
-    win.setBounds(next)
-    drag.bounds = next
-    if (placement.landed(next, win.getBounds())) missedMoves = 0
+    if (!d) return
+    const at = edges.dragPlace({ display: d, startCentre: drag.startCentre, startPoint: drag.startPoint, point })
+    drag.place = { displayId: d.id, displayBounds: d.bounds, edge: at.edge, offsetX: at.offsetX }
+    drag.snapped = at.snapped
+    place()
+    // A platform that ignores client positioning: stop trying, put it back.
+    if (placement.landed(current.window, win.getBounds())) missedMoves = 0
     else if (++missedMoves >= MAX_MISSED_MOVES) {
       draggable = false
       drag = null
@@ -273,14 +292,22 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     if (!drag || !alive()) return
     dragMove(point)
     if (!drag) return
-    const bounds = drag.bounds
+    const at = drag.place
     drag = null
-    const d = placement.displayNearest(screen.getAllDisplays(), { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 })
-    if (!d) return place()
-    pos = placement.snapIsland(bounds, islandBounds(d.workArea, COMPACT_HEIGHT), d.workArea)
-    placedDisplayId = d.id
-    prefs.set({ islandPositions: placement.remember(prefs.get().islandPositions, d, pos) })
+    if (at) prefs.set({ islandEdge: at })
     place()
+  }
+
+  function setIgnore (ignore) {
+    if (!alive() || ignoring === ignore) return
+    ignoring = ignore
+    win.setIgnoreMouseEvents(ignore, { forward: true })
+  }
+
+  function pollPointer () {
+    if (!alive() || !win.isVisible()) return
+    if (drag || focused) return setIgnore(false)
+    setIgnore(!cursorOverRects(screen.getCursorScreenPoint(), win.getBounds(), rects))
   }
 
   function collapse () {
@@ -316,9 +343,14 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     win.on('closed', () => {
       win = null
       drag = null
+      current = null
       sentCssUrl = null
       expanded = false
       focused = false
+      rects = []
+      ignoring = null
+      clearInterval(pointerTimer)
+      pointerTimer = null
     })
     win.once('ready-to-show', () => {
       if (!alive()) return
@@ -326,6 +358,8 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (view) win.showInactive()
     })
     win.loadFile(HTML_PATH)
+    pointerTimer = setInterval(pollPointer, POINTER_POLL_MS)
+    pointerTimer.unref?.()
   }
 
   // Shown whenever the pref is on: the bot that needs the user, or the idle
@@ -369,8 +403,9 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   }
 
   // A display added, removed, rescaled, rotated, or its menu bar / taskbar
-  // moved: place now, and again once the OS has finished moving windows
-  // between displays (the main window may land somewhere else).
+  // moved: place now (re-homed to the same edge if its display went, kept
+  // inside the work area if it shrank), and again once the OS has finished
+  // moving windows between displays (the main window may land elsewhere).
   const onDisplays = () => {
     place()
     clearTimeout(settleTimer)
@@ -405,6 +440,12 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (expanded) place()
     })
 
+    // The pill (and its card, while open): where the window takes the mouse.
+    ipcMain.on('cma-island:hit-rects', (event, input) => {
+      if (!fromIsland(event)) return
+      rects = validRects(input, win.getBounds())
+    })
+
     // Hover: open the card without taking focus. Leaving closes it again,
     // after a beat, unless the user clicked into it.
     ipcMain.on('cma-island:hover', (event, inside) => {
@@ -421,6 +462,16 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (d.phase === 'start') dragStart(d)
       else if (d.phase === 'move') dragMove(d)
       else dragEnd(d)
+    })
+
+    // Alt + arrows on the focused bar: along the edge, or to the other one.
+    ipcMain.on('cma-island:move', (event, input) => {
+      if (!fromIsland(event) || drag || !draggable || !current) return
+      const from = { displayId: current.display.id, displayBounds: current.display.bounds, edge: current.edge, offsetX: current.offsetX }
+      const next = edges.keyboardMove(from, input)
+      if (!next) return
+      prefs.set({ islandEdge: next })
+      place()
     })
 
     ipcMain.on('cma-island:activate', (event) => {
@@ -471,6 +522,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     destroy () {
       clearTimeout(collapseTimer)
       clearTimeout(settleTimer)
+      clearInterval(pointerTimer)
       offStore()
       offPrefs()
       screen.removeListener('display-metrics-changed', onDisplays)
@@ -485,12 +537,10 @@ module.exports = {
   ISLAND_WIDTH,
   COMPACT_HEIGHT,
   MAX_HEIGHT,
-  TOP_MARGIN,
-  SHADOW,
   PARTITION,
   HTML_URL,
   islandWindowOptions,
-  islandPlacement,
+  islandPlace,
   MAX_MISSED_MOVES,
   islandChip,
   islandBot,
@@ -498,7 +548,6 @@ module.exports = {
   withScreenIndicator,
   SCREEN_CHIP,
   islandIdleView,
-  islandBounds,
   islandDisplay,
   ISLAND_MENU_ID,
   islandMenuItem,
