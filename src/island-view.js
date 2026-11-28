@@ -501,7 +501,9 @@
     const jelly = window.CmaJellyBadge
     const count = Math.max(0, Math.trunc(Number(v && v.badge)) || 0)
     if (!jelly || typeof jelly.paint !== 'function') { badgeSlot.hidden = true; return }
-    badgeSlot.hidden = count === 0
+    // The slot stays; paint decides — it plays the badge out (and empties
+    // itself after), and shows the working dots, which come with count 0.
+    badgeSlot.hidden = false
     jelly.paint(badgeSlot, { count, mode: v.mode })
   }
 

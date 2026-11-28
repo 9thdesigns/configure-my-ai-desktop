@@ -159,6 +159,21 @@ pageTest('the jelly badge (jelly-badge.js) paints the island\'s count on the ava
   })
   assert.deepEqual([jelly.kind, jelly.glyph], ['unread', '2'], 'a message: the indigo count')
   assert.match(jelly.ring, /#000|#0a0a0a|var\(--pill/, 'the ring is the island\'s fill')
+  // Nothing to count: the slot stays and the badge plays itself out
+  // (jelly-badge.js leave), rather than vanishing at once.
   await show(page, VIEWS.idle)
-  assert.equal(await page.locator('[data-role="badge"]').isHidden(), true, 'nothing to count')
+  assert.equal(await page.locator('[data-role="badge"]').evaluate((n) => n.hidden), false, 'the slot stays for the out animation')
+  assert.ok(await page.evaluate(() => document.querySelector('[data-role="badge"] .jelly').getAnimations({ subtree: true }).length > 0), 'the out animation is playing')
 })
+
+pageTest('working comes with a count of 0: the slot stays and paint shows the working dots', async (page) => {
+  await show(page, VIEWS.working)
+  assert.equal(await page.locator('[data-role="badge"]').evaluate((n) => n.hidden), false)
+  assert.equal(await page.locator('[data-role="badge"] .jelly').evaluate((n) => n.hasAttribute('data-working')), true)
+})
+
+pageTest('reduced motion: nothing to count empties the badge at once', async (page) => {
+  await show(page, VIEWS.message)
+  await show(page, VIEWS.idle)
+  assert.equal(await page.locator('[data-role="badge"] .jelly').evaluate((n) => n.hasAttribute('data-empty')), true)
+}, { reducedMotion: 'reduce' })
