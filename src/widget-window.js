@@ -44,6 +44,7 @@ const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PI
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
 const dockPlace = require('./dock-placement')
+const { detectArrivals } = require('./arrivals')
 const edgeDrag = require('./edge-drag')
 const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
 
@@ -61,6 +62,10 @@ const POPOVER_WIDTH = 380
 const POPOVER_HEIGHT = 520
 const PANEL_GAP = 18 // between the dock body and the quick-chat panel
 const EXPANDED_WIDTH = POPOVER_WIDTH + PANEL_GAP + DOCK_BODY_WIDTH
+// The finished-work shelf (widget-view.js): pills beside the dock, up to
+// SHELF_WIDTH wide, PANEL_GAP from it, with a little room for their shadow.
+const SHELF_WIDTH = 320
+const SHELF_STAGE_WIDTH = DOCK_BODY_WIDTH + PANEL_GAP + SHELF_WIDTH + 16
 const MIN_DOCK_HEIGHT = 64
 const MAX_RECTS = 16
 const POINTER_POLL_MS = 33
@@ -123,7 +128,7 @@ function dockOffset (offsetY, workArea, dockHeight) {
 // it widens inward (away from that edge) to hold the popover, which lines up
 // with the top of the dock unless that would run off the bottom of the work
 // area. The dock itself never moves on screen.
-function layoutFor ({ workArea, dockHeight, offsetY, expanded, side = 'right' }) {
+function layoutFor ({ workArea, dockHeight, offsetY, expanded, side = 'right', shelf = false }) {
   const height = validDockHeight(dockHeight, workArea)
   const dockY = workArea.y + dockOffset(offsetY, workArea, height)
   const left = side === 'left'
@@ -131,8 +136,10 @@ function layoutFor ({ workArea, dockHeight, offsetY, expanded, side = 'right' })
   const xFor = (width) => (left ? edgeX : edgeX - width)
 
   if (!expanded) {
+    // With the shelf out, the window widens inward to hold it.
+    const width = shelf ? SHELF_STAGE_WIDTH : DOCK_WIDTH
     return {
-      bounds: { x: xFor(DOCK_WIDTH), y: dockY, width: DOCK_WIDTH, height },
+      bounds: { x: xFor(width), y: dockY, width, height },
       dockTop: 0,
       popoverTop: 0,
       popoverHeight: 0,
@@ -264,7 +271,7 @@ const DRAG_TICK_MS = 16
 const TRIM_DELAY_MS = 700
 const CLOSE_MS = 320
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, onResponseArrived = () => {}, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -287,6 +294,11 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   let switchTimer = null
   let trimTimer = null
   let closing = false
+  // The finished-work shelf is out (the page says so): the collapsed window
+  // widens to hold it.
+  let shelfOpen = false
+  // The state the last arrivals were read against (arrivals.js).
+  let arrivalsFrom
   // Wayland: the compositor places windows, so the dock does not drag.
   let draggable = !placement.likelyWayland(platform, env)
   let missedMoves = 0
@@ -338,7 +350,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   function currentLayout (open = expanded) {
     const workArea = display().workArea
     const offsetY = dockPlace.dockTop(workArea, validDockHeight(dockHeight, workArea), offset) - workArea.y
-    return layoutFor({ workArea, dockHeight, offsetY, expanded: open, side })
+    return layoutFor({ workArea, dockHeight, offsetY, expanded: open, side, shelf: shelfOpen && !open })
   }
 
   function layoutMessage (layout, extra = {}) {
@@ -386,6 +398,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       win.setFocusable(false)
     }
     closing = false
+    shelfOpen = false
     timers.clearTimeout(trimTimer)
     timers.clearTimeout(switchTimer)
     trimTimer = switchTimer = null
@@ -668,8 +681,22 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 
   // Shown while the pref is on and there is somebody to show (signed in);
   // the main window's state has nothing to do with it.
+  // A bot in the dock that has just answered: the island hears of it (its
+  // "New message" swap), and the page nudges the seat and — if the pref is
+  // on — drips a pill out beside the dock.
+  function checkArrivals (state) {
+    if (state === arrivalsFrom) return
+    const prev = arrivalsFrom
+    arrivalsFrom = state
+    for (const arrival of detectArrivals(prev, state)) {
+      try { onResponseArrived({ bot_id: arrival.bot_id }) } catch {}
+      send('cma-widget:arrival', { ...arrival, shelf: prefs.get().showFinishedWork !== false })
+    }
+  }
+
   function sync () {
     const state = store.get()
+    checkArrivals(state)
     // Both switches: the shell's pref (tray "Show Widget") and the server's
     // enabled flag, which the tray toggle also sets.
     const show = prefs.get().showWidget && Boolean(state?.enabled) && dockBots(state).length > 0
@@ -744,6 +771,14 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
         dockHeight = height
         place()
       }
+    })
+
+    // The page's shelf is out (or gone): widen (or trim) the collapsed window.
+    ipcMain.on('cma-widget:shelf', (event, open) => {
+      if (!fromWidget(event) || typeof open !== 'boolean') return
+      if (open === shelfOpen) return
+      shelfOpen = open
+      if (!expanded && !drag) place()
     })
 
     ipcMain.on('cma-widget:drag', (event, input) => {
@@ -865,6 +900,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 module.exports = {
   DOCK_WIDTH,
   DOCK_BODY_WIDTH,
+  SHELF_WIDTH,
+  SHELF_STAGE_WIDTH,
   DOCK_SHADOW_TOP,
   DOCK_SHADOW_BOTTOM,
   PANEL_GAP,

@@ -22,6 +22,8 @@
 //                             (dock-placement.js validates them; an older
 //                             { side, offsetY } is migrated the first time
 //                             its display is used).
+//   showFinishedWork        — a bot's finished answer drips out beside the
+//                             dock as a pill (widget-view.js). On by default.
 //   islandShortcut          — the global shortcut that opens the island's
 //                             Manager composer, one of island-composer.js
 //                             SHORTCUTS ('ctrl-alt-space' by default, 'off').
@@ -51,6 +53,7 @@ function defaults (platform = process.platform) {
     keepRunningInBackground: platform === 'darwin',
     showWidget: true,
     showIsland: true,
+    showFinishedWork: true,
     shareScreen: false,
     widgetPositions: [],
     islandEdge: null,

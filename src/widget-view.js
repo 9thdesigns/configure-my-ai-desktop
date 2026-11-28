@@ -250,7 +250,7 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
-      const rects = [dock, popover, picker]
+      const rects = [dock, popover, picker, shelfEl]
         .filter((node) => !node.hidden)
         .map((node) => {
           const r = node.getBoundingClientRect()
@@ -355,6 +355,7 @@
 
   function onDragChange (on) {
     document.documentElement.toggleAttribute('data-dragging', on)
+    if (on) clearShelf()
     samples.length = 0
     if (feelFrame !== null) cancelAnimationFrame(feelFrame)
     feelFrame = null
@@ -424,6 +425,232 @@
       reportLayout()
     }, () => {})
   }
+
+  // --- A response arrived: the seat's nudge and the finished-work shelf --
+  // The seat springs 1 → 1.10 → 1 (snappy; nothing under reduced motion);
+  // the jelly badge enters or bumps on its own (the state says so).
+  function nudgeSeat (botId) {
+    const button = buttons.get(botId)
+    if (!button || reducedMotion() || typeof button.animate !== 'function') return
+    const { values, duration } = Motion.sample('snappy', { from: 1, to: 1, velocity: 1 })
+    const peak = Math.max(...values.map((v) => v - 1)) || 1
+    const frames = values.map((v) => ({ transform: `scale(${(1 + ((v - 1) / peak) * 0.1).toFixed(4)})` }))
+    frames[frames.length - 1] = { transform: 'scale(1)' }
+    button.animate(frames, { duration, easing: 'linear' })
+  }
+
+  // The shelf: up to three pills (then "N more"), each a bot's face, an
+  // icon (a message or a file) and its label; it drips out (560ms, from
+  // scale .6, transparent, 32px toward the edge, overshooting), lives 8s —
+  // hovering the dock or the shelf pauses that, with 600ms more once the
+  // pointer leaves — and leaves (300ms, fading 24px toward the edge).
+  // Clicking one opens that chat. Main widens the window while the shelf
+  // is out (api.shelf). Reduced motion: it fades.
+  const shelfEl = $('#shelf')
+  const shelfList = $('[data-role="shelf-list"]', shelfEl)
+  const SHELF_LIFE = 8000
+  const SHELF_GRACE = 600
+  const SHELF_SHOWN = 3
+  const SHELF_INSET = 22 // level with the first seat
+  // Our own icons, drawn as SVG nodes (nothing is set as HTML here).
+  const ICON_PATHS = {
+    message: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3Z',
+    file: 'M4.5 1.75h4.75L12.5 5v8.25a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1Z M9 1.9V5.25h3.3',
+  }
+  function iconNode (kind) {
+    const NS = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    const path = document.createElementNS(NS, 'path')
+    path.setAttribute('d', ICON_PATHS[kind] || ICON_PATHS.message)
+    path.setAttribute('fill', 'none')
+    path.setAttribute('stroke', 'currentColor')
+    path.setAttribute('stroke-width', '1.4')
+    path.setAttribute('stroke-linejoin', 'round')
+    svg.append(path)
+    return svg
+  }
+  let shelfItems = [] // { botId, name, label, kind, el, remaining, startedAt, timer, leaving }
+  let shelfHover = false
+  let moreEl = null
+  let shelfReported = false
+
+  const towardEdge = () => (document.documentElement.dataset.side === 'left' ? -1 : 1)
+
+  function reportShelf (open) {
+    if (open === shelfReported) return
+    shelfReported = open
+    if (typeof api.shelf === 'function') api.shelf(open)
+  }
+
+  function shelfArrive (a) {
+    const name = typeof a.name === 'string' ? a.name : ''
+    const label = typeof a.label === 'string' && a.label ? a.label : 'New message'
+    const kind = a.kind === 'file' ? 'file' : 'message'
+    const same = shelfItems.find((i) => i.botId === a.bot_id && !i.leaving)
+    if (same) {
+      Object.assign(same, { name, label, kind })
+      paintPill(same)
+      restartLife(same)
+      return
+    }
+    shelfItems.push({ botId: a.bot_id, name, label, kind, el: null, remaining: SHELF_LIFE, startedAt: 0, timer: null, leaving: false })
+    // Ask for the room first; enter once the wider window is up (a frame,
+    // at most 250ms).
+    const wasOpen = shelfReported
+    reportShelf(true)
+    if (wasOpen) renderShelf()
+    else {
+      let done = false
+      const go = () => { if (!done) { done = true; renderShelf() } }
+      requestAnimationFrame(() => requestAnimationFrame(go))
+      setTimeout(go, 250)
+    }
+  }
+
+  function paintPill (item) {
+    const bot = botById(item.botId) || { id: item.botId, name: item.name }
+    const button = item.el
+    paintAvatar(button.querySelector('.avatar'), bot)
+    const icon = button.querySelector('.shelf-icon')
+    if (icon.dataset.kind !== item.kind) {
+      icon.dataset.kind = item.kind
+      icon.replaceChildren(iconNode(item.kind))
+    }
+    const text = item.label
+    button.querySelector('.shelf-label').textContent = text
+    button.title = `${item.name || bot.name}: ${text}`
+    button.setAttribute('aria-label', `${item.name || bot.name}: ${text}. Open the chat.`)
+  }
+
+  function makePill (item) {
+    const li = el('li')
+    const button = el('button', 'shelf-pill')
+    button.type = 'button'
+    button.append(el('span', 'avatar'), el('span', 'shelf-icon'), el('span', 'shelf-label'))
+    button.addEventListener('click', () => {
+      api.open(item.botId)
+      removeItem(item)
+    })
+    li.append(button)
+    item.el = button
+    item.li = li
+    paintPill(item)
+    return li
+  }
+
+  function startLife (item) {
+    if (item.timer || item.leaving || shelfHover) return
+    item.startedAt = Date.now()
+    item.timer = setTimeout(() => { item.timer = null; removeItem(item) }, Math.max(0, item.remaining))
+  }
+  function pauseLife (item) {
+    if (!item.timer) return
+    clearTimeout(item.timer)
+    item.timer = null
+    item.remaining -= Date.now() - item.startedAt
+  }
+  function restartLife (item) {
+    pauseLife(item)
+    item.remaining = SHELF_LIFE
+    startLife(item)
+  }
+
+  function renderShelf () {
+    const shown = shelfItems.filter((i) => !i.leaving).slice(0, SHELF_SHOWN)
+    for (const item of shown) {
+      if (item.li) continue
+      const li = makePill(item)
+      shelfList.insertBefore(li, moreEl ? moreEl.parentNode : null)
+      enterPill(item.el)
+      startLife(item)
+    }
+    const extra = shelfItems.filter((i) => !i.leaving).length - shown.length
+    if (extra > 0) {
+      if (!moreEl) {
+        const li = el('li')
+        moreEl = el('span', 'shelf-pill shelf-more')
+        li.append(moreEl)
+        shelfList.append(li)
+      }
+      moreEl.textContent = `${extra} more`
+    } else if (moreEl) {
+      moreEl.parentNode.remove()
+      moreEl = null
+    }
+    shelfEl.hidden = shelfItems.length === 0
+    if (!shelfItems.length) reportShelf(false)
+    reportLayout()
+  }
+
+  function enterPill (button) {
+    if (typeof button.animate !== 'function') return
+    if (reducedMotion()) return button.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 })
+    const dx = 32 * towardEdge()
+    button.animate([
+      { opacity: 0, transform: `translateX(${dx}px) scale(0.6)` },
+      { opacity: 1, transform: 'none' },
+    ], { duration: 560, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' })
+  }
+
+  function removeItem (item) {
+    if (item.leaving) return
+    item.leaving = true
+    pauseLife(item)
+    const finish = () => {
+      shelfItems = shelfItems.filter((i) => i !== item)
+      if (item.li) item.li.remove()
+      renderShelf()
+    }
+    if (!item.el || typeof item.el.animate !== 'function') return finish()
+    const frames = reducedMotion()
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${24 * towardEdge()}px)` }]
+    const a = item.el.animate(frames, { duration: reducedMotion() ? 150 : 300, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'forwards' })
+    a.finished.then(finish, finish)
+    renderShelf() // the next one in line comes in as this one goes
+  }
+
+  function clearShelf () {
+    for (const item of shelfItems) pauseLife(item)
+    shelfItems = []
+    shelfList.textContent = ''
+    moreEl = null
+    shelfEl.hidden = true
+    reportShelf(false)
+  }
+
+  // Hovering the dock or the shelf holds every pill; once the pointer has
+  // been off both for 600ms, their clocks run on from where they stopped
+  // (so they still leave oldest first).
+  let graceTimer = null
+  function setShelfHover (on) {
+    clearTimeout(graceTimer)
+    graceTimer = null
+    if (on) {
+      if (shelfHover) return
+      shelfHover = true
+      for (const item of shelfItems) pauseLife(item)
+      return
+    }
+    if (!shelfHover) return
+    graceTimer = setTimeout(() => {
+      graceTimer = null
+      shelfHover = false
+      for (const item of shelfItems) startLife(item)
+    }, SHELF_GRACE)
+  }
+  let hoverDock = false
+  let hoverShelf = false
+  const syncHover = () => setShelfHover(hoverDock || hoverShelf)
+  dock.addEventListener('pointerenter', () => { hoverDock = true; syncHover() })
+  dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
+  shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })
+  shelfEl.addEventListener('pointerleave', () => { hoverShelf = false; syncHover() })
 
   // --- The popover ---------------------------------------------------------
 
@@ -509,6 +736,15 @@
   const setClass = (row, className) => { if (row.className !== className) row.className = className }
 
   function paintRow (row, item) {
+    if (item.kind === 'typing') {
+      if (row.className !== 'typing') {
+        row.className = 'typing'
+        row.setAttribute('aria-label', 'Typing')
+        row.textContent = ''
+        for (let i = 0; i < 3; i++) row.append(document.createElement('i'))
+      }
+      return
+    }
     if (item.kind === 'separator') {
       setClass(row, 'time-sep')
       return setRowText(row, item.text)
@@ -582,6 +818,8 @@
 
     const atBottom = toBottom || nearBottom()
     const items = format.threadItems(thread, { outbox })
+    // The bot is working on an answer: its typing dots, last.
+    if (botById(layout.botId)?.mood === 'working') items.push({ key: 'typing', kind: 'typing' })
     const keys = new Set(items.map((item) => item.key))
 
     // Something kept on screen, to hold the view still if rows above it go.
@@ -978,9 +1216,22 @@
     }
     renderWorkspace()
     renderDock()
-    if (layout.expanded && layout.mode === 'chat') renderHead()
+    if (layout.expanded && layout.mode === 'chat') {
+      renderHead()
+      renderMessages() // the typing dots follow the bot's mood
+    }
     if (layout.expanded && layout.mode === 'picker') renderPicker()
   })
+
+  // A bot's answer arrived (main, arrivals.js): its seat nudges, and — with
+  // "Show finished work" on — a pill drips out beside the dock.
+  if (typeof api.onArrival === 'function') {
+    api.onArrival((arrival) => {
+      if (!arrival || typeof arrival.bot_id !== 'string') return
+      nudgeSeat(arrival.bot_id)
+      if (arrival.shelf) shelfArrive(arrival)
+    })
+  }
 
   api.onLayout((next) => {
     if (!next) return
@@ -989,7 +1240,9 @@
     layout = next
     document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
     document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
+    document.documentElement.toggleAttribute('data-expanded', Boolean(next.expanded))
     dock.style.top = `${next.dockTop + SHADOW_TOP}px`
+    shelfEl.style.top = `${next.dockTop + SHADOW_TOP + SHELF_INSET}px`
     if (next.tuck) tuck()
     if (next.budIn) budIn(next.side)
     const wantChat = next.expanded && next.mode === 'chat'

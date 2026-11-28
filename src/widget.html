@@ -51,6 +51,11 @@
     <div class="picker-search"><input type="search" data-role="picker-query" placeholder="Search bots…" aria-label="Search bots"></div>
     <ul class="picker-list" data-role="picker-list"></ul>
   </section>
+  <!-- The finished-work shelf: a bot's answer drips out beside the dock as
+       a pill (widget-view.js); click one to open that chat. -->
+  <aside id="shelf" class="shelf" aria-label="Finished work" aria-live="polite" hidden>
+    <ol class="shelf-list" data-role="shelf-list"></ol>
+  </aside>
   <nav id="dock" class="dock" aria-label="Bots">
     <!-- The dock's one filled shape, growing out of the screen edge
          (dock-shape.js draws the path), and the rim light along the seam. -->
