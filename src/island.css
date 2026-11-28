@@ -116,7 +116,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .notch-gap { display: none; }
 .island[data-wrap] .notch-gap { display: block; flex: none; width: var(--notch-w); }
 .island[data-wrap] .island-name { display: none; }
-.island[data-wrap] .island-bar { justify-content: space-between; padding-inline: 10px; }
+.island[data-wrap] .island-bar { padding-inline: 10px; }
+.island[data-wrap] .bar-content { justify-content: space-between; }
 .island[data-wrap] .chip { flex: none; font-size: 0; padding: 0 !important; gap: 0; width: 8px; height: 8px; border-radius: 50%; background: currentColor !important; }
 .island[data-wrap][data-chip="idle"] .chip,
 .island[data-wrap][data-chip="offline"] .chip,
@@ -141,6 +142,26 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: none;
   text-align: left;
 }
+/* What the bar shows (the avatar, the name, the state), in one box so a
+   change of state can swap it as a whole (island-view.js: the old content
+   fades out with a blur, the new one springs in). */
+.island-bar { position: relative; }
+.bar-content {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bar-ghost { position: absolute; pointer-events: none; }
+
+/* The avatar's box: hovering scales it up and nudges it out and away from
+   the edge (a spring, island-view.js); the badge sits on its corner. */
+.avatar-wrap { position: relative; flex: none; display: grid; transform-origin: 50% 50%; }
+.badge-slot { position: absolute; top: -4px; right: -6px; pointer-events: none; }
+.badge-slot[hidden] { display: none; }
+
 /* The hover growth, away from the edge (--grow, a spring). */
 .island .island-bar { padding-bottom: var(--grow, 0px); }
 .island[data-edge="bottom"] .island-bar { padding-bottom: 0; padding-top: var(--grow, 0px); }
@@ -215,9 +236,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .island[data-chip="working"] .chip { background: rgba(47, 111, 235, 0.18); color: #8fb3ff; }
 .island[data-chip="responded"] .chip { background: rgba(48, 164, 108, 0.18); color: #6fd3a0; }
 .island[data-chip="failed"] .chip { background: rgba(229, 72, 77, 0.18); color: #ff8a8d; }
-/* Share screen is capturing (screen-share.js): a red recording dot. */
+/* Recording (Share screen is capturing, screen-share.js): a red 8px dot
+   pulsing once every 1.2s (0.6s each way). */
 .island[data-chip="screen"] .chip { background: rgba(229, 72, 77, 0.22); color: #ffb3b5; }
-.island[data-chip="screen"] .chip::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #ff5a5f; vertical-align: 1px; animation: screen-dot var(--dur-pulse) ease-in-out infinite alternate; }
+.island[data-chip="screen"] .chip::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #ff5a5f; vertical-align: 0; animation: screen-dot 0.6s ease-in-out infinite alternate; }
+.island[data-mode="recording"]:not([data-wrap]) .island-name { display: none; } /* the chip says it all; the bar's label keeps the name */
+.island[data-mode="recording"]:not([data-wrap]) .chip { margin-left: auto; }
 @keyframes screen-dot { from { opacity: 1; } to { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .island[data-chip="screen"] .chip::before { animation: none; } }
 
