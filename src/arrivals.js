@@ -20,7 +20,11 @@ const FILE = /\.(pdf|docx?|xlsx?|pptx?|csv|md|txt|json|zip|png|jpe?g|gif|svg|htm
 function arrivalFor (bot) {
   const detail = (bot.state && bot.state.detail) || ''
   const label = (detail || 'New message').slice(0, MAX_LABEL)
-  return { bot_id: bot.id, name: bot.name, label, kind: FILE.test(detail) ? 'file' : 'message' }
+  // The conversation it arrived in (the id the conversation routes take to
+  // pin a chat: a bot's session_id, the manager's thread_id), or null.
+  const state = bot.state || {}
+  const conversation = (bot.id === 'manager' ? state.thread_id : state.session_id) || null
+  return { bot_id: bot.id, name: bot.name, label, kind: FILE.test(detail) ? 'file' : 'message', conversation_id: conversation }
 }
 
 function detectArrivals (prev, next) {

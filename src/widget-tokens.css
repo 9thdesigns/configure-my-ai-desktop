@@ -88,6 +88,12 @@
   --panel-width: 380px;       /* the quick-chat panel */
   --panel-gap: 18px;          /* between the dock and the panel */
   --panel-radius: 16px;       /* now (the rebuilt panel: 24px) */
+  --recents-width: 288px;     /* a seat's recents card (widget-window.js RECENTS_*) */
+  --recents-pad: 8px;
+  --recents-head: 44px;
+  --recents-row: 52px;
+  --recents-gap: 10px;        /* between the dock body and the card (the bridge spans it) */
+  --recents-dot: 8px;         /* a row's unread dot */
 
   /* --- The island ------------------------------------------------------------ */
   --island-pill-h: 32px;   /* the floating pill (island-placement.js PILL_HEIGHT) */

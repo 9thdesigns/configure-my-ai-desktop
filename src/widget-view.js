@@ -19,6 +19,7 @@
   const botsEl = $('[data-role="bots"]', dock)
   const popover = $('#popover')
   const picker = $('#picker')
+  const recentsEl = $('#recents')
   const pickerQuery = $('[data-role="picker-query"]', picker)
   const pickerList = $('[data-role="picker-list"]', picker)
   const addButton = $('[data-role="add"]', dock)
@@ -130,7 +131,15 @@
         button.type = 'button'
         button.dataset.botId = bot.id
         button.append(el('span', 'avatar'))
-        button.addEventListener('click', () => api.open(bot.id))
+        // A click opens the seat's recents card; a double-click or an
+        // Option-click goes straight to the latest chat (the second click of
+        // a double-click turns the card that just opened into the chat).
+        // Enter / Space on a focused seat is a click (detail 0): the card.
+        button.addEventListener('click', (event) => {
+          if (event.detail > 2) return
+          if (event.detail === 2 || event.altKey || typeof api.recents !== 'function') return api.open(bot.id)
+          api.recents(bot.id, seatCentre(button))
+        })
         button.addEventListener('contextmenu', (event) => {
           event.preventDefault()
           api.contextMenu(bot.id)
@@ -250,7 +259,7 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
-      const rects = [dock, popover, picker, shelfEl]
+      const rects = [dock, popover, picker, shelfEl, recentsEl]
         .filter((node) => !node.hidden)
         .map((node) => {
           const r = node.getBoundingClientRect()
@@ -307,6 +316,7 @@
     new ResizeObserver(() => { drawShape(); markOverflow() }).observe(dock)
     observer.observe(popover)
     observer.observe(picker)
+    observer.observe(recentsEl)
   }
 
   // --- Dragging the dock anywhere ------------------------------------------
@@ -491,14 +501,15 @@
     const name = typeof a.name === 'string' ? a.name : ''
     const label = typeof a.label === 'string' && a.label ? a.label : 'New message'
     const kind = a.kind === 'file' ? 'file' : 'message'
+    const conversationId = typeof a.conversation_id === 'string' && a.conversation_id ? a.conversation_id : null
     const same = shelfItems.find((i) => i.botId === a.bot_id && !i.leaving)
     if (same) {
-      Object.assign(same, { name, label, kind })
+      Object.assign(same, { name, label, kind, conversationId })
       paintPill(same)
       restartLife(same)
       return
     }
-    shelfItems.push({ botId: a.bot_id, name, label, kind, el: null, remaining: SHELF_LIFE, startedAt: 0, timer: null, leaving: false })
+    shelfItems.push({ botId: a.bot_id, name, label, kind, conversationId, el: null, remaining: SHELF_LIFE, startedAt: 0, timer: null, leaving: false })
     // Ask for the room first; enter once the wider window is up (a frame,
     // at most 250ms).
     const wasOpen = shelfReported
@@ -533,7 +544,10 @@
     button.type = 'button'
     button.append(el('span', 'avatar'), el('span', 'shelf-icon'), el('span', 'shelf-label'))
     button.addEventListener('click', () => {
-      api.open(item.botId)
+      // The conversation it arrived in, pinned (main checks it is the one it
+      // saw); otherwise the bot's quick chat.
+      if (item.conversationId && typeof api.openThread === 'function') api.openThread(item.botId, item.conversationId)
+      else api.open(item.botId)
       removeItem(item)
     })
     li.append(button)
@@ -651,6 +665,230 @@
   dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
   shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })
   shelfEl.addEventListener('pointerleave', () => { hoverShelf = false; syncHover() })
+
+  // --- A seat's recents card -----------------------------------------------
+  // Its last chats (main fetched and checked them, widget-threads.js), in a
+  // card that buds out of the seat (recents-card.js has the maths) and is
+  // joined to the dock by a short bridge. A row, or "New chat", opens the
+  // quick chat; "Open in app" the bot in the main window. Arrows move
+  // between rows, Enter opens one, Esc closes the card.
+
+  const RC = window.RecentsCard
+  const cardEl = $('[data-role="card"]', recentsEl)
+  const bridgeEl = $('[data-role="bridge"]', recentsEl)
+  const bridgePathEl = $('[data-role="bridge-path"]', recentsEl)
+  const recentsList = $('[data-role="recents-list"]', recentsEl)
+  let threads = { bot_id: null, threads: [] }
+  let card = null // what the open card shows: { botId, top, height, seat }
+  let cardAnims = []
+  let cardClosing = false
+  let cardArm = null
+
+  // The seat's centre, px down the dock window as it is collapsed (the
+  // window's top is the dock's, there).
+  function seatCentre (button) {
+    const r = button.getBoundingClientRect()
+    return Math.round(r.top + r.height / 2 - (layout.dockTop || 0))
+  }
+
+  const cardWidth = () => tokenPx('--recents-width', 288)
+  const cardGap = () => tokenPx('--recents-gap', 10)
+  // From the card's dock-side seat circle to the seat itself, across the gap.
+  const budTravel = () => RC.SEAT / 2 + cardGap() + tokenPx('--dock-pad', 8) + tokenPx('--dock-seat', 40) / 2
+
+  const rowsOf = () => [...recentsList.querySelectorAll('.recents-row')]
+
+  function renderRecentsHead () {
+    const bot = botById(card ? card.botId : threads.bot_id)
+    if (!bot) return
+    setText($('[data-role="recents-name"]', recentsEl), bot.name)
+    setText($('[data-role="recents-status"]', recentsEl), bot.label)
+    recentsList.setAttribute('aria-label', `Recent chats with ${bot.name}`)
+  }
+
+  function renderThreads () {
+    const active = document.activeElement && document.activeElement.closest ? document.activeElement.closest('.recents-row') : null
+    const activeId = active ? active.dataset.threadId : null
+    recentsList.textContent = ''
+    const now = Date.now()
+    threads.threads.forEach((t, i) => {
+      const row = el('li', `recents-row${t.unread ? ' is-unread' : ''}`)
+      row.id = `recents-row-${i}`
+      row.setAttribute('role', 'option')
+      row.setAttribute('aria-selected', 'false')
+      row.tabIndex = -1
+      row.dataset.threadId = t.id
+      const time = el('time', 'recents-time', RC.relativeTime(t.updated_at, now))
+      if (t.updated_at) {
+        time.dateTime = t.updated_at
+        time.title = RC.fullTime(t.updated_at)
+      }
+      const dot = el('span', 'recents-dot')
+      dot.setAttribute('aria-hidden', 'true')
+      row.append(el('span', 'recents-title', t.title), time, el('span', 'recents-preview', t.preview), dot)
+      row.setAttribute('aria-label', [t.title, t.preview, t.updated_at ? RC.fullTime(t.updated_at) : '', t.unread ? 'unread' : ''].filter(Boolean).join(', '))
+      row.addEventListener('click', () => openThread(t.id))
+      row.addEventListener('focus', () => selectRow(row))
+      recentsList.append(row)
+    })
+    renderRecentsHead()
+    const again = activeId && rowsOf().find((r) => r.dataset.threadId === activeId)
+    if (again) again.focus({ preventScroll: true })
+  }
+
+  function selectRow (row) {
+    for (const r of rowsOf()) r.setAttribute('aria-selected', r === row ? 'true' : 'false')
+    recentsList.setAttribute('aria-activedescendant', row.id)
+  }
+
+  function focusRow (index) {
+    const rows = rowsOf()
+    if (!rows.length) return
+    const row = rows[Math.max(0, Math.min(rows.length - 1, index))]
+    row.focus({ preventScroll: true })
+  }
+
+  // Opens the quick chat pinned to that conversation (main checks the row
+  // is one it sent, and opens it in the app if the server can't pin).
+  function openThread (threadId) {
+    if (!card) return
+    if (typeof api.openThread === 'function') api.openThread(card.botId, threadId)
+    else api.open(card.botId)
+  }
+
+  recentsList.addEventListener('keydown', (event) => {
+    const rows = rowsOf()
+    const at = rows.indexOf(document.activeElement)
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      focusRow(at < 0 ? 0 : at + (event.key === 'ArrowDown' ? 1 : -1))
+    } else if (event.key === 'Home' || event.key === 'End') {
+      event.preventDefault()
+      focusRow(event.key === 'Home' ? 0 : rows.length - 1)
+    } else if ((event.key === 'Enter' || event.key === ' ') && at >= 0) {
+      event.preventDefault()
+      rows[at].click()
+    }
+  })
+
+  recentsEl.addEventListener('click', (event) => {
+    const action = event.target.closest('[data-action]')?.dataset.action
+    if (!card) return
+    if (action === 'new-chat') api.open(card.botId)
+    if (action === 'recents-open-in-app') api.openInApp(card.botId)
+  })
+
+  function stopCardAnims () {
+    for (const a of cardAnims) a.cancel()
+    cardAnims = []
+  }
+
+  // Size and place the card and its bridge for a layout from main.
+  function placeCard (next) {
+    recentsEl.style.top = `${next.cardTop}px`
+    recentsEl.style.height = `${next.cardHeight}px`
+    const seat = next.seatY - next.cardTop
+    const half = RC.BRIDGE_NECK / 2 + RC.BRIDGE_FILLET
+    const centre = RC.bridgeCentre(seat, next.cardHeight)
+    const gap = cardGap()
+    bridgeEl.style.top = `${centre - half}px`
+    bridgeEl.style.height = `${2 * half}px`
+    bridgeEl.setAttribute('viewBox', `0 0 ${gap + 2} ${2 * half}`)
+    bridgePathEl.setAttribute('d', RC.bridgePath(gap))
+    return seat
+  }
+
+  // The bud: out of the seat on SOFT, the rows 30ms apart behind it.
+  function playBud (seat, height) {
+    stopCardAnims()
+    const reduced = reducedMotion()
+    const side = layout.side === 'left' ? 'left' : 'right'
+    const frames = RC.budFrames({ width: cardWidth(), height, seat, travel: budTravel(), side, reduced })
+    if (typeof cardEl.animate !== 'function') return
+    const timing = { duration: frames.duration, easing: 'linear', fill: 'backwards' }
+    const cardAnim = cardEl.animate(frames.card, timing)
+    cardAnims.push(cardAnim, bridgeEl.animate(frames.bridge, timing))
+    rowsOf().forEach((row, i) => {
+      const entrance = RC.rowEntrance(i, { side, reduced })
+      if (entrance) cardAnims.push(row.animate(entrance.keyframes, entrance.options))
+    })
+    // Once it lands, the card's own style is its end state.
+    const mine = cardAnims.slice()
+    cardAnim.finished.then(() => { if (cardAnims[0] === mine[0]) stopCardAnims() }, () => {})
+  }
+
+  function showCard (next) {
+    const opening = recentsEl.hidden || cardClosing || !card || card.botId !== next.botId
+    cardClosing = false
+    delete recentsEl.dataset.closing
+    const seat = placeCard(next)
+    card = { botId: next.botId, top: next.cardTop, height: next.cardHeight, seat }
+    if (threads.bot_id === next.botId) renderRecentsHead()
+    if (!opening) return
+    stopCardAnims()
+    recentsEl.hidden = false
+    // The window has just widened: hold the card back a frame (at most
+    // 250ms) so the bigger window is on screen before it buds.
+    recentsEl.style.visibility = 'hidden'
+    const arm = (cardArm = {})
+    let done = false
+    const go = () => {
+      if (done || cardArm !== arm) return
+      done = true
+      recentsEl.style.visibility = ''
+      if (recentsEl.hidden || cardClosing) return
+      playBud(seat, next.cardHeight)
+      focusRow(0)
+    }
+    requestAnimationFrame(() => requestAnimationFrame(go))
+    setTimeout(go, 250)
+  }
+
+  // Back into the seat on CLOSE, in the still-wide window; then hidden.
+  function closeCard () {
+    if (recentsEl.hidden || cardClosing) return
+    cardArm = null
+    recentsEl.style.visibility = ''
+    cardClosing = true
+    recentsEl.dataset.closing = ''
+    stopCardAnims()
+    const seat = card ? card.seat : recentsEl.offsetHeight / 2
+    const height = card ? card.height : recentsEl.offsetHeight
+    const side = layout.side === 'left' ? 'left' : 'right'
+    const frames = RC.budFrames({ width: cardWidth(), height, seat, travel: budTravel(), side, closing: true, reduced: reducedMotion() })
+    const finish = () => {
+      if (!cardClosing) return
+      cardClosing = false
+      delete recentsEl.dataset.closing
+      stopCardAnims()
+      recentsEl.hidden = true
+      card = null
+      reportLayout()
+    }
+    if (typeof cardEl.animate !== 'function') return finish()
+    const timing = { duration: frames.duration, easing: 'linear', fill: 'forwards' }
+    const anim = cardEl.animate(frames.card, timing)
+    cardAnims.push(anim, bridgeEl.animate(frames.bridge, timing))
+    anim.finished.then(finish, () => {})
+  }
+
+  function hideCard () {
+    cardArm = null
+    cardClosing = false
+    delete recentsEl.dataset.closing
+    stopCardAnims()
+    recentsEl.style.visibility = ''
+    recentsEl.hidden = true
+    card = null
+  }
+
+  if (typeof api.onThreads === 'function') {
+    api.onThreads((next) => {
+      if (!next || typeof next.bot_id !== 'string' || !Array.isArray(next.threads)) return
+      threads = next
+      renderThreads()
+    })
+  }
 
   // --- The popover ---------------------------------------------------------
 
@@ -1221,6 +1459,7 @@
       renderMessages() // the typing dots follow the bot's mood
     }
     if (layout.expanded && layout.mode === 'picker') renderPicker()
+    if (card) renderRecentsHead()
   })
 
   // A bot's answer arrived (main, arrivals.js): its seat nudges, and — with
@@ -1258,6 +1497,9 @@
         panel.hidden = true
       }
     }
+    if (next.expanded && next.mode === 'recents' && Number.isFinite(next.cardTop) && Number.isFinite(next.cardHeight)) showCard(next)
+    else if (next.closing && next.closingMode === 'recents') closeCard()
+    else if (!cardClosing) hideCard()
     for (const panel of [popover, picker]) {
       if (panel.hidden || 'closing' in panel.dataset) continue
       panel.style.top = `${next.popoverTop}px`

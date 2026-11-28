@@ -22,6 +22,7 @@
 
 const { widgetStateFrom, validId } = require('./widget-state')
 const { messagesPath, conversationFrom, composeFrom, answerFrom, decisionFrom, attachmentError } = require('./widget-chat')
+const { threadsPath, threadsResult } = require('./widget-threads')
 const { APP_URL, isAppUrl } = require('./url-policy')
 
 const WIDGET_JSON_PATH = '/desktop/widget.json'
@@ -237,15 +238,22 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
       return send('PATCH', WIDGET_PATH, { enabled: Boolean(enabled) })
     },
 
-    async conversation (botId) {
-      const path = messagesPath(botId)
+    async conversation (botId, conversationId = null) {
+      const path = messagesPath(botId, conversationId)
       if (!path) return null
       const res = await request({ method: 'GET', path })
       return res.status === 200 ? conversationFrom(res.json, botId) : null
     },
+    // The recents card's list (widget-threads.js): { status: 'ok', threads },
+    // { status: 'unsupported' } on an older server (404), or null.
+    async threads (botId) {
+      const path = threadsPath(botId)
+      if (!path) return null
+      return threadsResult(await request({ method: 'GET', path }))
+    },
     sendMessage: (input, options) => conversationWrite(composeFrom(input, options)),
-    answer: (input) => conversationWrite(answerFrom(input, store.get())),
-    decide: (input) => conversationWrite(decisionFrom(input, store.get())),
+    answer: (input, options) => conversationWrite(answerFrom(input, store.get(), options)),
+    decide: (input, options) => conversationWrite(decisionFrom(input, store.get(), options)),
 
     async switchWorkspace (workspaceId) {
       const path = workspaceSwitchPath(workspaceId)

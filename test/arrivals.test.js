@@ -33,7 +33,7 @@ const responded = (detail, messageId) => ({ mood: 'responded', state: { waiting:
 test('a bot that turns to responded has arrived, with its answer as the label', () => {
   const before = stateWith()
   const after = stateWith({ [ADA]: responded('The weekly report is ready.', '11111111-1111-4111-8111-111111111111') })
-  assert.deepEqual(detectArrivals(before, after), [{ bot_id: ADA, name: 'Ada', label: 'The weekly report is ready.', kind: 'message' }])
+  assert.deepEqual(detectArrivals(before, after), [{ bot_id: ADA, name: 'Ada', label: 'The weekly report is ready.', kind: 'message', conversation_id: null }])
 })
 
 test('a second answer (a new message while responded) arrives again; the same state does not', () => {
@@ -51,6 +51,15 @@ test('nothing on the first state, for a paused bot, or for a bot newly pinned', 
   const unpinned = structuredClone(fixture)
   unpinned.seats = unpinned.seats.map((s) => (s.bot_id === ADA ? { ...s, pinned: false } : s))
   assert.deepEqual(detectArrivals(widgetStateFrom(unpinned), after), [], 'not in the dock before')
+})
+
+test('an arrival names the conversation it came in: a bot\'s session_id, the manager\'s thread_id', () => {
+  const before = stateWith()
+  const lin = detectArrivals(before, stateWith({ [LIN]: responded('Shipped.', '33333333-3333-4333-8333-333333333333') }))[0]
+  assert.equal(lin.conversation_id, 'c3d4e5f6-a7b8-4c9d-8e0f-2a3b4c5d6e7f')
+  const manager = detectArrivals(before, stateWith({ manager: responded('Done.', '44444444-4444-4444-8444-444444444444') }))[0]
+  assert.equal(manager.bot_id, 'manager')
+  assert.equal(manager.conversation_id, '1e2f3a4b-5c6d-4e7f-9a8b-9c0d1e2f3a4b')
 })
 
 test('a finished file reads as a file; no detail reads "New message"', () => {
@@ -104,17 +113,18 @@ async function start ({ showFinishedWork = true } = {}) {
   const store = { get: () => current, onChange: (fn) => { listeners.push(fn); return () => {} } }
   const setState = (s) => { current = s; listeners.forEach((fn) => fn(s)) }
   const arrived = []
+  const asked = []
   const electron = fakeElectron()
   const handlers = {}
   const ipc = { on: (c, f) => { handlers[c] = f }, handle: (c, f) => { handlers[c] = f } }
-  const widget = W.createWidgetController({ store, prefs, feed: { conversation: async () => null, setFocus: async () => {} }, getMainWindow: () => null, openBot () {}, electron, platform: 'darwin', env: {}, onResponseArrived: (a) => arrived.push(a) })
+  const widget = W.createWidgetController({ store, prefs, feed: { conversation: async (id, conversationId) => { asked.push([id, conversationId || null]); return null }, setFocus: async () => {} }, getMainWindow: () => null, openBot () {}, electron, platform: 'darwin', env: {}, onResponseArrived: (a) => arrived.push(a) })
   widget.registerIpc(ipc)
   widget.sync()
   await new Promise((resolve) => setImmediate(resolve))
   const win = electron.windows.at(-1)
   const emit = (ch, payload, url = win.url) => handlers[ch]({ sender: win.webContents, senderFrame: { url } }, payload)
   emit('cma-widget:hit-rects', { rects: [], dockHeight: 300 })
-  return { widget, win, setState, arrived, emit, dir }
+  return { widget, win, setState, arrived, asked, emit, dir }
 }
 
 test('the controller: an arrival goes to the island hook and to the page (with the pref); the first state sends none', async () => {
@@ -123,7 +133,7 @@ test('the controller: an arrival goes to the island hook and to the page (with t
   t.setState(stateWith({ [ADA]: responded('Report ready.', '11111111-1111-4111-8111-111111111111') }))
   assert.deepEqual(t.arrived, [{ bot_id: ADA }])
   const sent = t.win.sent.filter(([c]) => c === 'cma-widget:arrival').map(([, p]) => p)
-  assert.deepEqual(sent, [{ bot_id: ADA, name: 'Ada', label: 'Report ready.', kind: 'message', shelf: true }])
+  assert.deepEqual(sent, [{ bot_id: ADA, name: 'Ada', label: 'Report ready.', kind: 'message', conversation_id: null, shelf: true }])
   t.widget.destroy()
   fs.rmSync(t.dir, { recursive: true, force: true })
 })
@@ -150,6 +160,22 @@ test('the controller: the shelf widens the collapsed window inward and trims it 
   assert.deepEqual(t.win.getBounds(), narrow, 'another page: ignored')
   t.emit('cma-widget:shelf', 'yes')
   assert.deepEqual(t.win.getBounds(), narrow, 'not a boolean: ignored')
+  t.widget.destroy()
+  fs.rmSync(t.dir, { recursive: true, force: true })
+})
+
+test('the controller: a pill opens the chat pinned to the conversation the answer came in — only that one, only for a dock bot', async () => {
+  const t = await start()
+  const LIN_SESSION = 'c3d4e5f6-a7b8-4c9d-8e0f-2a3b4c5d6e7f'
+  t.emit('cma-widget:open-thread', { bot_id: LIN, thread_id: LIN_SESSION })
+  assert.deepEqual(t.asked, [], 'no arrival yet: ignored')
+  t.setState(stateWith({ [LIN]: responded('Shipped.', '33333333-3333-4333-8333-333333333333') }))
+  t.emit('cma-widget:open-thread', { bot_id: LIN, thread_id: '99999999-9999-4999-8999-999999999999' })
+  t.emit('cma-widget:open-thread', { bot_id: LIN, thread_id: LIN_SESSION }, 'file:///elsewhere.html')
+  assert.deepEqual(t.asked, [], 'another conversation, or another page: ignored')
+  t.emit('cma-widget:open-thread', { bot_id: LIN, thread_id: LIN_SESSION })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(t.asked.at(-1), [LIN, LIN_SESSION], 'the quick chat, pinned to that conversation')
   t.widget.destroy()
   fs.rmSync(t.dir, { recursive: true, force: true })
 })

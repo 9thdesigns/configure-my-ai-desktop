@@ -27,7 +27,7 @@ function stubBridge () {
   const on = (name) => (fn) => { cma[name] = fn }
   const call = (name) => (...args) => { cma.calls.push([name, ...args]) }
   window.cmaWidget = {
-    ...Object.fromEntries(['ready', 'drag', 'open', 'collapse', 'contextMenu', 'picker', 'workspaceMenu', 'pin', 'openInApp', 'shelf'].map((n) => [n, call(n)])),
+    ...Object.fromEntries(['ready', 'drag', 'open', 'collapse', 'contextMenu', 'picker', 'workspaceMenu', 'pin', 'openInApp', 'shelf', 'openThread'].map((n) => [n, call(n)])),
     onState: on('state'), onLayout: on('layout'), onConversation: on('conversation'), onAvatarCss: on('css'), onChatCss: on('chatCss'), onArrival: on('arrival'),
     reportHitRects () {}, sendMessage: async () => null, answer: async () => null, decide: async () => null,
   }
@@ -166,7 +166,10 @@ pageTest('in and out of the shelf a few times: the grace does not pile up, and t
 pageTest('a click on a pill opens that chat', async (page) => {
   await arrive(page, 3)
   await page.click('.shelf-pill')
-  assert.deepEqual(await calls(page, 'open'), [['open', 'bot-3']])
+  assert.deepEqual(await calls(page, 'open'), [['open', 'bot-3']], 'no conversation named: the bot\'s quick chat')
+  await arrive(page, 2, { conversation_id: 'conv-2' })
+  await page.click('.shelf-pill:has-text("Answer from Lin")')
+  assert.deepEqual(await calls(page, 'openThread'), [['openThread', 'bot-2', 'conv-2']], 'the conversation it arrived in, pinned')
 })
 
 pageTest('"Show finished work" off: the seat still nudges, no pill', async (page) => {
