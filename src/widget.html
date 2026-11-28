@@ -97,12 +97,17 @@
       <div class="dock-grip" data-role="grip" title="Drag to move"><span class="dock-grip-bar"></span></div>
     </div>
   </nav>
+  <!-- Hide when not in use (auto-hide.js, widget-view.js): the 3px strip the
+       tucked dock leaves at the screen edge; hover it to bring the dock
+       back. The wash runs up it when a bot asks something. -->
+  <div id="dock-strip" class="dock-strip" aria-hidden="true" hidden><span class="dock-strip-wash" data-role="strip-wash"></span><span class="dock-strip-bar" data-role="strip-bar"></span></div>
   <script src="motion.js"></script>
   <script src="edge-drag.js"></script>
   <script src="dock-shape.js"></script>
   <script src="recents-card.js"></script>
   <script src="jelly-badge.js"></script>
   <script src="drag-gesture.js"></script>
+  <script src="auto-hide.js"></script>
   <script src="avatar-render.js"></script>
   <script src="chat-format.js"></script>
   <script src="typing-placeholder.js"></script>

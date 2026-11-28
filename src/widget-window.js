@@ -255,7 +255,7 @@ const { validDrag } = placement
 // What the widget renderer is sent: the dock's bots in order, each with its
 // one-line state, and which one is focused. Already-validated data only;
 // nothing else from the server (no CSRF token, no workspace list) goes in.
-function widgetView (state, { shareScreen = false } = {}) {
+function widgetView (state, { shareScreen = false, autoHide = false } = {}) {
   const focused = focusedBot(state)
   return {
     // The composer's Share screen button: offered when the server takes a
@@ -286,6 +286,8 @@ function widgetView (state, { shareScreen = false } = {}) {
     candidates: pickerBots(state),
     dock_full: dockFull(state),
     max_pinned: MAX_PINNED,
+    // "Hide when not in use" (tray): the page tucks the dock (auto-hide.js).
+    auto_hide: Boolean(autoHide),
     // The workspace mark at the top of the dock.
     workspace: currentWorkspace(state),
   }
@@ -603,7 +605,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 
   function pushState () {
     const state = store.get()
-    send('cma-widget:state', widgetView(state, { shareScreen: prefs.get().shareScreen }))
+    send('cma-widget:state', widgetView(state, { shareScreen: prefs.get().shareScreen, autoHide: prefs.get().hideWhenNotInUse === true }))
     pushAvatarCss(state)
     pushChatCss(state)
   }
