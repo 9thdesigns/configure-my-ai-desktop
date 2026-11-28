@@ -25,9 +25,17 @@
 //   * A display that is gone: the island goes to the same edge, at the same
 //     offset, on the fallback display, and back when the display returns.
 //
+// The generic edge maths — a place as a 0..1 fraction of the work area
+// anchored at the centre, keeping it inside, which display it is on, the
+// drag along the edge and the centre magnet — is edge-drag.js, shared with
+// the dock. What is the island's own stays here: the saved place, the
+// notch, the window envelope and the pill, and the keyboard steps.
+//
 // The numbers: compact 212 wide (268 around a notch), 32 tall (the notch's
 // height around one), hover +32 wide / +8 tall, concave shoulders of 6px
 // (18px open), open 440 wide.
+
+const E = require('./edge-drag')
 
 const COMPACT_WIDTH = 212
 const NOTCH_COMPACT_WIDTH = 268
@@ -53,7 +61,6 @@ function validRect (r) {
   if (![x, y, width, height].every(finite) || width <= 0 || height <= 0) return null
   return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) }
 }
-const sameRect = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 const validDisplayId = (id) => (finite(id) || (typeof id === 'string' && /^[\w.:-]{1,64}$/.test(id)) ? id : null)
 
 // --- The saved place ------------------------------------------------------------
@@ -120,21 +127,13 @@ function parseNotch (value) {
   return { width, height }
 }
 
-const findDisplay = (displays, place) => {
-  if (!place) return null
-  const list = displays || []
-  return (place.displayId !== undefined && list.find((d) => d && d.id === place.displayId)) ||
-    (place.displayBounds && list.find((d) => d && sameRect(d.bounds, place.displayBounds))) || null
-}
-
 // The display the island goes on and where: the saved display while it is
 // connected; otherwise the same edge and offset on the fallback (the main
 // window's display, or the primary). Nothing saved: top centre.
 function resolvePlace (place, displays, fallback) {
   const saved = validIslandEdge(place)
-  const display = findDisplay(displays, saved) || fallback || (displays || [])[0] || null
-  if (!display) return null
-  return { display, edge: saved ? saved.edge : 'top', offsetX: saved ? saved.offsetX : 0.5 }
+  const at = E.resolve(saved && { ...saved, fraction: saved.offsetX }, displays, fallback, { edge: 'top', fraction: 0.5 })
+  return at && { display: at.display, edge: at.edge, offsetX: at.fraction }
 }
 
 // --- Geometry -------------------------------------------------------------------
@@ -153,11 +152,9 @@ function compactSize (wrap, notch) {
 const maxPillWidth = (compact) => Math.max(EXPANDED_WIDTH, compact.width + HOVER_GROW_W)
 
 // The pill's centre, in screen x, for an offset along this work area: kept
-// far enough in that the widest pill (and its shoulders) stays inside it.
-function centreX (workArea, offsetX, half) {
-  const raw = workArea.x + workArea.width * offsetX
-  return Math.round(clamp(raw, workArea.x + half, workArea.x + workArea.width - half))
-}
+// far enough in that the widest pill (and its shoulders) stays inside it
+// (edge-drag.js, a zero-size window anchored at its centre with that margin).
+const centreX = (workArea, offsetX, half) => E.positionFor({ workArea, edge: 'top', size: 0, fraction: offsetX, margin: half })
 
 // Everything the controller and the page need for one place:
 //   window — the envelope's bounds (setBounds once, never animated)
@@ -193,13 +190,12 @@ function islandGeometry ({ display, edge = 'top', offsetX = 0.5, notch = null, h
 // the pointer's half of it, and the offset of the pill's centre (which
 // keeps the distance it had from the pointer at the start), snapped to
 // centre within MAGNET px. `snapped` says the magnet caught it.
+// (edge-drag.js dragTo: the pill as a zero-size window grabbed
+// startPoint − startCentre px from its centre; its target edge is the one
+// on the pointer's half of the display.)
 function dragPlace ({ display, startCentre, startPoint, point }) {
-  const wa = display.workArea
-  const cx = startCentre + (point.screenX - startPoint.screenX)
-  const edge = point.screenY < display.bounds.y + display.bounds.height / 2 ? 'top' : 'bottom'
-  const mid = wa.x + wa.width / 2
-  if (Math.abs(cx - mid) <= MAGNET) return { edge, offsetX: 0.5, snapped: true }
-  return { edge, offsetX: round4(clamp((cx - wa.x) / wa.width, 0, 1)), snapped: false }
+  const at = E.dragTo({ display, edge: 'top', size: 0, grab: startPoint.screenX - startCentre, point: { x: point.screenX, y: point.screenY }, magnet: MAGNET })
+  return { edge: at.target, offsetX: at.fraction, snapped: at.snapped }
 }
 
 // The keyboard's way to move it (the bar focused, Alt + arrows): a step of

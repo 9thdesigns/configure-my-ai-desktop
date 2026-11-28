@@ -28,6 +28,7 @@ const { pendingFromState } = require('./widget-chat')
 const { widgetWindowOptions, validRects, cursorOverRects } = require('./widget-window')
 const placement = require('./widget-placement')
 const edges = require('./island-placement')
+const { displayAt } = require('./edge-drag')
 const composer = require('./island-composer')
 const actions = require('./island-actions')
 const { attachmentPayload, serverRefusal } = require('./screen-share')
@@ -365,7 +366,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
 
   function dragMove (point) {
     if (!drag || !alive()) return
-    const d = placement.displayNearest(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
+    const d = displayAt(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
     if (!d) return
     const at = edges.dragPlace({ display: d, startCentre: drag.startCentre, startPoint: drag.startPoint, point })
     drag.place = { displayId: d.id, displayBounds: d.bounds, edge: at.edge, offsetX: at.offsetX }
