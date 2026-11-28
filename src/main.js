@@ -14,7 +14,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { installMenu } = require('./menu')
@@ -608,6 +608,8 @@ function startWidgetFeedAndTray () {
       widgetFeed.setEnabled(Boolean(on)).catch(() => {})
     },
     setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
+    setIslandShortcut: (id) => { prefs.set({ islandShortcut: id }) },
+    isShortcutUnavailable: () => Boolean(island?.shortcutUnavailable()),
     setShareScreen: (on) => { prefs.set({ shareScreen: Boolean(on) }) },
     setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
     setOpenAtLogin: (on) => {
@@ -663,10 +665,13 @@ function startWidgetFeedAndTray () {
     openBot,
     openApp,
     avatarCss,
+    chatCss,
     devOverrides: !app.isPackaged,
   })
   island.registerIpc(ipcMain)
   island.sync()
+  // The island's shortcut (and any other) goes with the app.
+  app.on('will-quit', () => globalShortcut.unregisterAll())
 
   try {
     trayHandle = createTray({

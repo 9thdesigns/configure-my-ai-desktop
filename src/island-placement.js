@@ -26,15 +26,17 @@
 //     offset, on the fallback display, and back when the display returns.
 //
 // The numbers: compact 212 wide (268 around a notch), 32 tall (the notch's
-// height around one), hover +32 wide / +8 tall, concave shoulders of 6px.
+// height around one), hover +32 wide / +8 tall, concave shoulders of 6px
+// (18px open), open 440 wide.
 
 const COMPACT_WIDTH = 212
 const NOTCH_COMPACT_WIDTH = 268
 const PILL_HEIGHT = 32
 const HOVER_GROW_W = 32
 const HOVER_GROW_H = 8
-const SHOULDER = 6
-const EXPANDED_WIDTH = 360 // the question card (island.css)
+const SHOULDER = 6 // compact
+const SHOULDER_OPEN = 18 // open (the composer); the envelope keeps room for it
+const EXPANDED_WIDTH = 440 // the open island: the Manager composer (island-view.js)
 const MAGNET = 24
 const PAD = 14 // room for the shadow and the shoulders on the sides away from the edge
 const DEFAULT_NOTCH = Object.freeze({ width: 185, height: 32 })
@@ -169,7 +171,7 @@ function islandGeometry ({ display, edge = 'top', offsetX = 0.5, notch = null, h
   const b = display.bounds
   const wrap = wraps(edge, offsetX, notch)
   const compact = compactSize(wrap, notch)
-  const half = Math.ceil(maxPillWidth(compact) / 2) + SHOULDER
+  const half = Math.ceil(maxPillWidth(compact) / 2) + SHOULDER_OPEN
   const cx = wrap ? Math.round(b.x + b.width / 2) : centreX(wa, offsetX, half)
   const pillH = clamp(Math.round(Number(height)) || compact.height, compact.height, Math.min(maxHeight, wa.height))
   const winW = 2 * (half + PAD)
@@ -224,6 +226,7 @@ module.exports = {
   HOVER_GROW_W,
   HOVER_GROW_H,
   SHOULDER,
+  SHOULDER_OPEN,
   EXPANDED_WIDTH,
   MAGNET,
   PAD,

@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <!-- Local, sandboxed, offline: avatar images only, no inline script. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https: data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src https: data:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Configure My AI island</title>
   <link rel="stylesheet" href="widget-tokens.css">
   <link rel="stylesheet" href="island.css">
@@ -30,6 +30,28 @@
         <input type="text" class="card-other" data-role="other" placeholder="Something else…" aria-label="Something else" hidden>
         <div class="card-actions" data-role="actions"></div>
         <p class="card-error" data-role="error" hidden></p>
+      </section>
+      <section class="compose" data-role="compose" aria-label="Message the Manager" data-no-drag hidden>
+        <header class="compose-row compose-head">
+          <span class="avatar compose-avatar" data-role="manager-avatar"></span>
+          <span class="compose-name" data-role="manager-name">Manager</span>
+          <button type="button" class="btn-link compose-open" data-role="compose-open">Open in app</button>
+        </header>
+        <div class="compose-row compose-lines" data-role="lines" aria-live="polite"></div>
+        <form class="compose-row composer" data-role="composer" autocomplete="off">
+          <div class="composer-pill">
+            <button type="button" class="composer-btn" data-role="compose-actions" aria-label="More actions" aria-disabled="true" title="More actions are coming soon">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            </button>
+            <input type="text" class="composer-input" data-role="input" placeholder="Ask the Manager…" aria-label="Message the Manager" maxlength="10000" enterkeyhint="send" spellcheck="true">
+            <button type="button" class="composer-btn" data-role="mic" aria-label="Dictate in the app" title="Dictate in the app">
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="5.75" y="1.75" width="4.5" height="8" rx="2.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.25" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+            <button type="submit" class="composer-send" data-role="send" aria-label="Send" hidden>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3M3.75 7.25 8 3l4.25 4.25" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        </form>
       </section>
     </div>
     <span class="grabber" data-role="grabber" aria-hidden="true"></span>

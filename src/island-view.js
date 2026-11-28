@@ -45,7 +45,11 @@
 
   function reportHeight () {
     requestAnimationFrame(() => {
-      api.reportHeight(Math.ceil(island.offsetHeight))
+      // Open, the window is sized for where the shell is going (its
+      // content's full height), not each frame of the spring.
+      const clipEl = island.querySelector('.island-clip')
+      const natural = shellOpen && clipEl ? Math.max(island.offsetHeight, clipEl.scrollHeight) : island.offsetHeight
+      api.reportHeight(Math.ceil(natural))
       reportHitRects()
     })
   }
@@ -196,11 +200,11 @@
     refresh()
     api.hover(false)
   })
+  // A click on the bar opens the Manager composer (whatever the state);
+  // a second click closes it again.
   bar.addEventListener('click', () => {
-    // The idle pill has no card: a click just brings the app forward.
-    if (view?.idle) return api.openApp()
-    if (layout.focused) api.collapse()
-    else api.activate()
+    if (layout.composing || (layout.expanded && layout.focused)) return closeOpen()
+    api.compose()
   })
   card.addEventListener('mousedown', () => { if (!layout.focused) api.activate() })
 
@@ -232,11 +236,11 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       event.preventDefault()
-      api.collapse()
+      closeOpen()
       return
     }
     const pending = view?.pending
-    if (document.activeElement === other || !pending || !pending.actionable || event.metaKey || event.ctrlKey || event.altKey) return
+    if (layout.composing || document.activeElement === other || !pending || !pending.actionable || event.metaKey || event.ctrlKey || event.altKey) return
     if (pending.kind === 'question') {
       const index = event.key.length === 1 ? event.key.toUpperCase().charCodeAt(0) - 65 : -1
       if (index >= 0 && index < Math.min(pending.options.length, 4)) {
@@ -292,7 +296,7 @@
   // motion.js (it always ships with the page) it just jumps.
   function live (value, spring, paint, onRest = () => {}) {
     paint(value)
-    if (!Motion) return { setTarget: (v) => { paint(v); onRest(v) }, jump: (v) => { paint(v); onRest(v) } }
+    if (!Motion) return { setTarget: (v) => { paint(v); onRest(v) }, jump: (v) => { paint(v); onRest(v) }, setSpring () {}, stop () {}, value }
     return Motion.createSpring({ value, spring, onUpdate: paint, onRest, reduced: reducedMotion })
   }
   // Whole pixels, so the face stays on the pixel grid mid-spring.
@@ -318,9 +322,9 @@
 
   // Where every spring is heading, from what is going on now.
   function refresh () {
-    const open = layout.expanded === true
+    const open = shellOpen
     const lifted = (hovering || dragging) && !open
-    widthSpring.setTarget(open ? OPEN_WIDTH : pillWidth + (lifted ? HOVER_WIDEN : 0))
+    widthSpring.setTarget(open ? (openSection === compose ? COMPOSE_WIDTH : OPEN_WIDTH) : pillWidth + (lifted ? HOVER_WIDEN : 0))
     growSpring.setTarget(lifted ? HOVER_GROW : 0)
     avatarLift.setTarget(lifted ? 1 : 0)
     grabOpacity.setTarget((hovering || dragging || focusShown()) && !open && layout.draggable !== false ? 1 : 0)
@@ -401,8 +405,8 @@
     bar.append(ghost)
     look(content, { opacity: 0, scale: SWAP_IN.from, blur: SWAP_IN.blur })
     const t0 = performance.now()
-    const out = (now) => {
-      const t = Math.min(1, (now - t0) / SWAP_OUT_MS)
+    const out = () => {
+      const t = Math.min(1, (performance.now() - t0) / SWAP_OUT_MS)
       if (ghost) look(ghost, { opacity: 1 - t, scale: 1 - (1 - SWAP_OUT.scale) * t, blur: SWAP_OUT.blur * t })
       if (t < 1) { swapFrame = requestAnimationFrame(out); return }
       swapFrame = 0
@@ -432,18 +436,323 @@
     jelly.paint(badgeSlot, { count, mode: v.mode })
   }
 
+  // --- Opening and closing -------------------------------------------------
+  // Open: the shell springs out (open .42/1) to the card (360) or the
+  // composer (440) — width, height, corners 16→24, shoulders 6→18 — and
+  // 90ms later its rows come in one after another (0/40/80ms, .34/.88),
+  // blur clearing. Closing (Esc, a click away): the rows go first (280ms),
+  // then the shell (close .45/1), about 540ms in all; main keeps the window
+  // open-sized until then. Reduced motion: 150ms opacity fades, no springs.
+  const clip = $('.island-clip')
+  const compose = $('[data-role="compose"]')
+  const COMPOSE_WIDTH = 440
+  const SPRING_OPEN = { response: 0.42, dampingFraction: 1 }
+  const SPRING_CLOSE = { response: 0.45, dampingFraction: 1 }
+  const SPRING_CONTENT = { response: 0.34, dampingFraction: 0.88 }
+  const CONTENT_DELAY_MS = 90
+  const ROW_STAGGER_MS = 40
+  const CONTENT_EXIT_MS = 280
+  const FADE_MS = 150
+  const CORNER = { open: 24 }
+  const SHOULDER = { compact: 6, open: 18 }
+  let shellOpen = false
+  let openSection = null
+  let contentOut = false
+  let exiting = null
+  let heightRun = null
+  let rowTimers = []
+  let rowSprings = []
+
+  const openness = live(0, SPRING_OPEN, (p) => {
+    const q = Math.min(Math.max(p, 0), 1)
+    if (q < 0.001) {
+      island.style.removeProperty('--radius')
+      island.style.removeProperty('--shoulder')
+      return
+    }
+    const base = island.hasAttribute('data-wrap') ? 14 : 16
+    island.style.setProperty('--radius', `${(base + (CORNER.open - base) * q).toFixed(2)}px`)
+    island.style.setProperty('--shoulder', `${(SHOULDER.compact + (SHOULDER.open - SHOULDER.compact) * q).toFixed(2)}px`)
+  })
+
+  // Time-based frames (the fake clock in the tests drives these too).
+  function tween (ms, paint) {
+    return new Promise((resolve) => {
+      const t0 = performance.now()
+      const step = () => {
+        const t = Math.min(1, Math.max(0, (performance.now() - t0) / ms))
+        paint(t)
+        if (t < 1) requestAnimationFrame(step)
+        else resolve()
+      }
+      requestAnimationFrame(step)
+    })
+  }
+
+  const rowsOf = (section) => (section ? [...section.children].filter((n) => !n.hidden) : [])
+
+  function cancelRows () {
+    for (const t of rowTimers) clearTimeout(t)
+    for (const sp of rowSprings) sp.stop()
+    rowTimers = []
+    rowSprings = []
+  }
+
+  function runHeight (from, to, spring, done) {
+    if (heightRun) heightRun.stop()
+    heightRun = null
+    if (!Motion || reducedMotion() || Math.abs(from - to) < 1) {
+      clip.style.height = ''
+      done()
+      return
+    }
+    clip.style.height = px(from)
+    heightRun = Motion.createSpring({
+      value: from,
+      spring,
+      reduced: reducedMotion,
+      onUpdate: (h) => { clip.style.height = px(Math.max(0, h)) },
+      onRest: () => { heightRun = null; done() },
+    })
+    heightRun.setTarget(to)
+  }
+
+  function naturalHeight () {
+    const was = clip.style.height
+    clip.style.height = ''
+    const h = clip.offsetHeight
+    clip.style.height = was
+    return h
+  }
+
+  function openShell (section) {
+    cancelRows()
+    exiting = null
+    contentOut = false
+    const from = clip.offsetHeight
+    for (const s of [card, compose]) s.hidden = s !== section
+    openSection = section
+    shellOpen = true
+    const rows = rowsOf(section)
+    widthSpring.setSpring(SPRING_OPEN)
+    openness.setSpring(SPRING_OPEN)
+    openness.setTarget(1)
+    if (reducedMotion() || !Motion) {
+      for (const row of rows) look(row, { opacity: 1, scale: 1, blur: 0 })
+      clip.style.height = ''
+      section.style.opacity = '0'
+      tween(FADE_MS, (t) => { section.style.opacity = t >= 1 ? '' : String(t) })
+    } else {
+      for (const row of rows) look(row, { opacity: 0, scale: 1, blur: SWAP_IN.blur })
+      runHeight(from, naturalHeight(), SPRING_OPEN, () => { if (shellOpen) clip.style.height = '' })
+      rows.forEach((row, i) => {
+        rowTimers.push(setTimeout(() => {
+          const sp = Motion.createSpring({
+            value: 0,
+            spring: SPRING_CONTENT,
+            reduced: reducedMotion,
+            onUpdate: (p) => look(row, { opacity: Math.min(1, p), scale: 1, blur: SWAP_IN.blur * Math.max(0, 1 - p) }),
+            onRest: () => look(row, { opacity: 1, scale: 1, blur: 0 }),
+          })
+          rowSprings.push(sp)
+          sp.setTarget(1)
+        }, CONTENT_DELAY_MS + i * ROW_STAGGER_MS))
+      })
+    }
+    if (section === compose && layout.focused) {
+      rowTimers.push(setTimeout(() => composeEls.input.focus(), reducedMotion() ? 0 : CONTENT_DELAY_MS))
+    }
+  }
+
+  // The rows leave together over CONTENT_EXIT_MS (fading, blurring).
+  function exitContent () {
+    if (exiting) return exiting
+    cancelRows()
+    const rows = rowsOf(openSection)
+    const ms = reducedMotion() || !Motion ? FADE_MS : CONTENT_EXIT_MS
+    exiting = tween(ms, (t) => {
+      for (const row of rows) look(row, { opacity: 1 - t, scale: 1, blur: reducedMotion() ? 0 : SWAP_OUT.blur * t })
+    }).then(() => { contentOut = true })
+    return exiting
+  }
+
+  function closeShell () {
+    if (!shellOpen) return
+    shellOpen = false
+    const from = clip.offsetHeight
+    const to = bar.offsetHeight
+    widthSpring.setSpring(SPRING_CLOSE)
+    openness.setSpring(SPRING_CLOSE)
+    openness.setTarget(0)
+    refresh()
+    runHeight(from, to, SPRING_CLOSE, () => {
+      if (shellOpen) return
+      for (const s of [card, compose]) {
+        s.hidden = true
+        s.style.opacity = ''
+        for (const row of rowsOf(s)) look(row, { opacity: 1, scale: 1, blur: 0 })
+      }
+      for (const row of [...card.children, ...compose.children]) look(row, { opacity: 1, scale: 1, blur: 0 })
+      openSection = null
+      exiting = null
+      contentOut = false
+      clip.style.height = ''
+      widthSpring.setSpring(SPRING.shape)
+      reportHeight()
+    })
+  }
+
+  // Esc, or a second click: the content out first, then main closes the
+  // shell (cma-island:layout with expanded false).
+  function closeOpen () {
+    if (!layout.expanded) return api.collapse()
+    exitContent().then(() => api.collapse())
+  }
+
+  // --- The Manager composer --------------------------------------------------
+  const composeEls = {
+    avatar: $('[data-role="manager-avatar"]'),
+    name: $('[data-role="manager-name"]'),
+    lines: $('[data-role="lines"]'),
+    form: $('[data-role="composer"]'),
+    input: $('[data-role="input"]'),
+    mic: $('[data-role="mic"]'),
+    send: $('[data-role="send"]'),
+    open: $('[data-role="compose-open"]'),
+    actions: $('[data-role="compose-actions"]'),
+  }
+  const COMPOSE_ERRORS = {
+    send: 'Couldn’t send that. Try again, or open in app.',
+    timeout: 'No reply yet. Open in app to keep going.',
+  }
+  let composerState = null
+  let sending = false
+  let replyEl = null
+  let replyId = null
+  let revealFrame = 0
+
+  const line = (className, text) => el('p', className, text)
+
+  function typingDots () {
+    const node = el('span', 'compose-typing')
+    node.setAttribute('aria-label', 'The Manager is replying')
+    node.append(el('span'), el('span'), el('span'))
+    return node
+  }
+
+  // The reply comes in as if typed (there is no token stream to follow):
+  // at least 90 characters a second, never more than ~1.5s in all. Reduced
+  // motion: all at once.
+  function reveal (node, text) {
+    cancelAnimationFrame(revealFrame)
+    if (reducedMotion()) { node.textContent = text; return }
+    const rate = Math.max(90, text.length / 1.5)
+    const t0 = performance.now()
+    node.textContent = ''
+    const step = () => {
+      const n = Math.min(text.length, Math.ceil(((performance.now() - t0) / 1000) * rate))
+      node.textContent = text.slice(0, n)
+      reportHeight()
+      if (n < text.length) revealFrame = requestAnimationFrame(step)
+    }
+    revealFrame = requestAnimationFrame(step)
+  }
+
+  function updateComposerButtons () {
+    const hasText = composeEls.input.value.trim().length > 0
+    composeEls.send.hidden = !hasText
+    composeEls.mic.hidden = hasText
+    composeEls.send.disabled = sending || Boolean(composerState?.awaiting)
+  }
+
+  function renderComposer (cv) {
+    if (!cv || typeof cv !== 'object') return
+    composerState = cv
+    if (cv.manager) {
+      avatars.paint(composeEls.avatar, cv.manager)
+      composeEls.name.textContent = cv.manager.name || 'Manager'
+    }
+    const nodes = []
+    if (!cv.sent) {
+      for (const l of Array.isArray(cv.lines) ? cv.lines : []) nodes.push(line('compose-line', l.body))
+      replyEl = null
+      replyId = null
+    } else {
+      nodes.push(line('compose-line is-sent', cv.sent.body))
+      if (cv.reply) {
+        if (cv.reply.id !== replyId || !replyEl) {
+          replyId = cv.reply.id
+          replyEl = line('compose-line is-reply', '')
+          reveal(replyEl, cv.reply.body)
+        }
+        nodes.push(replyEl)
+      } else if (cv.awaiting) {
+        nodes.push(typingDots())
+      }
+    }
+    if (cv.error && COMPOSE_ERRORS[cv.error]) nodes.push(line('compose-line is-error', COMPOSE_ERRORS[cv.error]))
+    composeEls.lines.replaceChildren(...nodes)
+    updateComposerButtons()
+    reportHeight()
+  }
+  if (typeof api.onComposer === 'function') api.onComposer(renderComposer)
+
+  async function sendComposed () {
+    const text = composeEls.input.value.trim()
+    if (!text || sending || composerState?.awaiting) return
+    sending = true
+    updateComposerButtons()
+    const ok = await api.send(text)
+    sending = false
+    if (ok) composeEls.input.value = ''
+    updateComposerButtons()
+  }
+  composeEls.form.addEventListener('submit', (event) => {
+    event.preventDefault()
+    sendComposed()
+  })
+  composeEls.input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.isComposing) {
+      event.preventDefault()
+      sendComposed()
+    }
+  })
+  composeEls.input.addEventListener('input', updateComposerButtons)
+  // Dictation happens in the app's composer, where the microphone works.
+  composeEls.mic.addEventListener('click', () => api.openInApp('manager'))
+  composeEls.open.addEventListener('click', () => api.openInApp('manager'))
+  composeEls.actions.addEventListener('click', (event) => event.preventDefault())
+
+  // The web app's chat tokens: a constructed sheet, adopted after island.css
+  // (nothing for the CSP to allow).
+  let chatSheet = null
+  function applyChatCss (text) {
+    if (typeof text !== 'string' || typeof CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in document)) return
+    try {
+      if (!chatSheet) {
+        chatSheet = new CSSStyleSheet()
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, chatSheet]
+      }
+      chatSheet.replaceSync(text)
+    } catch {}
+  }
+  if (typeof api.onChatCss === 'function') api.onChatCss((payload) => applyChatCss(payload && payload.css))
+
   api.onLayout((next) => {
     if (!next) return
     layout = next
     root.toggleAttribute('data-no-drag', next.draggable === false)
     island.classList.toggle('is-expanded', next.expanded)
-    card.hidden = !next.expanded
+    island.classList.toggle('is-composing', next.composing === true)
     applyPill(next.pill, next.snapped === true)
     if (!placed && next.pill) {
       // The first place: no motion, just there.
       placed = true
-      widthSpring.jump(next.expanded ? OPEN_WIDTH : pillWidth)
+      widthSpring.jump(pillWidth)
     }
+    const section = next.expanded ? (next.composing ? compose : card) : null
+    if (section && (!shellOpen || section !== openSection)) openShell(section)
+    else if (!section && shellOpen) (contentOut ? Promise.resolve() : exitContent()).then(() => { if (!layout.expanded) closeShell() })
     refresh()
     reportHeight()
   })
