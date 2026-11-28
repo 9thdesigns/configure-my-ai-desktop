@@ -27,6 +27,8 @@ const { DOCK_WIDTH, EDGE_MARGIN } = require('../src/widget-window')
 
 const WIDGET_CSS = fs.readFileSync(path.join(__dirname, '../src/widget.css'), 'utf8')
 const ISLAND_CSS = fs.readFileSync(path.join(__dirname, '../src/island.css'), 'utf8')
+// The sizes themselves are tokens, shared by both sheets (widget-tokens.css).
+const TOKENS_CSS = fs.readFileSync(path.join(__dirname, '../src/widget-tokens.css'), 'utf8')
 
 const TARGET = { dock: 28, seat: 28, chat: 22, island: 22 }
 const SLOTS = {
@@ -47,9 +49,11 @@ test('every slot sizes its box and its --cfa-size from the same whole-pixel valu
     const m = css.match(new RegExp(`${name}:\\s*(\\d+)px;`))
     return m && Number(m[1])
   }
-  assert.equal(px(WIDGET_CSS, '--dock-face'), TARGET.dock)
-  assert.equal(px(WIDGET_CSS, '--chat-face'), TARGET.chat)
-  assert.equal(px(ISLAND_CSS, '--face'), TARGET.island)
+  assert.equal(px(TOKENS_CSS, '--dock-face'), TARGET.dock)
+  assert.equal(px(TOKENS_CSS, '--chat-face'), TARGET.chat)
+  assert.equal(px(TOKENS_CSS, '--island-face'), TARGET.island)
+  assert.match(ISLAND_CSS, /--face: var\(--island-face\);/)
+  for (const name of ['--dock-face', '--chat-face']) assert.doesNotMatch(WIDGET_CSS, new RegExp(`${name}:\\s*\\d`), `${name} is set once, in the tokens`)
   // The box and the face read the same variable, slot by slot.
   assert.match(WIDGET_CSS, /\.avatar \{\n  width: var\(--dock-face\);\n  height: var\(--dock-face\);/)
   assert.match(WIDGET_CSS, /\.avatar \{ --cfa-size: var\(--dock-face\); \}/)
@@ -64,8 +68,10 @@ test('every slot sizes its box and its --cfa-size from the same whole-pixel valu
 })
 
 test('the windows fit the smaller pill and dock', () => {
-  assert.equal(COMPACT_HEIGHT, Number(ISLAND_CSS.match(/--pill-h:\s*(\d+)px/)[1]), 'the island window is the pill')
-  const dockWidth = Number(WIDGET_CSS.match(/\.dock \{[^}]*?\n  width: (\d+)px;/)[1])
+  assert.equal(COMPACT_HEIGHT, Number(TOKENS_CSS.match(/--island-pill-h:\s*(\d+)px/)[1]), 'the island window is the pill')
+  assert.match(ISLAND_CSS, /--pill-h: var\(--island-pill-h\);/)
+  assert.match(WIDGET_CSS, /\.dock \{[^}]*?\n  width: var\(--dock-seat\);/)
+  const dockWidth = Number(TOKENS_CSS.match(/--dock-seat:\s*(\d+)px;/)[1])
   const dockRight = Number(WIDGET_CSS.match(/\.dock \{[^}]*?\n  right: (\d+)px;/)[1])
   assert.ok(DOCK_WIDTH >= dockWidth + dockRight + 4, 'the dock column holds the dock and a little shadow')
   assert.ok(EDGE_MARGIN >= 0)

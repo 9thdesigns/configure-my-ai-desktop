@@ -13,7 +13,7 @@
   --bubble-user-ink: #ffffff;
   --waiting: #f08a24;
   --failed: #e5484d;
-  --radius: 16px;
+  --radius: var(--panel-radius);
   color-scheme: light dark;
 }
 
@@ -100,7 +100,7 @@ html, body {
   height: 100%;
   background: transparent;
   overflow: hidden;
-  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: var(--text-13)/1.4 var(--font-ui);
   color: var(--ink);
   -webkit-user-select: none;
   user-select: none;
@@ -110,21 +110,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* The dock --------------------------------------------------------------- */
 
-/* Sizes, in whole pixels so the faces land on the pixel grid at 1x and 2x:
-   a 28px face in a 44px column (8px either side, 7px inside the border).
-   The gaps leave room for a face's bob and sway, which reach about 3px past
-   its box while it works (test/avatar-geometry.test.js measures it). */
-:root {
-  --dock-face: 28px;
-  --chat-face: 22px;
-}
+/* Sizes (widget-tokens.css), in whole pixels so the faces land on the pixel
+   grid at 1x and 2x: a 28px face (--dock-face) in a 44px column
+   (--dock-seat; 8px either side, 7px inside the border), a 22px face in the
+   chat header (--chat-face). The gaps leave room for a face's bob and sway,
+   which reach about 3px past its box while it works
+   (test/avatar-geometry.test.js measures it). */
 
 .dock {
   touch-action: none;
   position: absolute;
   right: 4px;
   top: 0;
-  width: 44px;
+  width: var(--dock-seat);
   margin: 6px 0;
   padding: 2px 0 8px;
   display: flex;
@@ -133,7 +131,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   gap: 8px;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 22px;
+  border-radius: var(--dock-radius);
   box-shadow: var(--shadow);
 }
 
@@ -153,7 +151,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   height: 3px;
   border-radius: 2px;
   background: var(--line);
-  transition: background 0.15s ease;
+  transition: background var(--dur-hover) var(--ease-hover);
 }
 .dock-grip:hover::after { background: var(--muted); }
 
@@ -174,7 +172,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .dock-bots {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--dock-gap);
 }
 
 .dock-bot {
@@ -184,7 +182,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 0;
   background: none;
   border-radius: 50%;
-  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  transition: background-color var(--dur-hover) var(--ease-hover), box-shadow var(--dur-hover) var(--ease-hover);
 }
 /* Hover is a soft halo, not a scale: a scaled face lands between pixels
    and blurs. */
@@ -195,7 +193,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Mood rings: working pulses softly (the web avatar's thinking glow),
    waiting wears an orange count, failed a red ring, a fresh reply a dot,
    paused goes quiet. */
-.dock-bot[data-mood="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
+.dock-bot[data-mood="working"] .avatar { animation: thinking var(--dur-thinking) ease-in-out infinite; }
 .dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--failed); }
 .dock-bot[data-paused] .avatar { filter: grayscale(1); opacity: 0.55; animation: none; }
 
@@ -219,7 +217,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   line-height: 16px;
   text-align: center;
   box-shadow: 0 0 0 2px var(--surface);
-  animation: badge-in 0.2s ease-out;
+  animation: badge-in var(--dur-badge-in) var(--ease-entrance);
 }
 .dock-badge.is-dot { min-width: 8px; width: 8px; height: 8px; padding: 0; top: -1px; right: -1px; }
 .dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
@@ -239,7 +237,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   color: var(--muted);
   font-size: 17px;
   line-height: 1;
-  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  transition: border-color var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover), transform var(--dur-hover) var(--ease-hover);
 }
 .dock-add:hover { border-color: var(--muted); color: var(--ink); transform: scale(1.06); }
 
@@ -268,7 +266,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   padding: 6px 8px;
   border-radius: 10px;
   text-align: left;
-  transition: background 0.15s ease;
+  transition: background var(--dur-hover) var(--ease-hover);
 }
 .picker-item:hover, .picker-item:focus-visible { background: var(--surface-2); outline: none; }
 .picker-item .avatar { width: var(--dock-face); height: var(--dock-face); font-size: 11px; }
@@ -283,7 +281,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   margin-bottom: -2px;
   background: none;
   border-bottom: 1px solid var(--line);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-hover) var(--ease-hover);
 }
 .dock-workspace[hidden] { display: none; }
 .dock-workspace:hover { transform: scale(1.06); }
@@ -319,7 +317,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.02em;
-  transition: box-shadow 0.2s ease;
+  transition: box-shadow var(--dur-ring) var(--ease-hover);
 }
 .avatar[data-shape="square"] { border-radius: 7px; }
 .avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
@@ -360,7 +358,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   position: absolute;
   left: 0;
   top: 0;
-  width: 380px;
+  width: var(--panel-width);
   display: flex;
   flex-direction: column;
   background: var(--surface);
@@ -369,7 +367,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   box-shadow: var(--shadow);
   overflow: hidden;
   transform-origin: right top;
-  animation: popover-in 0.16s ease-out;
+  animation: popover-in var(--dur-popover-in) var(--ease-entrance);
   -webkit-user-select: text;
   user-select: text;
 }
@@ -401,7 +399,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 8px;
   padding: 5px 8px;
   color: var(--muted);
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover);
 }
 .btn-ghost:hover, .btn-icon:hover { background: var(--surface-2); color: var(--ink); }
 .btn-icon { font-size: 18px; line-height: 1; padding: 3px 8px; }
@@ -434,7 +432,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   margin-top: var(--bubble-gap-same);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  animation: message-in 0.18s ease-out;
+  animation: message-in var(--dur-message-in) var(--ease-entrance);
 }
 .message.is-group-start { margin-top: var(--bubble-gap-change); }
 .messages > .message:first-child, .messages > .time-sep:first-child { margin-top: 0; }
@@ -521,7 +519,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--surface);
   border-radius: 10px;
   padding: 7px 10px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-hover) var(--ease-hover), background var(--dur-hover) var(--ease-hover);
 }
 .option:hover { border-color: var(--muted); }
 .option.is-selected { border-color: var(--ink); }
@@ -551,7 +549,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 10px;
   padding: 6px 14px;
   font-weight: 500;
-  transition: opacity 0.15s ease, background 0.15s ease;
+  transition: opacity var(--dur-hover) var(--ease-hover), background var(--dur-hover) var(--ease-hover);
 }
 .btn-primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
@@ -570,7 +568,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--composer-bg);
   border: 1px solid var(--composer-border);
   border-radius: var(--composer-radius);
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-hover) var(--ease-hover);
 }
 .composer-pill:focus-within { border-color: var(--composer-border-focus); }
 .composer-tools { display: flex; align-items: center; gap: 2px; flex: none; min-height: 32px; color: var(--composer-icon-ink); }
@@ -625,7 +623,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   place-items: center;
   background: var(--composer-send-bg);
   color: var(--composer-send-ink);
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition: background var(--dur-hover) var(--ease-hover), opacity var(--dur-hover) var(--ease-hover);
 }
 .btn-send:disabled { background: var(--composer-send-disabled-bg); color: var(--chat-muted); cursor: default; }
 
@@ -646,7 +644,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   color: inherit;
   display: grid;
   place-items: center;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover);
 }
 .btn-screen:hover:not(:disabled) { background: var(--composer-send-disabled-bg); color: var(--chat-ink); }
 .btn-screen.is-attached { color: var(--chat-ink); background: var(--composer-send-disabled-bg); }
@@ -658,7 +656,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .screen-share .grow { flex: 1; min-width: 0; }
 .screen-share .btn { height: 26px; padding: 0 9px; font-size: 12px; }
 .screen-share.is-capturing { color: var(--failed); }
-.screen-share .rec { width: 8px; height: 8px; border-radius: 50%; background: var(--failed); flex: none; animation: screen-rec 1s ease-in-out infinite alternate; }
+.screen-share .rec { width: 8px; height: 8px; border-radius: 50%; background: var(--failed); flex: none; animation: screen-rec var(--dur-pulse) ease-in-out infinite alternate; }
 .message.has-screenshot::before { content: "▣ Screenshot"; display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.01em; opacity: 0.75; margin-bottom: 2px; }
 @keyframes screen-rec { from { opacity: 1; } to { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .screen-share .rec { animation: none; } }
