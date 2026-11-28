@@ -206,7 +206,8 @@ test('the idle pill renders the manager\'s mark and status; the page knows the i
   assert.match(css, /\.island\.is-idle/)
   const page = fs.readFileSync(path.join(__dirname, '../src/island-view.js'), 'utf8')
   assert.match(page, /classList\.toggle\('is-idle', next\.idle === true\)/)
-  assert.match(page, /if \(view\?\.idle\) return api\.openApp\(\)/)
+  // A click on the bar opens the Manager composer, idle or not (PR 11).
+  assert.match(page, /api\.compose\(\)/)
 })
 
 // Where the page is told the pill is, in screen x, and the edge it is on.
@@ -242,13 +243,13 @@ test('display removed, main window gone or off every display: back to the primar
 })
 
 test('a narrow or portrait work area keeps the pill on screen', async () => {
-  const narrow = { id: 5, bounds: { x: 100, y: 0, width: 420, height: 800 }, workArea: { x: 100, y: 0, width: 420, height: 800 } }
+  const narrow = { id: 5, bounds: { x: 100, y: 0, width: 560, height: 800 }, workArea: { x: 100, y: 0, width: 560, height: 800 } }
   const { island, win } = setup({ electronOptions: { displays: [narrow], primary: narrow } })
   await tick()
   const b = win().bounds
-  assert.ok(b.x >= 100 && b.x + b.width <= 520, `window on the display (${b.x}, ${b.width})`)
+  assert.ok(b.x >= 100 && b.x + b.width <= 660, `window on the display (${b.x}, ${b.width})`)
   const pill = lastPill(win())
-  assert.ok(pill.screenX - pill.width / 2 >= 100 && pill.screenX + pill.width / 2 <= 520)
+  assert.ok(pill.screenX - pill.width / 2 >= 100 && pill.screenX + pill.width / 2 <= 660)
   island.destroy()
 })
 

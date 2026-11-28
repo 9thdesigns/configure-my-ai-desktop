@@ -12,6 +12,7 @@
 const path = require('node:path')
 const { focusedBot, stateLabel } = require('./widget-state')
 const { workspaceMenuItems } = require('./workspaces')
+const { shortcutMenuItems } = require('./island-composer')
 
 
 function needsText (n) {
@@ -49,7 +50,8 @@ function botLabel (name, needsCount) {
 //   options — { prefs: { showWidget, keepRunningInBackground }, openAtLogin,
 //               platform }
 //   actions — { openApp, openBot(id), switchWorkspace(id), setPinned(id, on),
-//               setShowWidget(on), setShowIsland(on), setKeepRunning(on), setOpenAtLogin(on),
+//               setShowWidget(on), setShowIsland(on), setIslandShortcut(id),
+//               setKeepRunning(on), setOpenAtLogin(on),
 //               quit }
 function trayMenuTemplate (state, options, actions) {
   const { prefs = {}, openAtLogin = false, platform = process.platform } = options || {}
@@ -120,6 +122,13 @@ function trayMenuTemplate (state, options, actions) {
       click: (item) => actions.setShowIsland(typeof item?.checked === 'boolean' ? item.checked : !prefs.showIsland),
     },
     {
+      // The global shortcut that opens the island's Manager composer.
+      id: 'island-shortcut',
+      label: 'Island Shortcut',
+      enabled: Boolean(prefs.showIsland),
+      submenu: shortcutMenuItems(prefs.islandShortcut, { platform, unavailable: Boolean(options?.shortcutUnavailable) }, (id) => actions.setIslandShortcut?.(id)),
+    },
+    {
       // The widget's Share screen (screen-share.js): off by default.
       id: 'share-screen',
       label: 'Let Manager See Your Screen',
@@ -171,7 +180,7 @@ function createTray ({ store, prefs, actions, getOpenAtLogin, logos = null, plat
   const render = () => {
     if (tray.isDestroyed()) return
     const state = store.get()
-    const template = trayMenuTemplate(state, { prefs: prefs.get(), openAtLogin: getOpenAtLogin(), platform, iconFor: logos?.iconFor }, actions)
+    const template = trayMenuTemplate(state, { prefs: prefs.get(), openAtLogin: getOpenAtLogin(), platform, iconFor: logos?.iconFor, shortcutUnavailable: actions.isShortcutUnavailable?.() }, actions)
     tray.setContextMenu(Menu.buildFromTemplate(template))
     tray.setToolTip(trayTooltip(state))
     if (platform === 'darwin') tray.setTitle(trayTitle(state), { fontType: 'monospacedDigit' })

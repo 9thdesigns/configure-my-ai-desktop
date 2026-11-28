@@ -14,7 +14,7 @@ test('keep running in background is on by default on macOS only', () => {
 })
 
 test('only known keys of the right type are read back', () => {
-  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, shareScreen: false, widgetPositions: [], islandEdge: null })
+  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, shareScreen: false, widgetPositions: [], islandEdge: null, islandShortcut: 'ctrl-alt-space' })
   assert.deepEqual(sanitize(null, 'darwin'), defaults('darwin'))
 })
 
@@ -86,4 +86,10 @@ test('the island\'s old per-display positions migrate once to an edge, and are d
   fs.writeFileSync(file, JSON.stringify({ islandEdge: { edge: 'top', offsetX: 0.1 }, islandPositions: [{ id: 1, bounds, pos: { dx: 100, dy: 800 } }] }))
   assert.deepEqual(createPrefs({ file, platform: 'darwin' }).get().islandEdge, { edge: 'top', offsetX: 0.1 })
   fs.rmSync(dir, { recursive: true, force: true })
+})
+
+test('the island shortcut is one of the fixed choices; anything else is the default', () => {
+  assert.equal(sanitize({ islandShortcut: 'off' }, 'darwin').islandShortcut, 'off')
+  assert.equal(sanitize({ islandShortcut: 'ctrl-alt-m' }, 'darwin').islandShortcut, 'ctrl-alt-m')
+  for (const bad of ['Command+Q', '', null, 42, { evil: 1 }]) assert.equal(sanitize({ islandShortcut: bad }, 'darwin').islandShortcut, 'ctrl-alt-space')
 })

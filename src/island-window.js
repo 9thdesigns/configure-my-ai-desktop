@@ -28,6 +28,7 @@ const { pendingFromState } = require('./widget-chat')
 const { widgetWindowOptions, validRects, cursorOverRects } = require('./widget-window')
 const placement = require('./widget-placement')
 const edges = require('./island-placement')
+const composer = require('./island-composer')
 
 const ISLAND_WIDTH = edges.EXPANDED_WIDTH // the open card
 const COMPACT_HEIGHT = edges.PILL_HEIGHT // the floating pill (island.css --pill-h)
@@ -38,7 +39,7 @@ function islandWindowOptions ({ platform = process.platform, preload }) {
   const base = widgetWindowOptions({ platform, preload })
   // The envelope for the floating pill at top centre; place() sizes it for
   // where it really is before it is shown.
-  const half = Math.ceil(Math.max(ISLAND_WIDTH, edges.COMPACT_WIDTH + edges.HOVER_GROW_W) / 2) + edges.SHOULDER
+  const half = Math.ceil(Math.max(ISLAND_WIDTH, edges.COMPACT_WIDTH + edges.HOVER_GROW_W) / 2) + edges.SHOULDER_OPEN
   return {
     ...base,
     width: 2 * (half + edges.PAD),
@@ -207,6 +208,9 @@ const HTML_PATH = path.join(__dirname, 'island.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 const HOVER_PREVIEW_MS = 300 // a message or question previews after this much hover
 const HOVER_LEAVE_MS = 100 // and goes this long after the pointer leaves
+// Closing, the page takes the content out (280ms) and then the shell
+// (~260ms); the window keeps its open size until then and is trimmed after.
+const CLOSE_TRIM_MS = 600
 const DISPLAY_SETTLE_MS = 300
 const MAX_MISSED_MOVES = 3
 const POINTER_POLL_MS = 33
@@ -226,8 +230,8 @@ function islandPlace ({ saved, displays, fallback, height = 0, platform = proces
 
 const sameBounds = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
-  const { BrowserWindow, screen, session } = electron
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, chatCss = null, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
+  const { BrowserWindow, screen, session, globalShortcut } = electron
 
   let win = null
   let expanded = false
@@ -240,6 +244,21 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   // A reply that just arrived ({ botId, mood }: the bot's mood then), shown
   // as "New message" until the user opens it or the bot moves on.
   let arrival = null
+  // The Manager composer (island-composer.js): open, the Manager's
+  // conversation, what the user sent, and whether a reply is on its way.
+  let composing = false
+  let managerConversation = null
+  let sent = null
+  let awaiting = false
+  let composeError = null
+  let replyTimer = null
+  let replyDeadline = 0
+  // Closing: the open height the window keeps until the page has closed.
+  let holdHeight = 0
+  let trimTimer = null
+  // The global shortcut registered now, and whether the OS refused it.
+  let registeredShortcut = null
+  let shortcutTaken = false
   let pointerTimer = null
   // Where it is right now (islandPlace), and a drag in progress: where the
   // pill's centre and the pointer were at the start, and the place it is
@@ -276,7 +295,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       saved: drag ? drag.place : prefs.get().islandEdge,
       displays,
       fallback: fallbackDisplay(displays),
-      height: expanded ? height : 0,
+      height: expanded ? height : holdHeight,
       platform,
       simulateNotch,
     })
@@ -293,6 +312,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     send('cma-island:layout', {
       expanded,
       focused,
+      composing,
       draggable,
       dragging: Boolean(drag),
       snapped: Boolean(drag && drag.snapped),
@@ -368,10 +388,152 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     clearTimeout(previewTimer)
     if (!alive()) return
     if (!expanded && !focused) return
+    const wasOpen = expanded
     expanded = false
-    focused = false
+    composing = false
+    // Give the keyboard back. On macOS the island is a non-activating
+    // panel, so resigning key leaves the app the user was in frontmost.
+    // Elsewhere blur() lowers the window (X11 Deactivate), which would push
+    // the always-on-top island under other windows: not focusable is enough
+    // there, and the next click elsewhere takes the keyboard.
+    if (focused) {
+      focused = false
+      if (platform === 'darwin' && typeof win.blur === 'function') win.blur()
+    }
     win.setFocusable(false)
+    // Keep the open size until the page has closed the shell, then trim.
+    clearTimeout(trimTimer)
+    if (wasOpen) {
+      holdHeight = height
+      trimTimer = setTimeout(() => {
+        holdHeight = 0
+        place()
+      }, CLOSE_TRIM_MS)
+    }
     place()
+  }
+
+  // --- The Manager composer ---------------------------------------------------
+
+  function managerView () {
+    const manager = store.get()?.manager
+    return manager ? botView({ ...manager, id: composer.MANAGER_ID }) : null
+  }
+
+  function pushComposer () {
+    send('cma-island:composer', composer.composerView({ manager: managerView(), conversation: managerConversation, sent, awaiting, error: composeError }))
+  }
+
+  async function loadManager () {
+    const next = await Promise.resolve(feed?.conversation?.(composer.MANAGER_ID)).catch(() => null)
+    if (next) managerConversation = next
+    pushComposer()
+    return next
+  }
+
+  // Click on the island (or the shortcut): open into the composer, focused.
+  function openComposer () {
+    if (!alive() || !view) return
+    clearTimeout(previewTimer)
+    clearTimeout(collapseTimer)
+    clearTimeout(trimTimer)
+    holdHeight = 0
+    composing = true
+    expanded = true
+    // A fresh start unless a reply is still on its way.
+    if (!awaiting) {
+      sent = null
+      composeError = null
+    }
+    if (!win.isVisible()) win.showInactive()
+    if (!focused) {
+      focused = true
+      win.setFocusable(true)
+      win.focus()
+    }
+    pushComposer()
+    loadManager()
+    place()
+  }
+
+  const toggleComposer = () => (composing ? collapse() : openComposer())
+
+  function stopReplyPoll () {
+    clearInterval(replyTimer)
+    replyTimer = null
+  }
+
+  function startReplyPoll () {
+    stopReplyPoll()
+    replyDeadline = Date.now() + composer.REPLY_TIMEOUT_MS
+    replyTimer = setInterval(pollReply, composer.REPLY_POLL_MS)
+  }
+
+  // Waiting for the Manager's answer: refetch until it is there (or give up
+  // after REPLY_TIMEOUT_MS). Landing while the island is closed, it says
+  // "New message" instead.
+  let polling = false
+  async function pollReply () {
+    if (!awaiting) return stopReplyPoll()
+    if (Date.now() > replyDeadline) {
+      awaiting = false
+      composeError = 'timeout'
+      stopReplyPoll()
+      return pushComposer()
+    }
+    if (polling) return
+    polling = true
+    const next = await Promise.resolve(feed?.conversation?.(composer.MANAGER_ID)).catch(() => null)
+    polling = false
+    if (!next || !awaiting) return
+    managerConversation = next
+    if (composer.replyTo(sent, next)) {
+      awaiting = false
+      stopReplyPoll()
+      if (!composing) {
+        arrival = { botId: composer.MANAGER_ID, mood: store.get()?.manager?.mood }
+        sync()
+      }
+    }
+    pushComposer()
+  }
+
+  async function sendToManager (text) {
+    const body = typeof text === 'string' ? text : ''
+    if (!composing || awaiting || !body.trim()) return false
+    composeError = null
+    const conversation = await Promise.resolve(feed?.sendMessage?.({ bot_id: composer.MANAGER_ID, body })).catch(() => null)
+    if (!conversation || !Array.isArray(conversation.messages)) {
+      composeError = 'send'
+      pushComposer()
+      return false
+    }
+    managerConversation = conversation
+    sent = composer.sentIn(conversation, body)
+    awaiting = !composer.replyTo(sent, conversation)
+    pushComposer()
+    if (awaiting) startReplyPoll()
+    return true
+  }
+
+  // The global shortcut (prefs.islandShortcut, a fixed list): registered
+  // while the island is shown; a combination another app holds is reported
+  // (the tray says so) rather than retried.
+  function applyShortcut () {
+    if (!globalShortcut) return
+    const p = prefs.get()
+    const accelerator = p.showIsland ? composer.shortcutFor(p.islandShortcut).accelerator : null
+    if (accelerator === registeredShortcut && !shortcutTaken) return
+    if (registeredShortcut) {
+      try { globalShortcut.unregister(registeredShortcut) } catch {}
+      registeredShortcut = null
+    }
+    shortcutTaken = false
+    if (!accelerator) return
+    let ok = false
+    try { ok = globalShortcut.register(accelerator, toggleComposer) } catch { ok = false }
+    if (ok) registeredShortcut = accelerator
+    else shortcutTaken = true
   }
 
   function expand ({ focus }) {
@@ -399,6 +561,8 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       drag = null
       current = null
       sentCssUrl = null
+      sentChatCssUrl = null
+      composing = false
       expanded = false
       focused = false
       rects = []
@@ -422,6 +586,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   // — or the dock turned off — "Show Island" did nothing visible at all.)
   function sync () {
     const state = store.get()
+    if (awaiting && replyTimer) pollReply()
     const next = prefs.get().showIsland
       ? withScreenIndicator(withArrival(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), arrivalFor(state), state), capturing)
       : null
@@ -438,10 +603,25 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     if ((pendingChanged || view.idle) && expanded && !focused) collapse()
     send('cma-island:view', view)
     pushAvatarCss()
+    pushChatCss()
     if (!win.isVisible()) {
       place()
       win.showInactive()
     }
+  }
+
+  // The web app's chat tokens (chat-tokens.js), once per URL per window: the
+  // composer wears the web composer's look. Without them, island.css's
+  // bundled values.
+  let sentChatCssUrl = null
+  function pushChatCss () {
+    const url = store.get()?.chat_css_url
+    if (!chatCss || !url || url === sentChatCssUrl) return
+    chatCss.get(url).then((css) => {
+      if (!css || !alive() || store.get()?.chat_css_url !== url) return
+      sentChatCssUrl = url
+      send('cma-island:chat-css', { url, css })
+    }).catch(() => {})
   }
 
   // The CFA avatar stylesheet, once per URL per window (avatar-css.js).
@@ -469,7 +649,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   screen.on('display-added', onDisplays)
   screen.on('display-removed', onDisplays)
   const offStore = store.onChange(sync)
-  const offPrefs = prefs.onChange(sync)
+  const offPrefs = prefs.onChange(() => {
+    applyShortcut()
+    sync()
+  })
+  applyShortcut()
 
   function fromIsland (event) {
     if (!alive() || event.sender !== win.webContents) return false
@@ -481,8 +665,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     ipcMain.on('cma-island:ready', (event) => {
       if (!fromIsland(event)) return
       sentCssUrl = null
+      sentChatCssUrl = null
       if (view) send('cma-island:view', view)
       pushAvatarCss()
+      pushChatCss()
+      if (composing) pushComposer()
       place()
     })
 
@@ -534,6 +721,17 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (!next) return
       prefs.set({ islandEdge: next })
       place()
+    })
+
+    // A click on the bar: the Manager composer.
+    ipcMain.on('cma-island:compose', (event) => {
+      if (fromIsland(event)) openComposer()
+    })
+
+    // Enter in the composer: to the Manager (true when the server took it).
+    ipcMain.handle('cma-island:send', async (event, text) => {
+      if (!fromIsland(event)) return false
+      return sendToManager(text)
     })
 
     ipcMain.on('cma-island:activate', (event) => {
@@ -600,9 +798,17 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       arrival = { botId: id, mood: bot.mood }
       sync()
     },
+    openComposer,
+    shortcutUnavailable: () => shortcutTaken,
     destroy () {
       clearTimeout(collapseTimer)
       clearTimeout(previewTimer)
+      clearTimeout(trimTimer)
+      stopReplyPoll()
+      if (registeredShortcut && globalShortcut) {
+        try { globalShortcut.unregister(registeredShortcut) } catch {}
+        registeredShortcut = null
+      }
       clearTimeout(settleTimer)
       clearInterval(pointerTimer)
       offStore()
@@ -631,6 +837,7 @@ module.exports = {
   withArrival,
   HOVER_PREVIEW_MS,
   HOVER_LEAVE_MS,
+  CLOSE_TRIM_MS,
   islandBot,
   islandView,
   withScreenIndicator,
