@@ -984,3 +984,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   :root[data-transparency="reduce"] .recents-btn { background: #272727; }
   :root[data-transparency="reduce"] .recents-btn:hover { background: #2e2e2d; }
 }
+/* The auto-hide strip: the bar is solid, and the see-through amber wash
+   gives way to the bar's own amber. */
+:root[data-transparency="reduce"] .dock-strip-bar { opacity: 1; }
+:root[data-transparency="reduce"] .dock-strip-wash { display: none; }

@@ -677,7 +677,19 @@
   }
   let hoverDock = false
   let hoverShelf = false
-  const syncHover = () => { setShelfHover(hoverDock || hoverShelf); autoHideCheck() }
+  // Away — the screen locked or asleep, the window hidden or covered
+  // (ambient-view.js: data-ambient="paused") — the pills hold as if hovered,
+  // so finished work isn't missed while nobody is looking.
+  let away = false
+  const syncHover = () => { setShelfHover(hoverDock || hoverShelf || away); autoHideCheck() }
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(() => {
+      const now = document.documentElement.dataset.ambient === 'paused'
+      if (now === away) return
+      away = now
+      syncHover()
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-ambient'] })
+  }
   dock.addEventListener('pointerenter', () => { hoverDock = true; syncHover() })
   dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
   shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })

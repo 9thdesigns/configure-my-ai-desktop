@@ -255,3 +255,47 @@ test('dock: a seat says its state and its count; locked, the rim\'s pulse holds 
     await context.close()
   }
 })
+
+test('dock: away (locked, asleep, hidden), the shelf holds its pills; back, their clocks run on', { skip: !pw && 'Playwright is not installed', timeout: 60_000 }, async (t) => {
+  if (launchError) return t.skip(`Chromium did not launch: ${launchError.message}`)
+  const { SHELF_STAGE_WIDTH } = require('../src/widget-window')
+  const context = await browser.newContext({ viewport: { width: SHELF_STAGE_WIDTH, height: 640 } })
+  const page = await context.newPage()
+  await page.addInitScript(() => {
+    const cma = (window.__cma = { calls: [] })
+    const on = (name) => (fn) => { cma[name] = fn }
+    const call = (name) => (...args) => { cma.calls.push([name, ...args]) }
+    window.cmaWidget = {
+      ...Object.fromEntries(['ready', 'drag', 'open', 'collapse', 'contextMenu', 'picker', 'workspaceMenu', 'pin', 'openInApp', 'shelf', 'openThread'].map((n) => [n, call(n)])),
+      onState: on('state'), onLayout: on('layout'), onConversation: on('conversation'), onAvatarCss: on('css'), onChatCss: on('chatCss'), onArrival: on('arrival'), onAmbient: on('ambient'),
+      reportHitRects () {}, sendMessage: async () => null, answer: async () => null, decide: async () => null,
+    }
+  })
+  const t0 = Date.now()
+  await page.clock.install({ time: t0 })
+  await page.clock.pauseAt(t0 + 1000)
+  try {
+    await page.goto(WIDGET_URL)
+    await page.evaluate(() => {
+      const bots = ['Max', 'Ada'].map((name, i) => ({ id: i ? `bot-${i}` : 'manager', name, avatar_color: '#6e56cf', avatar_shape: 'circle', mood: 'idle', waiting: null, needs_count: 0, label: 'Idle', paused: false, isManager: !i }))
+      window.__cma.state({ bots, candidates: [], focused_bot_id: null, workspace: null })
+      window.__cma.layout({ expanded: false, mode: 'chat', botId: null, dockTop: 0, popoverTop: 0, popoverHeight: 0, side: 'right', draggable: true })
+    })
+    await page.clock.runFor(50)
+    await page.evaluate(() => window.__cma.arrival({ bot_id: 'bot-1', name: 'Ada', label: 'The report is ready', kind: 'message', shelf: true }))
+    await page.clock.runFor(1000)
+    const count = () => page.locator('.shelf-pill:not(.shelf-more)').count()
+    assert.equal(await count(), 1)
+    await page.evaluate(() => window.__cma.ambient({ paused: true, transparency: 'normal', motion: 'normal' }))
+    await page.clock.runFor(30_000)
+    assert.equal(await count(), 1, 'still there after 30s away')
+    await page.evaluate(() => window.__cma.ambient({ paused: false, transparency: 'normal', motion: 'normal' }))
+    await page.clock.runFor(600 + 8000 + 1000)
+    // Its leaving animation is a Web Animation (not on the fake clock): finish it.
+    await page.evaluate(async () => { document.getAnimations().forEach((a) => { if (a.effect.getComputedTiming().endTime !== Infinity) a.finish() }); await new Promise((resolve) => setTimeout(resolve, 0)) })
+    await page.clock.runFor(10)
+    assert.equal(await count(), 0, 'back: it runs out its time and leaves')
+  } finally {
+    await context.close()
+  }
+})
