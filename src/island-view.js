@@ -8,6 +8,9 @@
 
   const api = window.cmaIsland
   if (!api) return
+  // Paused while locked, asleep, hidden or covered; solid under reduced
+  // transparency (ambient-view.js).
+  if (window.Ambient) window.Ambient.attach(document, api.onAmbient)
 
   const $ = (sel) => document.querySelector(sel)
   const island = $('#island')
@@ -347,7 +350,10 @@
     paintAvatar(next.bot)
     nameEl.textContent = next.bot.name
     renderChip(next)
-    bar.setAttribute('aria-label', `${next.bot.name}: ${next.chip.label}`)
+    // What a screen reader says: the bot, its state, and the badge's count
+    // (the badge itself is hidden from it): "Ops: Questions, 2 need you".
+    const needs = Math.max(0, Math.trunc(Number(next.badge)) || 0)
+    bar.setAttribute('aria-label', `${next.bot.name}: ${next.chip.label}${needs ? `, ${needs} ${needs === 1 ? 'needs' : 'need'} you` : ''}`)
     renderBadge(next)
     renderCard()
   })
@@ -787,6 +793,7 @@
     if (cv.error && COMPOSE_ERRORS[cv.error]) nodes.push(line('compose-line is-error', COMPOSE_ERRORS[cv.error]))
     composeEls.lines.replaceChildren(...nodes)
     renderAttachments(cv.attachments || {}, cv.revealLabel || 'Show in Folder')
+    renderWaiting(cv.waiting)
     updateComposerButtons()
     reportHeight()
   }
@@ -817,6 +824,23 @@
   // Dictation happens in the app's composer, where the microphone works.
   composeEls.mic.addEventListener('click', () => api.openInApp('manager'))
   composeEls.open.addEventListener('click', () => api.openInApp('manager'))
+  // A question or approval waiting on the user: since a click on the bar
+  // opens the composer, this is the way to its card without hovering.
+  function renderWaiting (w) {
+    let row = composeEls.lines.parentElement.querySelector('[data-role="waiting"]')
+    if (!w) { if (row) row.remove(); return }
+    if (!row) {
+      row = el('div', 'compose-row chip-row compose-waiting')
+      row.dataset.role = 'waiting'
+      composeEls.lines.before(row)
+    }
+    const text = el('span', 'chip-text', `${w.bot} ${w.kind === 'approval' ? 'needs approval' : 'asks'}: ${w.prompt}`)
+    const b = el('button', 'btn-link', w.kind === 'approval' ? 'Review' : 'Answer')
+    b.type = 'button'
+    b.addEventListener('click', () => api.activate())
+    row.replaceChildren(text, b)
+  }
+
   // --- Attachments: the chips under the Manager's lines ---------------------
   const attachEl = $('[data-role="attach"]')
   function chipX (what, label) {

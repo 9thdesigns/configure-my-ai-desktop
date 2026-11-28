@@ -244,7 +244,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Hover is a soft halo, not a scale: a scaled face lands between pixels
    and blurs. */
 .dock-bot:hover { background-color: rgba(127, 127, 127, 0.14); }
-.dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--dock-fill), 0 0 0 4px var(--ink); }
 
 /* Moods: failed wears a red ring, paused goes quiet. The count, "?" or "!"
@@ -285,7 +285,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: border-color var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover);
 }
 .dock-add:hover span { border-color: var(--muted); color: var(--ink); }
-.dock-add:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.dock-add:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* The "+" picker */
 .picker-search { padding: 10px 12px; border-bottom: 1px solid var(--line); }
@@ -315,6 +315,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: background var(--dur-hover) var(--ease-hover);
 }
 .picker-item:hover, .picker-item:focus-visible { background: var(--surface-2); outline: none; }
+.picker-item:focus-visible { box-shadow: inset 0 0 0 2px var(--ink); }
 .picker-item .avatar { width: var(--dock-face); height: var(--dock-face); font-size: 11px; }
 .picker-name { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 17px; }
 .picker-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -886,7 +887,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   transition: background-color var(--dur-hover) var(--ease-hover);
 }
 .recents-btn:hover { background: rgba(127, 127, 127, 0.2); }
-.recents-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.recents-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
 /* A row of the recents card opened: the card grows into the quick chat in
    its place — 380×560 (widget-window.js THREAD_*), the card's gap from the
@@ -961,3 +962,29 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .dock-strip { animation: none; }
 }
+
+/* Ambient (ambient-view.js): with the screen locked or asleep, or this
+   window hidden or covered, every looping animation (the rim's pulse, the
+   faces, the badge's working dots, the recording dot) holds still. */
+:root[data-ambient="paused"] *,
+:root[data-ambient="paused"] *::before,
+:root[data-ambient="paused"] *::after { animation-play-state: paused !important; }
+
+/* Reduced transparency: the see-through hover and selection tints become
+   solid (the same colours over the surface, light and dark). */
+:root[data-transparency="reduce"] .dock-bot:hover { background-color: #ededed; }
+:root[data-transparency="reduce"] .recents-row:hover,
+:root[data-transparency="reduce"] .recents-row[aria-selected="true"],
+:root[data-transparency="reduce"] .recents-btn { background: #f0f0f0; }
+:root[data-transparency="reduce"] .recents-btn:hover { background: #e6e6e6; }
+@media (prefers-color-scheme: dark) {
+  :root[data-transparency="reduce"] .dock-bot:hover { background-color: #282828; }
+  :root[data-transparency="reduce"] .recents-row:hover,
+  :root[data-transparency="reduce"] .recents-row[aria-selected="true"],
+  :root[data-transparency="reduce"] .recents-btn { background: #272727; }
+  :root[data-transparency="reduce"] .recents-btn:hover { background: #2e2e2d; }
+}
+/* The auto-hide strip: the bar is solid, and the see-through amber wash
+   gives way to the bar's own amber. */
+:root[data-transparency="reduce"] .dock-strip-bar { opacity: 1; }
+:root[data-transparency="reduce"] .dock-strip-wash { display: none; }

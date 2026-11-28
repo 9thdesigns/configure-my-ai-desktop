@@ -8,6 +8,9 @@
 
   const api = window.cmaWidget
   if (!api) return
+  // Paused while locked, asleep, hidden or covered; solid under reduced
+  // transparency (ambient-view.js).
+  if (window.Ambient) window.Ambient.attach(document, api.onAmbient)
 
   // Room inside the window for the dock's shadow, above and below it
   // (widget-window.js DOCK_SHADOW_TOP/BOTTOM say the same).
@@ -158,7 +161,10 @@
       button.classList.toggle('is-focused', bot.id === view.focused_bot_id)
       paintBadge(button, bot)
       button.title = `${bot.name} — ${bot.label}`
-      button.setAttribute('aria-label', `${bot.name}, ${bot.label}`)
+      // What a screen reader says: the name, the state, and the badge (which
+      // is hidden from it): "Max, Questions, 2 need you".
+      const needs = Math.max(0, Math.trunc(Number(bot.needs_count)) || 0)
+      button.setAttribute('aria-label', `${bot.name}, ${bot.label}${needs ? `, ${needs} ${needs === 1 ? 'needs' : 'need'} you` : ''}`)
     })
     const activity = window.DockShape.rimActivity(view.bots)
     if (dock.dataset.activity !== activity) dock.dataset.activity = activity
@@ -671,7 +677,19 @@
   }
   let hoverDock = false
   let hoverShelf = false
-  const syncHover = () => { setShelfHover(hoverDock || hoverShelf); autoHideCheck() }
+  // Away — the screen locked or asleep, the window hidden or covered
+  // (ambient-view.js: data-ambient="paused") — the pills hold as if hovered,
+  // so finished work isn't missed while nobody is looking.
+  let away = false
+  const syncHover = () => { setShelfHover(hoverDock || hoverShelf || away); autoHideCheck() }
+  if (typeof MutationObserver === 'function') {
+    new MutationObserver(() => {
+      const now = document.documentElement.dataset.ambient === 'paused'
+      if (now === away) return
+      away = now
+      syncHover()
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-ambient'] })
+  }
   dock.addEventListener('pointerenter', () => { hoverDock = true; syncHover() })
   dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
   shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })

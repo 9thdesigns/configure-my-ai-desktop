@@ -98,7 +98,7 @@
       <button type="button" class="dock-workspace" data-role="workspace" hidden><span class="workspace-mark"></span></button>
       <div class="dock-bots" data-role="bots"></div>
       <button type="button" class="dock-add" data-role="add" title="Add a bot" aria-label="Add a bot"><span>+</span></button>
-      <div class="dock-grip" data-role="grip" title="Drag to move"><span class="dock-grip-bar"></span></div>
+      <div class="dock-grip" data-role="grip" title="Drag to move" aria-hidden="true"><span class="dock-grip-bar"></span></div>
     </div>
   </nav>
   <!-- Hide when not in use (auto-hide.js, widget-view.js): the 3px strip the
@@ -115,6 +115,7 @@
   <script src="avatar-render.js"></script>
   <script src="chat-format.js"></script>
   <script src="typing-placeholder.js"></script>
+  <script src="ambient-view.js"></script>
   <script src="widget-view.js"></script>
 </body>
 </html>

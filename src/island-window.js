@@ -29,6 +29,7 @@ const { widgetWindowOptions, validRects, cursorOverRects } = require('./widget-w
 const placement = require('./widget-placement')
 const edges = require('./island-placement')
 const { displayAt } = require('./edge-drag')
+const { validAmbient } = require('./ambient')
 const composer = require('./island-composer')
 const actions = require('./island-actions')
 const { attachmentPayload, serverRefusal } = require('./screen-share')
@@ -288,6 +289,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   let notice = null
   let holdOpen = 0
   let recording = null
+  let ambient = null // ambient.js: the screen locked / asleep, reduced transparency
   let pointerTimer = null
   // Where it is right now (islandPlace), and a drag in progress: where the
   // pill's centre and the pointer were at the start, and the place it is
@@ -462,6 +464,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       attachments: actions.attachmentsView({ screenshot: attachedShot, file: attachedFile, saved: savedRecording, notice, localTools: localTools() }),
       screenshots: screenshotsAvailable(),
       revealLabel: platform === 'darwin' ? 'Show in Finder' : platform === 'win32' ? 'Show in Explorer' : 'Show in Folder',
+      // A question or an approval the island can answer: a way to its card
+      // from here, by keyboard as well as by hover.
+      waiting: view && !view.idle && view.pending && view.pending.actionable
+        ? { bot: view.bot.name, kind: view.pending.kind === 'approval' ? 'approval' : 'question', prompt: String(view.pending.prompt || '').slice(0, 200) }
+        : null,
     })
   }
 
@@ -830,6 +837,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       pushAvatarCss()
       pushChatCss()
       if (composing) pushComposer()
+      if (ambient) send('cma-island:ambient', ambient)
       place()
     })
 
@@ -942,8 +950,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (input.op === 'settings') openScreenSettings()
     })
 
+    // The card, focused: a click into it, or the composer's "Answer".
     ipcMain.on('cma-island:activate', (event) => {
-      if (fromIsland(event)) expand({ focus: true })
+      if (!fromIsland(event)) return
+      composing = false
+      expand({ focus: true })
     })
 
     ipcMain.on('cma-island:collapse', (event) => {
@@ -1007,6 +1018,10 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       sync()
     },
     openComposer,
+    setAmbient (state) {
+      ambient = validAmbient(state)
+      if (ambient) send('cma-island:ambient', ambient)
+    },
     setRecording,
     recordingSaved,
     recordingError,

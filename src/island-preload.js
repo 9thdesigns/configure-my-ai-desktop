@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('cmaIsland', {
   onView: listen('cma-island:view'),
   onLayout: listen('cma-island:layout'),
   onAvatarCss: listen('cma-island:avatar-css'),
+  onAmbient: listen('cma-island:ambient'),
   onChatCss: listen('cma-island:chat-css'),
   onComposer: listen('cma-island:composer'),
   ready: () => ipcRenderer.send('cma-island:ready'),

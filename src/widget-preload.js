@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   onLayout: listen('cma-widget:layout'),
   onConversation: listen('cma-widget:conversation'),
   onAvatarCss: listen('cma-widget:avatar-css'),
+  onAmbient: listen('cma-widget:ambient'),
   onScreen: listen('cma-widget:screen'),
   onChatCss: listen('cma-widget:chat-css'),
   onArrival: listen('cma-widget:arrival'),
