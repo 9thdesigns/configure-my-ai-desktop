@@ -249,7 +249,7 @@ const sameBounds = (a, b) => Boolean(a && b) && a.x === b.x && a.y === b.y && a.
 //   statFile(p)   — { isFile, size } or null
 //   showInFolder(p), openScreenSettings()
 //   localTools()  — "Allow Bots to Ask to Use This Computer" is on
-function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, chatCss = null, screenShare = null, recorder = null, pickFile = async () => null, statFile = () => null, showInFolder = () => {}, openScreenSettings = () => {}, localTools = () => true, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
+function createIslandController ({ store, prefs, feed, getMainWindow, openBot, openApp = () => {}, avatarCss = null, chatCss = null, screenShare = null, recorder = null, pickFile = async () => null, statFile = () => null, showInFolder = () => {}, openScreenSettings = () => {}, localTools = () => true, haptics = null, platform = process.platform, env = process.env, devOverrides = false, electron = require('electron') }) {
   const { BrowserWindow, screen, session, globalShortcut } = electron
 
   let win = null
@@ -369,7 +369,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     const d = displayAt(screen.getAllDisplays(), { x: point.screenX, y: point.screenY })
     if (!d) return
     const at = edges.dragPlace({ display: d, startCentre: drag.startCentre, startPoint: drag.startPoint, point })
+    const before = drag.place
     drag.place = { displayId: d.id, displayBounds: d.bounds, edge: at.edge, offsetX: at.offsetX }
+    // Haptics: the magnet catching it; carried over to the other edge.
+    if (at.snapped && !drag.snapped) haptics?.play('snap')
+    else if (before && before.edge !== at.edge) haptics?.play('flip')
     drag.snapped = at.snapped
     place()
     // A platform that ignores client positioning: stop trying, put it back.
@@ -386,8 +390,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     dragMove(point)
     if (!drag) return
     const at = drag.place
+    const snapped = drag.snapped
     drag = null
     if (at) prefs.set({ islandEdge: at })
+    // Let go on the centre snap point: the firmer tick.
+    if (snapped) haptics?.play('drop')
     place()
   }
 
@@ -472,6 +479,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     clearTimeout(collapseTimer)
     clearTimeout(trimTimer)
     holdHeight = 0
+    if (!composing) haptics?.play('expand')
     composing = true
     expanded = true
     // A fresh start unless a reply is still on its way.
@@ -847,6 +855,8 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     ipcMain.on('cma-island:hover', (event, inside) => {
       if (!fromIsland(event) || drag) return
       clearTimeout(previewTimer)
+      if (inside === true) haptics?.play('hover', 'island')
+      else haptics?.leave('island')
       if (inside === true) {
         clearTimeout(collapseTimer)
         if (!expanded && previews(view)) previewTimer = setTimeout(() => { if (previews(view)) expand({ focus: false }) }, HOVER_PREVIEW_MS)
@@ -855,6 +865,13 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       if (focused) return
       clearTimeout(collapseTimer)
       collapseTimer = setTimeout(collapse, HOVER_LEAVE_MS)
+    })
+
+    // The grabber's hover (haptics): only that element, only enter / leave.
+    ipcMain.on('cma-island:haptic', (event, input) => {
+      if (!fromIsland(event) || !input || typeof input !== 'object' || input.element !== 'grabber') return
+      if (input.kind === 'hover') haptics?.play('hover', 'grabber')
+      else if (input.kind === 'leave') haptics?.leave('grabber')
     })
 
     ipcMain.on('cma-island:drag', (event, input) => {

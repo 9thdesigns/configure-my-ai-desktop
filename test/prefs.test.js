@@ -14,7 +14,7 @@ test('keep running in background is on by default on macOS only', () => {
 })
 
 test('only known keys of the right type are read back', () => {
-  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, showFinishedWork: true, shareScreen: false, widgetPositions: [], islandEdge: null, islandShortcut: 'ctrl-alt-space' })
+  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, showFinishedWork: true, shareScreen: false, widgetPositions: [], islandEdge: null, islandShortcut: 'ctrl-alt-space', hapticsEnabled: true })
   assert.deepEqual(sanitize(null, 'darwin'), defaults('darwin'))
 })
 

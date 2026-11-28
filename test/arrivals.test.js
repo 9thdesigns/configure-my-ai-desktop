@@ -105,6 +105,8 @@ function fakeElectron () {
 }
 
 async function start ({ showFinishedWork = true } = {}) {
+  const played = []
+  const haptics = { play: (kind) => played.push(kind), leave () {} }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cma-arrival-'))
   const prefs = createPrefs({ file: path.join(dir, 'prefs.json'), platform: 'darwin' })
   prefs.set({ showFinishedWork })
@@ -117,14 +119,14 @@ async function start ({ showFinishedWork = true } = {}) {
   const electron = fakeElectron()
   const handlers = {}
   const ipc = { on: (c, f) => { handlers[c] = f }, handle: (c, f) => { handlers[c] = f } }
-  const widget = W.createWidgetController({ store, prefs, feed: { conversation: async (id, conversationId) => { asked.push([id, conversationId || null]); return null }, setFocus: async () => {} }, getMainWindow: () => null, openBot () {}, electron, platform: 'darwin', env: {}, onResponseArrived: (a) => arrived.push(a) })
+  const widget = W.createWidgetController({ store, prefs, feed: { conversation: async (id, conversationId) => { asked.push([id, conversationId || null]); return null }, setFocus: async () => {} }, getMainWindow: () => null, openBot () {}, electron, platform: 'darwin', env: {}, haptics, onResponseArrived: (a) => arrived.push(a) })
   widget.registerIpc(ipc)
   widget.sync()
   await new Promise((resolve) => setImmediate(resolve))
   const win = electron.windows.at(-1)
   const emit = (ch, payload, url = win.url) => handlers[ch]({ sender: win.webContents, senderFrame: { url } }, payload)
   emit('cma-widget:hit-rects', { rects: [], dockHeight: 300 })
-  return { widget, win, setState, arrived, asked, emit, dir }
+  return { widget, win, setState, arrived, asked, played, emit, dir }
 }
 
 test('the controller: an arrival goes to the island hook and to the page (with the pref); the first state sends none', async () => {
@@ -176,6 +178,7 @@ test('the controller: a pill opens the chat pinned to the conversation the answe
   t.emit('cma-widget:open-thread', { bot_id: LIN, thread_id: LIN_SESSION })
   await new Promise((resolve) => setImmediate(resolve))
   assert.deepEqual(t.asked.at(-1), [LIN, LIN_SESSION], 'the quick chat, pinned to that conversation')
+  assert.deepEqual(t.played.filter((k) => k === 'click'), ['click'], 'one generic tick, for the open only')
   t.widget.destroy()
   fs.rmSync(t.dir, { recursive: true, force: true })
 })

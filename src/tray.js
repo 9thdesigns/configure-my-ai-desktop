@@ -119,6 +119,14 @@ function trayMenuTemplate (state, options, actions) {
       // user asked for; the snapshot is the fallback (and what tests pass).
       click: (item) => actions.setShowIsland(typeof item?.checked === 'boolean' ? item.checked : !prefs.showIsland),
     },
+    // Haptic feedback on the trackpad (haptics.js): macOS only.
+    ...(platform === 'darwin' ? [{
+      id: 'haptics',
+      label: 'Haptic Feedback',
+      type: 'checkbox',
+      checked: prefs.hapticsEnabled !== false,
+      click: (item) => actions.setHaptics?.(typeof item?.checked === 'boolean' ? item.checked : prefs.hapticsEnabled === false),
+    }] : []),
     {
       // A bot's finished answer drips out beside the dock (widget-view.js).
       id: 'show-finished-work',
