@@ -75,17 +75,15 @@ const style = (page, sel, props) => page.locator(sel).first().evaluate((n, props
 const gap = async (page, a, b) => (await box(page, b)).top - (await box(page, a)).bottom
 const rowTexts = (page) => page.$$eval('[data-role="messages"] > li', (n) => n.map((li) => `${li.className.split(' ')[0]}:${li.textContent}`))
 
-pageTest('composer: a pill that grows with multiline text up to its cap; the placeholder stays one line', async (page) => {
+pageTest('composer: a pill that grows with multiline text up to its cap; the composer height never moves for the placeholder', async (page) => {
   await openChat(page, conv(THREAD), { ...BOT, name: 'A bot with a really remarkably long name that will not fit on one line' })
   const ph = '[data-role="compose-placeholder"]'
   const one = await box(page, 'textarea')
-  const p = await page.$eval(ph, (n) => ({ h: n.getBoundingClientRect().height, sw: n.scrollWidth, cw: n.clientWidth, vis: getComputedStyle(n).visibility, ws: getComputedStyle(n).whiteSpace, text: n.textContent }))
-  assert.match(p.text, /^Message A bot with/)
+  const p = await page.$eval(ph, (n) => ({ h: n.getBoundingClientRect().height, vis: getComputedStyle(n).visibility, ws: getComputedStyle(n).whiteSpace }))
   assert.equal(p.vis, 'visible', 'shown while empty')
   assert.equal(p.ws, 'nowrap')
   assert.equal(p.h, 20, 'one 20px line')
-  assert.ok(p.sw > p.cw, 'the long placeholder is cut with an ellipsis, not wrapped')
-  assert.equal(await page.$eval('textarea', (n) => n.getAttribute('aria-label')), p.text, 'the field is labelled with it')
+  assert.match(await page.$eval('textarea', (n) => n.getAttribute('aria-label')), /^Message A bot with/, 'the field is labelled with the first hint')
   const pill = await style(page, '.composer-pill', ['border-top-left-radius'])
   assert.equal(pill['border-top-left-radius'], '22px')
 
@@ -110,6 +108,103 @@ pageTest('composer: a pill that grows with multiline text up to its cap; the pla
   await page.locator('textarea').dispatchEvent('input')
   assert.equal((await box(page, 'textarea')).height, one.height, 'back to one line')
   assert.equal(await page.$eval('.btn-send', (n) => n.disabled), true, 'nothing to send')
+})
+
+// The placeholder, frame by frame, on Playwright's fake clock.
+const LONG = { ...BOT, name: 'Ada the very thorough research assistant for growth' }
+const TYPE_MS = 45
+const REST_MS = 2600
+const frame = (page) => page.evaluate(() => {
+  const box = document.querySelector('[data-role="compose-placeholder"]')
+  const inner = box.querySelector('.compose-placeholder-text')
+  const b = box.getBoundingClientRect()
+  const i = inner.getBoundingClientRect()
+  return {
+    state: box.dataset.phState,
+    offset: Number(box.dataset.phOffset || 0),
+    text: inner.textContent,
+    lineHeight: b.height,
+    innerHeight: i.height,
+    typedWidth: i.width,
+    room: box.clientWidth,
+    caretRight: i.right - b.left, // where the caret is, inside the box
+    pill: document.querySelector('.composer-pill').getBoundingClientRect().height,
+  }
+})
+
+async function openOnClock (page, bot) {
+  await page.clock.install()
+  await openChat(page, conv(THREAD), bot)
+}
+
+pageTest('placeholder: types its hint on one line, the window following the caret; the offset never decreases; the height never moves', async (page) => {
+  await openOnClock(page, LONG)
+  const hint = `Message ${LONG.name}…`
+  const frames = []
+  for (let n = 0; n < hint.length + 2; n++) {
+    await page.clock.runFor(TYPE_MS)
+    frames.push(await frame(page))
+  }
+  const typing = frames.filter((f) => f.state === 'typing')
+  assert.ok(typing.length >= hint.length - 1, 'one character per frame')
+  typing.forEach((f, k) => {
+    assert.ok(hint.startsWith(f.text), `frame ${k} types a head of the hint`)
+    assert.equal(f.lineHeight, 20, 'one line')
+    assert.equal(f.innerHeight, 20, 'never wraps')
+    assert.equal(f.pill, frames[0].pill, 'the composer height stays put')
+    if (k) assert.ok(f.offset >= typing[k - 1].offset, `offset never decreases (${typing[k - 1].offset} → ${f.offset})`)
+    assert.equal(f.offset, Math.max(0, ...typing.slice(0, k + 1).map((g) => Math.ceil(g.typedWidth - g.room))), 'offset = typed width past the room')
+    assert.ok(f.caretRight - f.offset <= f.room + 1, 'the caret is in view')
+  })
+  assert.ok(typing.at(-1).offset > 0, 'the long hint did outgrow the line')
+  assert.equal(typing.at(-1).text, hint)
+
+  const rest = frames.at(-1)
+  assert.equal(rest.state, 'rest')
+  assert.equal(rest.offset, 0)
+  assert.ok(rest.text.endsWith('…'))
+  const head = rest.text.slice(0, -1)
+  assert.ok(hint.startsWith(head) && /\s/.test(hint[head.length]), `cut at a word: "${rest.text}"`)
+  assert.ok(rest.typedWidth <= rest.room + 0.5, 'fits the line')
+  assert.equal(rest.pill, frames[0].pill)
+})
+
+pageTest('placeholder: a hint that fits rests whole; then the next hint types', async (page) => {
+  await openOnClock(page, BOT)
+  await page.clock.runFor(TYPE_MS * 20)
+  let f = await frame(page)
+  assert.deepEqual([f.state, f.text, f.offset], ['rest', 'Message Ada…', 0])
+  await page.clock.runFor(REST_MS + TYPE_MS * 3)
+  f = await frame(page)
+  assert.equal(f.state, 'typing')
+  assert.ok('Ask Ada anything…'.startsWith(f.text) && f.text.length >= 2, f.text)
+})
+
+pageTest('placeholder: typing stops while the field has text, and starts again once it is empty', async (page) => {
+  await openOnClock(page, BOT)
+  await page.clock.runFor(TYPE_MS * 3)
+  await page.locator('textarea').fill('hi')
+  await page.locator('textarea').dispatchEvent('input')
+  const still = await frame(page)
+  assert.equal(still.state, 'rest')
+  await page.clock.runFor(REST_MS * 3)
+  assert.deepEqual(await frame(page), still, 'nothing moves underneath the text')
+  await page.locator('textarea').fill('')
+  await page.locator('textarea').dispatchEvent('input')
+  await page.clock.runFor(TYPE_MS * 2)
+  assert.equal((await frame(page)).state, 'typing')
+})
+
+pageTest('placeholder, reduced motion: one still, fitted line with "…"; no typing, no rotation', async (page) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await openOnClock(page, LONG)
+  const first = await frame(page)
+  assert.equal(first.state, 'still')
+  assert.equal(first.offset, 0)
+  assert.ok(first.text.endsWith('…') && `Message ${LONG.name}…`.startsWith(first.text.slice(0, -1)))
+  assert.ok(first.typedWidth <= first.room + 0.5)
+  await page.clock.runFor(REST_MS * 4)
+  assert.deepEqual(await frame(page), first, 'it never changes')
 })
 
 pageTest('bubbles: tight within a run, roomy on a change of sender, inner corners squared off', async (page) => {
