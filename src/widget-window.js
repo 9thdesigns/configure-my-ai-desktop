@@ -39,12 +39,20 @@ const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
 const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
 
-const DOCK_WIDTH = 56 // the dock column (44px, widget.css), with room for its shadow
-const EDGE_MARGIN = 4 // gap between the dock and the screen edge
+// The dock grows out of the screen edge (widget.css): the window is flush
+// to the work area's edge, and holds the dock's 56px body (40px seats in 8px
+// of padding) plus room for its shadow, which falls away from the edge only
+// (inward, and above and below: widget-view.js SHADOW_TOP/BOTTOM).
+const DOCK_BODY_WIDTH = 56
+const DOCK_SHADOW_X = 32
+const DOCK_SHADOW_TOP = 24
+const DOCK_SHADOW_BOTTOM = 40
+const DOCK_WIDTH = DOCK_BODY_WIDTH + DOCK_SHADOW_X
+const EDGE_MARGIN = 0 // flush: the dock meets the edge
 const POPOVER_WIDTH = 380
 const POPOVER_HEIGHT = 520
-const POPOVER_GAP = 4
-const EXPANDED_WIDTH = POPOVER_WIDTH + POPOVER_GAP + DOCK_WIDTH
+const PANEL_GAP = 18 // between the dock body and the quick-chat panel
+const EXPANDED_WIDTH = POPOVER_WIDTH + PANEL_GAP + DOCK_BODY_WIDTH
 const MIN_DOCK_HEIGHT = 64
 const MAX_RECTS = 16
 const POINTER_POLL_MS = 33
@@ -700,6 +708,10 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 
 module.exports = {
   DOCK_WIDTH,
+  DOCK_BODY_WIDTH,
+  DOCK_SHADOW_TOP,
+  DOCK_SHADOW_BOTTOM,
+  PANEL_GAP,
   EDGE_MARGIN,
   POPOVER_WIDTH,
   POPOVER_HEIGHT,
