@@ -13,12 +13,9 @@ const path = require('node:path')
 const { focusedBot, stateLabel } = require('./widget-state')
 const { workspaceMenuItems } = require('./workspaces')
 const { shortcutMenuItems } = require('./island-composer')
-
-
-function needsText (n) {
-  if (!n || n <= 0) return ''
-  return n > 99 ? '99+' : String(n)
-}
+// The same count as the jelly badge on the dock and the island: 1..99, then
+// "99+" (jelly-badge.js; the tray title is native text, so only the count).
+const { formatCount: needsText } = require('./jelly-badge')
 
 // "Max · 2" — the focused bot's name and the needs-you count; just the name
 // when nothing is waiting; empty (icon only) before there is any state, so a
