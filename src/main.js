@@ -546,11 +546,12 @@ function botUrl (id) {
 // registered for widget commands (cmaiDesktop.widget.onCommand); otherwise —
 // an older site, the offline page, a window still loading — the preload
 // bounces the command back (cfa:widget-command-unhandled) and main loads the
-// bot's URL.
-function openBot (botId) {
+// bot's URL. `url`: a page of ours to open instead (a recents card row: the
+// bot's session, or Home with a manager thread active).
+function openBot (botId, url = null) {
   const id = validId(botId)
   if (!id) return
-  const known = botById(widgetStore?.get(), id)
+  const known = url && isAppUrl(url) ? { url } : botById(widgetStore?.get(), id)
   const wasOpen = Boolean(mainWindow && !mainWindow.isDestroyed())
   openApp()
   const contents = mainWindow.webContents
@@ -581,7 +582,7 @@ function startWidgetFeedAndTray () {
   // Push: the server pings the widget's signed stream over ActionCable and
   // the feed refetches (src/widget-cable.js); the feed's poll is the fallback.
   cable = typeof WebSocket === 'function'
-    ? createCable({ WebSocketImpl: WebSocket, getCookieHeader: electronCookieHeader, onRefetch: () => widgetFeed.refresh().catch(() => {}) })
+    ? createCable({ WebSocketImpl: WebSocket, getCookieHeader: electronCookieHeader, onRefetch: () => widgetFeed.refresh().catch(() => {}), onThreads: () => widget?.refreshThreads?.() })
     : null
   widgetFeed = createWidgetFeed({ store: widgetStore, request: electronRequest, onStream: (name) => cable?.setStream(name) })
   widgetFeed.start()
