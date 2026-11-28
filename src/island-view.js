@@ -23,6 +23,7 @@
   const errorEl = $('[data-role="error"]')
 
   let view = null
+  const MODES = ['idle', 'working', 'message', 'question', 'approval', 'recording']
   let layout = { expanded: false, focused: false }
   let cardKey
   let selected = new Set()
@@ -246,15 +247,22 @@
     }
   })
 
+  let shownMode = null
   api.onView((next) => {
     if (!next || !next.bot || !next.chip) return
+    const mode = MODES.includes(next.mode) ? next.mode : 'idle'
+    // A new state (or a new bot in the same state): swap the content.
+    if (shownMode !== null && (mode !== shownMode || next.bot.id !== view?.bot.id || next.chip.label !== view?.chip.label)) startSwap()
+    shownMode = mode
     view = next
+    island.dataset.mode = mode
     island.dataset.chip = next.chip.kind
     island.classList.toggle('is-idle', next.idle === true)
     paintAvatar(next.bot)
     nameEl.textContent = next.bot.name
     chipEl.textContent = next.chip.label
     bar.setAttribute('aria-label', `${next.bot.name}: ${next.chip.label}`)
+    renderBadge(next)
     renderCard()
   })
 
@@ -273,8 +281,12 @@
     fade: { response: 0.24, dampingFraction: 1 }, // the grabber fading in (most of the way in ~120ms)
   }
   const OPEN_WIDTH = 360
-  const HOVER_GROW = 8
+  const HOVER_GROW = 8 // taller, away from the edge (room for the grabber)
+  const HOVER_WIDEN = 32 // and wider
   const GRABBER = { width: 28, dragging: 36 }
+  // Hovered, the avatar grows to 1.2x and moves 10px out (toward the pill's
+  // end) and 4px away from the edge.
+  const AVATAR_LIFT = { scale: 0.2, out: 10, down: 4 }
 
   // A value that springs to its targets and paints itself; without
   // motion.js (it always ships with the page) it just jumps.
@@ -290,6 +302,13 @@
   const nudgeSpring = live(0, SPRING.hover, (v) => island.style.setProperty('--nudge', px(v)))
   const grabOpacity = live(0, SPRING.fade, (v) => { grabber.style.opacity = String(Math.min(Math.max(v, 0), 1)) })
   const grabWidth = live(GRABBER.width, SPRING.hover, (v) => { grabber.style.width = `${v}px` })
+  const avatarWrap = $('[data-role="avatar-wrap"]')
+  const avatarLift = live(0, SPRING.hover, (v) => {
+    // No transform at rest: a transformed box puts the face off the pixel grid.
+    if (Math.abs(v) < 0.001) { avatarWrap.style.transform = ''; return }
+    const away = island.dataset.edge === 'bottom' ? -1 : 1
+    avatarWrap.style.transform = `translate(${(-AVATAR_LIFT.out * v).toFixed(2)}px, ${(away * AVATAR_LIFT.down * v).toFixed(2)}px) scale(${(1 + AVATAR_LIFT.scale * v).toFixed(4)})`
+  })
 
   let hovering = false
   let dragging = false
@@ -301,8 +320,9 @@
   function refresh () {
     const open = layout.expanded === true
     const lifted = (hovering || dragging) && !open
-    widthSpring.setTarget(open ? OPEN_WIDTH : pillWidth)
+    widthSpring.setTarget(open ? OPEN_WIDTH : pillWidth + (lifted ? HOVER_WIDEN : 0))
     growSpring.setTarget(lifted ? HOVER_GROW : 0)
+    avatarLift.setTarget(lifted ? 1 : 0)
     grabOpacity.setTarget((hovering || dragging || focusShown()) && !open && layout.draggable !== false ? 1 : 0)
     grabWidth.setTarget(dragging ? GRABBER.dragging : GRABBER.width)
   }
@@ -336,6 +356,80 @@
     if (flipped && Motion) Motion.animateSpring(island, SPRING.shape, { property: 'opacity', from: 0.4, to: 1, reduced: reducedMotion() })
     lastPill = pill
     lastSnapped = snapped
+  }
+
+  // --- The mode swap: a change of state (idle → working → a message …)
+  // takes the old content out over SWAP_OUT_MS — fading, shrinking to
+  // 0.985 and blurring 4px — while the width springs to its new size, then
+  // springs the new content in from 0.965 with the blur clearing. Frames
+  // run on requestAnimationFrame (a fake clock in the tests); with reduced
+  // motion the content simply changes.
+  const content = $('[data-role="content"]')
+  const SWAP_OUT_MS = 160
+  const SWAP_OUT = { scale: 0.985, blur: 4 }
+  const SWAP_IN = { from: 0.965, blur: 4, spring: { response: 0.42, dampingFraction: 1 } }
+  let ghost = null
+  let swapFrame = 0
+  let swapIn = null
+
+  const look = (el, { opacity, scale, blur }) => {
+    el.style.opacity = opacity >= 0.999 ? '' : String(Math.max(0, opacity))
+    el.style.transform = scale === 1 ? '' : `scale(${scale.toFixed(4)})`
+    el.style.filter = blur < 0.05 ? '' : `blur(${blur.toFixed(2)}px)`
+  }
+
+  function endSwap () {
+    if (swapFrame) cancelAnimationFrame(swapFrame)
+    swapFrame = 0
+    if (swapIn) swapIn.stop()
+    swapIn = null
+    if (ghost) ghost.remove()
+    ghost = null
+    look(content, { opacity: 1, scale: 1, blur: 0 })
+  }
+
+  // Call before the new content is painted into the bar.
+  function startSwap () {
+    endSwap()
+    if (reducedMotion() || !Motion) return
+    ghost = content.cloneNode(true)
+    ghost.classList.add('bar-ghost')
+    ghost.removeAttribute('data-role')
+    ghost.setAttribute('aria-hidden', 'true')
+    for (const n of ghost.querySelectorAll('[data-role]')) n.removeAttribute('data-role')
+    Object.assign(ghost.style, { left: `${content.offsetLeft}px`, top: `${content.offsetTop}px`, width: `${content.offsetWidth}px`, height: `${content.offsetHeight}px` })
+    bar.append(ghost)
+    look(content, { opacity: 0, scale: SWAP_IN.from, blur: SWAP_IN.blur })
+    const t0 = performance.now()
+    const out = (now) => {
+      const t = Math.min(1, (now - t0) / SWAP_OUT_MS)
+      if (ghost) look(ghost, { opacity: 1 - t, scale: 1 - (1 - SWAP_OUT.scale) * t, blur: SWAP_OUT.blur * t })
+      if (t < 1) { swapFrame = requestAnimationFrame(out); return }
+      swapFrame = 0
+      if (ghost) ghost.remove()
+      ghost = null
+      swapIn = Motion.createSpring({
+        value: 0,
+        spring: SWAP_IN.spring,
+        reduced: reducedMotion,
+        onUpdate: (p) => look(content, { opacity: Math.min(1, p), scale: SWAP_IN.from + (1 - SWAP_IN.from) * p, blur: SWAP_IN.blur * Math.max(0, 1 - p) }),
+        onRest: () => { swapIn = null; look(content, { opacity: 1, scale: 1, blur: 0 }) },
+      })
+      swapIn.setTarget(1)
+    }
+    swapFrame = requestAnimationFrame(out)
+  }
+
+  // The avatar's badge: DX2's jelly badge (window.CmaJellyBadge, once the
+  // dock ships it) paints the count; without it the island shows none, as
+  // before.
+  const badgeSlot = $('[data-role="badge"]')
+  function renderBadge (v) {
+    const jelly = window.CmaJellyBadge
+    const count = Math.max(0, Math.trunc(Number(v && v.badge)) || 0)
+    if (!jelly || typeof jelly.paint !== 'function') { badgeSlot.hidden = true; return }
+    badgeSlot.hidden = count === 0
+    jelly.paint(badgeSlot, { count, mode: v.mode })
   }
 
   api.onLayout((next) => {

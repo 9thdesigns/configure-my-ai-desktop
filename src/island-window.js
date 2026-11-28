@@ -89,22 +89,60 @@ function islandIdleView (state, { signedIn = null } = {}) {
   let label = 'All quiet'
   if (!state) label = signedIn === false ? 'Signed out' : 'Connecting…'
   else if (manager?.state?.status === 'paused') label = 'Paused'
-  return { idle: true, bot, chip: { kind: state ? 'idle' : 'offline', label }, detail: '', pending: null }
+  return { idle: true, mode: 'idle', bot, chip: { kind: state ? 'idle' : 'offline', label }, badge: 0, detail: '', pending: null }
 }
+
+// The island's states, from its chip: idle, working, message (a reply, or
+// a failure to read), question (a question, or a bot waiting on the user),
+// approval, and recording (the screen is being looked at). Each has its own
+// compact look, and moving between them is the mode swap (island-view.js).
+const MODES = Object.freeze(['idle', 'working', 'message', 'question', 'approval', 'recording'])
+const MODE_OF_CHIP = Object.freeze({
+  idle: 'idle',
+  offline: 'idle',
+  working: 'working',
+  responded: 'message',
+  failed: 'message',
+  question: 'question',
+  waiting: 'question',
+  approval: 'approval',
+  screen: 'recording',
+})
+const islandMode = (chip) => MODE_OF_CHIP[chip?.kind] || 'idle'
+
+// Hovering a message or a question previews it (the card), after a beat.
+const PREVIEW_MODES = Object.freeze(['message', 'question'])
+const previews = (view) => Boolean(view && !view.idle && PREVIEW_MODES.includes(view.mode))
 
 // What the island renderer is sent: the bot that needs the user, or the idle
 // pill. Never null — whether the island shows at all is the pref's call.
+// badge: how many things the bot has for the user (the avatar's badge).
 function islandView (state, options) {
   const bot = islandBot(state)
   const chip = islandChip(bot)
   if (!bot || !chip) return islandIdleView(state, options)
   return {
     idle: false,
+    mode: islandMode(chip),
     bot: botView(bot),
     chip,
+    badge: Math.min(Math.max(Math.trunc(Number(bot.needs_count)) || 0, 0), 99),
     detail: bot.state.detail,
     pending: pendingFromState(bot),
   }
+}
+
+// A reply that has just arrived (the widget's "response arrived" event):
+// the island says "New message" for that bot — unless something more urgent
+// (a question, an approval, the screen being viewed) is already showing —
+// until the user opens it, or the bot moves on in the feed.
+const NEW_MESSAGE_CHIP = Object.freeze({ kind: 'responded', label: 'New message' })
+function withArrival (view, arrival, state) {
+  if (!view || !arrival || view.capturing) return view
+  if (!view.idle && !['idle', 'working', 'message'].includes(view.mode)) return view
+  const bot = arrival.botId === 'manager' ? state?.manager && { ...state.manager, id: 'manager' } : (state?.seats || []).map((s) => ({ ...s, id: s.bot_id })).find((s) => s.id === arrival.botId)
+  if (!bot) return view
+  return { idle: false, mode: 'message', bot: botView(bot), chip: NEW_MESSAGE_CHIP, badge: view.bot?.id === bot.id ? view.badge || 0 : 0, detail: bot.state?.detail || '', pending: null }
 }
 
 // While the widget's Share screen is capturing (screen-share.js), the pill
@@ -113,7 +151,7 @@ function islandView (state, options) {
 const SCREEN_CHIP = Object.freeze({ kind: 'screen', label: 'Viewing your screen' })
 function withScreenIndicator (view, capturing) {
   if (!view || !capturing) return view
-  return { ...view, chip: SCREEN_CHIP, capturing: true }
+  return { ...view, mode: 'recording', chip: SCREEN_CHIP, capturing: true }
 }
 
 const overlap = (a, b) => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
@@ -167,7 +205,8 @@ function syncIslandMenuItem (menu, prefs) {
 
 const HTML_PATH = path.join(__dirname, 'island.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
-const HOVER_COLLAPSE_MS = 600
+const HOVER_PREVIEW_MS = 300 // a message or question previews after this much hover
+const HOVER_LEAVE_MS = 100 // and goes this long after the pointer leaves
 const DISPLAY_SETTLE_MS = 300
 const MAX_MISSED_MOVES = 3
 const POINTER_POLL_MS = 33
@@ -196,7 +235,11 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   let height = COMPACT_HEIGHT
   let view = null
   let collapseTimer = null
+  let previewTimer = null
   let settleTimer = null
+  // A reply that just arrived ({ botId, mood }: the bot's mood then), shown
+  // as "New message" until the user opens it or the bot moves on.
+  let arrival = null
   let pointerTimer = null
   // Where it is right now (islandPlace), and a drag in progress: where the
   // pill's centre and the pointer were at the start, and the place it is
@@ -263,6 +306,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   function dragStart (point) {
     if (!draggable || !alive()) return
     clearTimeout(collapseTimer)
+    clearTimeout(previewTimer)
     if (expanded || focused) collapse()
     if (!current) place()
     if (!current) return
@@ -310,8 +354,18 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     setIgnore(!cursorOverRects(screen.getCursorScreenPoint(), win.getBounds(), rects))
   }
 
+  // The arrival while it still holds: the bot is still there and has not
+  // started on something new (working, or waiting on the user).
+  function arrivalFor (state) {
+    if (!arrival) return null
+    const bot = arrival.botId === 'manager' ? state?.manager : (state?.seats || []).find((s) => s.bot_id === arrival.botId)
+    if (!bot || bot.state?.waiting || (bot.mood === 'working' && arrival.mood !== 'working')) arrival = null
+    return arrival
+  }
+
   function collapse () {
     clearTimeout(collapseTimer)
+    clearTimeout(previewTimer)
     if (!alive()) return
     if (!expanded && !focused) return
     expanded = false
@@ -369,9 +423,9 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   function sync () {
     const state = store.get()
     const next = prefs.get().showIsland
-      ? withScreenIndicator(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), capturing)
+      ? withScreenIndicator(withArrival(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), arrivalFor(state), state), capturing)
       : null
-    const pendingChanged = JSON.stringify(next?.pending) !== JSON.stringify(view?.pending) || next?.bot.id !== view?.bot.id
+    const pendingChanged = JSON.stringify(next?.pending) !== JSON.stringify(view?.pending) || next?.bot.id !== view?.bot.id || next?.mode !== view?.mode
     view = next
     if (!view) {
       if (alive()) {
@@ -448,12 +502,20 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
 
     // Hover: open the card without taking focus. Leaving closes it again,
     // after a beat, unless the user clicked into it.
+    // Hover: a message or a question previews (the card, without taking
+    // focus) after HOVER_PREVIEW_MS; leaving closes it HOVER_LEAVE_MS later,
+    // unless the user clicked into it. Other states just lift (the page).
     ipcMain.on('cma-island:hover', (event, inside) => {
       if (!fromIsland(event) || drag) return
-      if (inside === true) return expand({ focus: false })
+      clearTimeout(previewTimer)
+      if (inside === true) {
+        clearTimeout(collapseTimer)
+        if (!expanded && previews(view)) previewTimer = setTimeout(() => { if (previews(view)) expand({ focus: false }) }, HOVER_PREVIEW_MS)
+        return
+      }
       if (focused) return
       clearTimeout(collapseTimer)
-      collapseTimer = setTimeout(collapse, HOVER_COLLAPSE_MS)
+      collapseTimer = setTimeout(collapse, HOVER_LEAVE_MS)
     })
 
     ipcMain.on('cma-island:drag', (event, input) => {
@@ -485,6 +547,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     // The idle pill's click: bring the app forward.
     ipcMain.on('cma-island:open-app', (event) => {
       if (!fromIsland(event)) return
+      clearArrival()
       collapse()
       openApp()
     })
@@ -492,6 +555,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     ipcMain.on('cma-island:open-in-app', (event, botId) => {
       const id = validId(botId)
       if (!fromIsland(event) || !id) return
+      if (arrival?.botId === id) clearArrival()
       collapse()
       openBot(id)
     })
@@ -509,6 +573,12 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     ipcMain.handle('cma-island:decide', reply((input) => feed.decide(input)))
   }
 
+  function clearArrival () {
+    if (!arrival) return
+    arrival = null
+    sync()
+  }
+
   return {
     sync,
     registerIpc,
@@ -519,8 +589,20 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
       capturing = Boolean(on)
       sync()
     },
+    // The widget's "response arrived" event ({ bot_id }): main.js wires it
+    // here once the dock emits it.
+    responseArrived (input) {
+      const id = validId(input?.bot_id)
+      if (!id) return
+      const state = store.get()
+      const bot = id === 'manager' ? state?.manager : (state?.seats || []).find((s) => s.bot_id === id)
+      if (!bot) return
+      arrival = { botId: id, mood: bot.mood }
+      sync()
+    },
     destroy () {
       clearTimeout(collapseTimer)
+      clearTimeout(previewTimer)
       clearTimeout(settleTimer)
       clearInterval(pointerTimer)
       offStore()
@@ -543,6 +625,12 @@ module.exports = {
   islandPlace,
   MAX_MISSED_MOVES,
   islandChip,
+  islandMode,
+  MODES,
+  previews,
+  withArrival,
+  HOVER_PREVIEW_MS,
+  HOVER_LEAVE_MS,
   islandBot,
   islandView,
   withScreenIndicator,
