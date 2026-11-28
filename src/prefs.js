@@ -17,8 +17,11 @@
 //                             Share screen may capture the display when the
 //                             user asks (screen-share.js). Off by default.
 //   widgetPositions         — where the user dragged the dock, per display:
-//                             [{ id, bounds, pos }], newest first
-//                             (widget-placement.js validates them).
+//                             [{ id, bounds, pos: { edge: 'left' | 'right',
+//                             offset 0..1 } }], newest first
+//                             (dock-placement.js validates them; an older
+//                             { side, offsetY } is migrated the first time
+//                             its display is used).
 //   islandShortcut          — the global shortcut that opens the island's
 //                             Manager composer, one of island-composer.js
 //                             SHORTCUTS ('ctrl-alt-space' by default, 'off').
@@ -30,14 +33,15 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
-const { validEntries, validWidgetPos, validIslandPos } = require('./widget-placement')
+const { validEntries, validIslandPos } = require('./widget-placement')
+const { validDockPos } = require('./dock-placement')
 const { validIslandEdge, migrateIslandPositions } = require('./island-placement')
 const { validShortcut, DEFAULT_SHORTCUT } = require('./island-composer')
 
 // Keys whose values are structures, each with its own validator; the rest
 // are plain values checked by type.
 const STRUCTURED = {
-  widgetPositions: (v) => validEntries(v, validWidgetPos),
+  widgetPositions: (v) => validEntries(v, validDockPos),
   islandEdge: (v) => validIslandEdge(v),
   islandShortcut: (v) => validShortcut(v),
 }
