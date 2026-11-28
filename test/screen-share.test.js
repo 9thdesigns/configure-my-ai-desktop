@@ -418,3 +418,41 @@ test('the new modules are in the check script', () => {
   assert.match(pkg.scripts.check, /node --check src\/screen-share\.js/)
   assert.match(pkg.scripts.check, /node --check src\/screen-share-main\.js/)
 })
+
+// --- What comes back: messages with attachments ------------------------------
+
+test('a message\'s screenshot is kept with its size, and a url only on our origin', () => {
+  const { conversationFrom, attachmentError, SCREENSHOT_ONLY_BODY } = require('../src/widget-chat')
+  const conv = conversationFrom({
+    bot_id: 'manager',
+    messages: [
+      { id: 'u1', role: 'user', body: 'look', attachments: [{ kind: 'screenshot', mime: 'image/png', width: 1440, height: 900, url: 'https://configuremyai.com/rails/active_storage/a.png' }] },
+      { id: 'u2', role: 'user', body: '', attachments: [{ kind: 'screenshot', mime: 'image/jpeg', width: 10, height: 10, url: 'https://evil.example/a.png' }] },
+      { id: 'u3', role: 'user', body: '', attachments: [{ kind: 'video' }] },
+      { id: 'a1', role: 'assistant', body: 'I see a dialog.' },
+    ],
+  }, 'manager')
+  assert.deepEqual(conv.messages.map((m) => m.id), ['u1', 'u2', 'a1'], 'an empty message with no screenshot is dropped')
+  assert.deepEqual(conv.messages[0].attachments, [{ kind: 'screenshot', mime: 'image/png', width: 1440, height: 900, url: 'https://configuremyai.com/rails/active_storage/a.png' }])
+  assert.equal(conv.messages[0].screenshot, true)
+  assert.equal(conv.messages[1].attachments[0].url, null, 'off-origin url dropped')
+  assert.equal(conv.messages[1].body, SCREENSHOT_ONLY_BODY)
+  assert.equal(conv.messages[2].screenshot, undefined)
+  assert.match(read('widget-view.js'), new RegExp(`SCREENSHOT_ONLY_BODY = '${SCREENSHOT_ONLY_BODY}'`), 'the bubble text matches main\'s')
+
+  assert.equal(attachmentError({ status: 413, json: null }), 'attachment_too_large')
+  assert.equal(attachmentError({ status: 413, json: { error: 'attachment_too_large' } }), 'attachment_too_large')
+  assert.equal(attachmentError({ status: 422, json: { error: 'attachment_invalid' } }), 'attachment_invalid')
+  assert.equal(attachmentError({ status: 422, json: { error: 'invalid_authenticity_token' } }), null, 'a stale token is not an attachment error')
+  assert.equal(attachmentError(null), null)
+})
+
+test('the thread marks a bubble that carried a screenshot', () => {
+  const ChatFormat = require('../src/chat-format')
+  const items = ChatFormat.threadItems([{ id: 'u1', role: 'user', body: 'look', screenshot: true, created_at: null }, { id: 'a1', role: 'assistant', body: 'ok', created_at: null }], { outbox: [{ key: 'out:1', body: 'Shared my screen', screenshot: true, failed: false }] })
+  const byKey = Object.fromEntries(items.map((i) => [i.key, i]))
+  assert.equal(byKey.u1.screenshot, true)
+  assert.equal(byKey.a1.screenshot, undefined)
+  assert.equal(byKey['out:1'].screenshot, true)
+  assert.match(read('widget.css'), /\.message\.has-screenshot::before/)
+})

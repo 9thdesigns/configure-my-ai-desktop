@@ -23,8 +23,9 @@
   const composer = $('[data-role="composer"]', popover)
   const compose = $('[data-role="compose"]', popover)
   const sendButton = $('.btn-send', composer)
+  const composePlaceholder = $('[data-role="compose-placeholder"]', popover)
   const screenEl = $('[data-role="screen"]', popover)
-  const screenButton = $('[data-action="share-screen"]', composer)
+  const format = window.ChatFormat
 
   let view = { bots: [], candidates: [], focused_bot_id: null }
   let layout = { expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null }
@@ -50,6 +51,32 @@
     return node
   }
 
+  // Share screen mounts into the composer's tools slot only when it is
+  // offered (the server takes screenshots); otherwise the slot stays empty
+  // and takes no room.
+  const toolsSlot = $('[data-slot="composer-tools"]', composer)
+  const screenButton = (() => {
+    const button = el('button', 'btn-screen')
+    button.type = 'button'
+    button.dataset.action = 'share-screen'
+    button.setAttribute('aria-label', 'Share screen')
+    button.title = 'Share screen'
+    const ns = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('viewBox', '0 0 20 20')
+    svg.setAttribute('width', '18')
+    svg.setAttribute('height', '18')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    const rect = document.createElementNS(ns, 'rect')
+    for (const [k, v] of Object.entries({ x: '2.5', y: '3.5', width: '15', height: '10', rx: '1.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' })) rect.setAttribute(k, v)
+    const stand = document.createElementNS(ns, 'path')
+    for (const [k, v] of Object.entries({ d: 'M7 16.5h6M10 13.5v3', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' })) stand.setAttribute(k, v)
+    svg.append(rect, stand)
+    button.append(svg)
+    return button
+  })()
+
   // The bot's avatar — the web app's animated CFA face, its picture, or its
   // initials (src/avatar-render.js decides, and swaps states in place).
   const avatars = window.CfaAvatar
@@ -57,6 +84,22 @@
   const inkFor = avatars.inkFor
   avatars.watch(window, document)
   if (typeof api.onAvatarCss === 'function') api.onAvatarCss((payload) => avatars.applyCss(document, payload && payload.css))
+
+  // The web app's chat tokens (main fetched and checked them, chat-tokens.js),
+  // adopted after widget.css so they override its bundled values. A
+  // constructed sheet: nothing for the CSP to allow.
+  let chatSheet = null
+  function applyChatCss (text) {
+    if (typeof text !== 'string' || typeof CSSStyleSheet !== 'function' || !('adoptedStyleSheets' in document)) return
+    try {
+      if (!chatSheet) {
+        chatSheet = new CSSStyleSheet()
+        document.adoptedStyleSheets = [...document.adoptedStyleSheets, chatSheet]
+      }
+      chatSheet.replaceSync(text)
+    } catch {}
+  }
+  if (typeof api.onChatCss === 'function') api.onChatCss((payload) => applyChatCss(payload && payload.css))
 
   const botById = (id) => view.bots.find((b) => b.id === id)
 
@@ -228,37 +271,192 @@
 
   // --- The popover ---------------------------------------------------------
 
+  // Only what changed is written: an unchanged string written again still
+  // replaces the node's text node, and every state push (each feed refetch)
+  // would repaint the head.
+  const setText = (node, text) => { if (node.textContent !== text) node.textContent = text }
+
   function renderHead () {
     const bot = botById(layout.botId)
     if (!bot) return
     paintAvatar($('[data-role="head-avatar"]', popover), bot)
-    $('[data-role="head-name"]', popover).textContent = bot.name
-    $('[data-role="head-state"]', popover).textContent = bot.label
-    compose.placeholder = `Message ${bot.name}…`
+    setText($('[data-role="head-name"]', popover), bot.name)
+    setText($('[data-role="head-state"]', popover), bot.label)
+    const placeholder = `Message ${bot.name}…`
+    setText(composePlaceholder, placeholder)
+    if (compose.getAttribute('aria-label') !== placeholder) compose.setAttribute('aria-label', placeholder)
+  }
+
+  // The thread is patched, never rebuilt. Main re-sends the conversation on
+  // every poll (5 s), every feed refetch and every reply; rebuilding the list
+  // each time replayed every bubble's fade-in (.message's message-in), so the
+  // whole thread blinked out and back as if the popover had reloaded. Now:
+  //   * the rows (bubbles, time separators, the delivery line; their shape
+  //     from chat-format.js) keep their nodes, keyed;
+  //   * a new message is appended; nothing else is touched but the grouping
+  //     classes of its neighbour and the delivery line;
+  //   * a reply that grows (streams) patches its one text node in place;
+  //   * an unchanged thread writes nothing at all;
+  //   * messages the server's 20-message window slid past stay above it (up
+  //     to MAX_THREAD), since they are still the thread — only a message
+  //     gone from inside the window is removed;
+  //   * the view sticks to the bottom when it was there, and otherwise
+  //     stays put.
+  const MAX_THREAD = 200
+  // A screenshot sent with no text: the bubble's words (widget-chat.js gives
+  // the server's copy of such a message the same body, so they match up).
+  const SCREENSHOT_ONLY_BODY = 'Shared my screen'
+  const rows = new Map() // row key -> <li>
+  let rowsBot = null // whose thread the rows are
+  let thread = [] // the messages on screen, oldest first
+  let outbox = [] // the user's sends not yet confirmed: { key, body, failed }
+  let outboxSeq = 0
+  let toBottom = true // the next render scrolls to the bottom regardless
+  let statusRow = null
+
+  const nearBottom = () => messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40
+
+  function clearRows () {
+    rows.clear()
+    rowsBot = null
+    thread = []
+    outbox = []
+    statusRow = null
+    messagesEl.textContent = ''
+    toBottom = true
+  }
+
+  // "Loading…" and the like, in place of the thread.
+  function showStatus (text) {
+    if (rows.size) {
+      for (const row of rows.values()) row.remove()
+      rows.clear()
+    }
+    if (!statusRow) {
+      statusRow = el('li', 'messages-empty')
+      messagesEl.append(statusRow)
+    }
+    setText(statusRow, text)
+  }
+
+  // A row's only child is its text: patch the text node itself, so a
+  // streaming reply is one characterData change, not a node swap.
+  function setRowText (row, text) {
+    const node = row.firstChild
+    if (node && node.nodeType === 3 && !node.nextSibling) {
+      if (node.data !== text) node.data = text
+    } else {
+      row.textContent = text
+    }
+  }
+
+  const setClass = (row, className) => { if (row.className !== className) row.className = className }
+
+  function paintRow (row, item) {
+    if (item.kind === 'separator') {
+      setClass(row, 'time-sep')
+      return setRowText(row, item.text)
+    }
+    if (item.kind === 'status') {
+      setClass(row, `delivery is-${item.state}`)
+      const retry = item.state === 'failed'
+      const label = row.firstChild
+      if (label && label.nodeType === 3 && label.data === item.text && Boolean(row.querySelector('button')) === retry) return
+      row.textContent = item.text
+      if (retry) {
+        const button = el('button', '', 'Retry')
+        button.type = 'button'
+        button.addEventListener('click', retrySend)
+        row.append(button)
+      }
+      return
+    }
+    setClass(row, ['message', `is-${item.role}`, item.groupStart && 'is-group-start', item.groupEnd && 'is-group-end', item.local && `is-${item.local}`, item.screenshot && 'has-screenshot'].filter(Boolean).join(' '))
+    setRowText(row, item.body)
+  }
+
+  // The server's window of messages, joined onto what is on screen: what it
+  // slid past stays, everything from its first message on is the server's.
+  function mergeThread (messages) {
+    const at = messages.length ? thread.findIndex((m) => m.id === messages[0].id) : -1
+    thread = (at > 0 ? thread.slice(0, at).concat(messages) : messages.slice()).slice(-MAX_THREAD)
+  }
+
+  // An outbox row whose message the server now has takes that message's
+  // key: the same bubble stays, it just stops being "sending".
+  function adoptOutbox (messages) {
+    if (!outbox.length) return
+    const known = new Set(thread.map((m) => m.id))
+    for (const m of messages) {
+      if (m.role !== 'user' || known.has(m.id) || rows.has(m.id)) continue
+      const i = outbox.findIndex((o) => !o.failed && o.body === m.body)
+      if (i < 0) continue
+      const row = rows.get(outbox[i].key)
+      if (row) {
+        rows.delete(outbox[i].key)
+        rows.set(m.id, row)
+        row.dataset.key = m.id
+      }
+      outbox.splice(i, 1)
+    }
   }
 
   function renderMessages () {
-    const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40
-    messagesEl.textContent = ''
     if (!conversation) {
-      messagesEl.append(el('li', 'messages-empty', 'Loading…'))
-      return
+      // Reopening the bot whose thread is still here: keep it on screen
+      // until the fresh copy arrives, rather than flash "Loading…".
+      if (rowsBot === layout.botId && rows.size) {
+        if (toBottom) messagesEl.scrollTop = messagesEl.scrollHeight
+        return
+      }
+      return showStatus('Loading…')
     }
-    if (!conversation.history) {
-      messagesEl.append(el('li', 'messages-empty', 'Open in app to see the full conversation.'))
-      return
+    if (rowsBot !== conversation.bot_id) {
+      clearRows()
+      rowsBot = conversation.bot_id
     }
-    if (!conversation.messages.length) {
-      messagesEl.append(el('li', 'messages-empty', 'No messages yet.'))
-      return
+    if (!conversation.history) return showStatus('Open in app to see the full conversation.')
+    adoptOutbox(conversation.messages)
+    mergeThread(conversation.messages)
+    if (!thread.length && !outbox.length) return showStatus('No messages yet.')
+    if (statusRow) {
+      statusRow.remove()
+      statusRow = null
     }
-    for (const message of conversation.messages) {
-      messagesEl.append(el('li', `message is-${message.role}`, message.body))
+
+    const atBottom = toBottom || nearBottom()
+    const items = format.threadItems(thread, { outbox })
+    const keys = new Set(items.map((item) => item.key))
+
+    // Something kept on screen, to hold the view still if rows above it go.
+    const anchor = atBottom ? null : [...messagesEl.children].find((row) => keys.has(row.dataset.key) && row.offsetTop + row.offsetHeight > messagesEl.scrollTop)
+    const anchorTop = anchor ? anchor.offsetTop : 0
+
+    for (const row of [...messagesEl.children]) {
+      if (keys.has(row.dataset.key)) continue
+      rows.delete(row.dataset.key)
+      row.remove()
     }
-    if (atBottom || !messagesEl.dataset.scrolled) {
-      messagesEl.scrollTop = messagesEl.scrollHeight
-      messagesEl.dataset.scrolled = '1'
+
+    // In order; a row moves only when it is out of place.
+    let cursor = messagesEl.firstChild
+    for (const item of items) {
+      let row = rows.get(item.key)
+      if (!row) {
+        row = el('li')
+        row.dataset.key = item.key
+        if (item.kind === 'message' && !item.local) row.dataset.messageId = item.key
+        rows.set(item.key, row)
+      }
+      if (item.kind === 'message' && !item.local && row.dataset.messageId !== item.key) row.dataset.messageId = item.key
+      paintRow(row, item)
+      if (row === cursor) cursor = cursor.nextSibling
+      else messagesEl.insertBefore(row, cursor)
     }
+
+    if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight
+    else if (anchor && anchor.offsetTop !== anchorTop) messagesEl.scrollTop += anchor.offsetTop - anchorTop
+    toBottom = false
   }
 
   const letter = (i) => String.fromCharCode(65 + i)
@@ -363,9 +561,12 @@
     if (done) done.disabled = busy || (selected.size === 0 && !otherText())
   }
 
+  // Send is live with text, or with a screenshot attached.
+  const canSend = () => Boolean(compose.value.trim() || attached)
+
   function setBusy (on) {
     busy = on
-    sendButton.disabled = on
+    sendButton.disabled = on || !canSend()
     screenButton.disabled = on || capturingHere
     for (const button of pendingEl.querySelectorAll('button')) button.disabled = on
     if (!on) updateDone()
@@ -409,27 +610,72 @@
     takeConversation(result, 'Couldn’t send that. Try again, or open in app.')
   }
 
+  // A send shows at once, as a "Sending…" bubble (the outbox); the
+  // server's reply confirms it (the same bubble, now "Delivered") or it
+  // stays as "Not delivered", with Retry.
+  async function deliver (entry) {
+    const botId = layout.botId
+    entry.failed = false
+    renderMessages()
+    setBusy(true)
+    // `text` is what the user typed (empty for a screenshot alone); `body`
+    // is the bubble's words.
+    const result = await api.sendMessage(botId, entry.text ?? entry.body)
+    setBusy(false)
+    if (botId !== layout.botId || !outbox.includes(entry)) return
+    if (result && result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
+    if (!result || result.failed) {
+      entry.failed = true
+      return renderMessages()
+    }
+    takeConversation(result)
+  }
+
   async function sendMessage () {
     const body = compose.value.trim()
     if ((!body && !attached) || busy || !layout.botId) return
-    setBusy(true)
     // Main attaches the held screenshot, or takes one first when the
     // message asks about the screen and the switch is on (screen-share.js).
-    const result = await api.sendMessage(layout.botId, body)
-    if (result) {
-      compose.value = ''
-      autosize()
-      attached = null
-      if (result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
-      else renderScreen()
+    // A failed send keeps it in main for the retry.
+    const screenshot = Boolean(attached)
+    attached = null
+    renderScreen()
+    // No thread on screen to show it in (still loading, or no history
+    // endpoint): send it plainly, and keep the text until it has gone.
+    if (!conversation || !conversation.history) {
+      setBusy(true)
+      const result = await api.sendMessage(layout.botId, body)
+      if (result && result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
+      if (result && !result.failed) {
+        compose.value = ''
+        autosize()
+      }
+      return takeConversation(result && !result.failed ? result : null, 'Couldn’t send your message. Try again, or open in app.')
     }
-    takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
+    compose.value = ''
+    autosize()
+    toBottom = true
+    const entry = { key: `out:${++outboxSeq}`, body: body || SCREENSHOT_ONLY_BODY, text: body, screenshot, failed: false }
+    outbox.push(entry)
+    deliver(entry)
+  }
+
+  function retrySend () {
+    const entry = outbox.find((o) => o.failed)
+    if (!entry || busy) return
+    // Retried, it goes to the end, as a fresh send would.
+    outbox.splice(outbox.indexOf(entry), 1)
+    outbox.push(entry)
+    toBottom = true
+    deliver(entry)
   }
 
   // --- Share screen ----------------------------------------------------------
 
   function renderScreen () {
-    screenButton.hidden = !screenState.available || !layout.botId
+    const offered = screenState.available && Boolean(layout.botId)
+    if (offered && screenButton.parentNode !== toolsSlot) toolsSlot.append(screenButton)
+    if (!offered && screenButton.parentNode) screenButton.remove()
     screenButton.disabled = busy || capturingHere
     screenButton.classList.toggle('is-attached', Boolean(attached))
     screenButton.setAttribute('aria-pressed', attached ? 'true' : 'false')
@@ -465,6 +711,7 @@
     }
     screenEl.replaceChildren(...nodes)
     screenEl.hidden = nodes.length === 0
+    sendButton.disabled = busy || !canSend()
   }
 
   function setNotice (next) {
@@ -510,9 +757,16 @@
 
   screenButton.addEventListener('click', () => shareScreen())
 
+  // The field grows with its text up to --composer-max-height (the CSS
+  // caps it, and scrolls past that); send is live once there is text.
+  // A growing field shrinks the thread above it: one that was at the
+  // bottom stays there.
   function autosize () {
+    const stick = nearBottom()
     compose.style.height = 'auto'
-    compose.style.height = `${Math.min(compose.scrollHeight, 120)}px`
+    compose.style.height = `${compose.scrollHeight}px`
+    if (stick) messagesEl.scrollTop = messagesEl.scrollHeight
+    sendButton.disabled = busy || !canSend()
   }
 
   composer.addEventListener('submit', (event) => {
@@ -592,7 +846,8 @@
     if (opened) {
       conversation = null
       pendingKey = undefined
-      delete messagesEl.dataset.scrolled
+      if (rowsBot !== next.botId) clearRows()
+      toBottom = true
       showError(null)
       // Main drops a held screenshot when the chat closes.
       attached = null

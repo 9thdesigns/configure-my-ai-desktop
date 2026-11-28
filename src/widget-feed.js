@@ -21,7 +21,7 @@
 // without Electron (test/widget-feed.test.js).
 
 const { widgetStateFrom, validId } = require('./widget-state')
-const { messagesPath, conversationFrom, composeFrom, answerFrom, decisionFrom } = require('./widget-chat')
+const { messagesPath, conversationFrom, composeFrom, answerFrom, decisionFrom, attachmentError } = require('./widget-chat')
 const { APP_URL, isAppUrl } = require('./url-policy')
 
 const WIDGET_JSON_PATH = '/desktop/widget.json'
@@ -142,6 +142,9 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
     const extra = timeoutMs ? { timeoutMs } : {}
     const res = await request({ method, path, body, csrfToken, ...extra })
     if (res.status !== 422) return res
+    // The server refused an attachment: a fresh token won't change that, and
+    // resending a few MB to hear it again is waste.
+    if (attachmentError(res)) return res
     await refresh()
     return request({ method, path, body, csrfToken, ...extra })
   }
@@ -163,7 +166,10 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
     if (!command) return null
     const res = await write('POST', command.path, command.body, command.timeoutMs)
     refresh().catch(() => {})
-    return res.status >= 200 && res.status < 300 ? conversationFrom(res.json, command.botId) : null
+    if (res.status >= 200 && res.status < 300) return conversationFrom(res.json, command.botId)
+    // Only a send that carried a screenshot can be refused for it.
+    const refused = command.body && command.body.attachments ? attachmentError(res) : null
+    return refused ? { attachment_error: refused } : null
   }
 
   return {

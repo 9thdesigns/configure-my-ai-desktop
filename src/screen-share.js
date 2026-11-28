@@ -59,6 +59,8 @@ const MESSAGES = Object.freeze({
   wayland_unavailable: 'Your desktop didn’t share the screen. On Wayland, pick a screen in the system’s sharing dialog, or check that xdg-desktop-portal is installed.',
   capture_failed: 'Couldn’t capture your screen. Try again.',
   too_large: 'That screenshot is too large to send.',
+  attachment_too_large: 'That screenshot was too large for the server. Your message wasn’t sent — try again without it.',
+  attachment_invalid: 'The server couldn’t read that screenshot. Your message wasn’t sent — try again without it.',
   busy: 'Already capturing your screen.',
 })
 
@@ -93,6 +95,12 @@ function permissionAction (state) {
   if (state === PERMISSION.GRANTED) return 'capture'
   if (state === PERMISSION.NOT_DETERMINED) return 'explain'
   return 'refuse'
+}
+
+// The server's refusal of an attachment (widget-chat.js attachmentError),
+// in the same shape as a capture refusal, for the composer.
+function serverRefusal (code) {
+  return refusal(code === 'attachment_too_large' ? 'attachment_too_large' : 'attachment_invalid')
 }
 
 function refusal (code, extra = {}) {
@@ -319,6 +327,7 @@ module.exports = {
   permissionAction,
   encodeImage,
   attachmentPayload,
+  serverRefusal,
   asksAboutScreen,
   createIndicator,
   createScreenShare,

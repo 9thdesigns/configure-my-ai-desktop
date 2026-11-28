@@ -37,7 +37,7 @@ const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
-const { attachmentPayload, asksAboutScreen, EXPLICIT_REASONS } = require('./screen-share')
+const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
 
 const DOCK_WIDTH = 56 // the dock column (44px, widget.css), with room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -235,7 +235,7 @@ const MAX_MISSED_MOVES = 3
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron') }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -355,6 +355,20 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     const state = store.get()
     send('cma-widget:state', widgetView(state, { shareScreen: prefs.get().shareScreen }))
     pushAvatarCss(state)
+    pushChatCss(state)
+  }
+
+  // The web app's chat tokens (chat-tokens.js), likewise once per URL. No
+  // URL in the feed (an older server): the bundled tokens in widget.css stay.
+  let sentChatCssUrl = null
+  function pushChatCss (state) {
+    const url = state?.chat_css_url
+    if (!chatCss || !url || url === sentChatCssUrl) return
+    chatCss.get(url).then((css) => {
+      if (!css || !alive() || store.get()?.chat_css_url !== url) return
+      sentChatCssUrl = url
+      send('cma-widget:chat-css', { url, css })
+    }).catch(() => {})
   }
 
   // The CFA avatar stylesheet, once per URL per window (avatar-css.js).
@@ -473,6 +487,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       win = null
       drag = null
       sentCssUrl = null
+      sentChatCssUrl = null
       expanded = false
       openBotId = null
       clearInterval(pointerTimer)
@@ -536,9 +551,15 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     }
     const held = can ? screenShare.peek(botId) : null
     const attachment = held ? attachmentPayload(held) : null
-    const conversation = attachment ? await feed.sendMessage(input, { attachment }) : await feed.sendMessage(input)
-    if (conversation && attachment) screenShare.discard(botId)
-    return { conversation, screen }
+    const result = attachment ? await feed.sendMessage(input, { attachment }) : await feed.sendMessage(input)
+    // The server refused the screenshot (413 / 422): resending it won't
+    // help, so it is dropped, and the message (not sent) waits for a retry.
+    if (result && result.attachment_error) {
+      screenShare.discard(botId)
+      return { conversation: null, screen: serverRefusal(result.attachment_error), failed: true }
+    }
+    if (result && attachment) screenShare.discard(botId)
+    return { conversation: result, screen }
   }
 
   function registerIpc (ipcMain) {
@@ -621,10 +642,12 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     }
     ipcMain.handle('cma-widget:send', async (event, input) => {
       if (!fromWidget(event)) return null
-      const { conversation, screen } = await sendWithScreen(input).catch(() => ({}))
+      const { conversation, screen, failed } = await sendWithScreen(input).catch(() => ({}))
+      const shown = screen ? { status: screen.status, message: screen.message, settingsUrl: screen.settingsUrl } : null
+      if (failed) return { failed: true, screen: shown }
       if (!conversation) return null
       const view = await popoverFor(conversation.bot_id, conversation)
-      return screen ? { ...view, screen: { status: screen.status, message: screen.message, settingsUrl: screen.settingsUrl } } : view
+      return shown ? { ...view, screen: shown } : view
     })
     ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
 

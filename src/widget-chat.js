@@ -26,6 +26,7 @@
 // approvals, which can.
 
 const { validId, cleanText, validAppUrl, validOptions, botById, stateLabel } = require('./widget-state')
+const { isAppAssetUrl } = require('./url-policy')
 
 const MESSAGE_LIMIT = 20
 const MAX_BODY = 8000
@@ -36,6 +37,8 @@ const ROLES = Object.freeze(['user', 'assistant', 'system'])
 const PENDING_KINDS = Object.freeze(['question', 'approval'])
 const DECISIONS = Object.freeze(['approve', 'decline'])
 const ATTACHMENT_TIMEOUT_MS = 60_000
+// Must match SCREENSHOT_ONLY_BODY in widget-view.js (the optimistic bubble).
+const SCREENSHOT_ONLY_BODY = 'Shared my screen'
 
 function botPath (botId, leaf) {
   const id = validId(botId)
@@ -62,12 +65,40 @@ function validTime (value) {
   return Number.isFinite(t) ? new Date(t).toISOString() : null
 }
 
+// A message's attachments (the screenshot a user shared): kind, size, and
+// a url only when it is on our own origin. Nothing else is kept.
+function validAttachments (input) {
+  if (!Array.isArray(input)) return []
+  return input.slice(0, 4).filter((a) => a && typeof a === 'object' && a.kind === 'screenshot').map((a) => ({
+    kind: 'screenshot',
+    mime: a.mime === 'image/jpeg' ? 'image/jpeg' : 'image/png',
+    width: Math.max(0, Math.trunc(Number(a.width)) || 0),
+    height: Math.max(0, Math.trunc(Number(a.height)) || 0),
+    url: typeof a.url === 'string' && isAppAssetUrl(a.url) ? a.url : null,
+  }))
+}
+
 function validMessage (input) {
   if (!input || typeof input !== 'object') return null
   const id = validId(input.id)
-  const body = cleanBody(input.body, MAX_BODY)
+  const attachments = validAttachments(input.attachments)
+  const screenshot = attachments.length > 0
+  // A screenshot sent with no words still shows as a bubble.
+  const body = cleanBody(input.body, MAX_BODY) || (screenshot ? SCREENSHOT_ONLY_BODY : '')
   if (!id || !body) return null
-  return { id, role: ROLES.includes(input.role) ? input.role : 'assistant', body, created_at: validTime(input.created_at) }
+  const message = { id, role: ROLES.includes(input.role) ? input.role : 'assistant', body, created_at: validTime(input.created_at) }
+  return screenshot ? { ...message, screenshot: true, attachments } : message
+}
+
+// The server refused the attachment (the confirmed contract): 413
+// { error: 'attachment_too_large' } or 422 { error: 'attachment_invalid' }.
+// Null for any other answer.
+const ATTACHMENT_ERRORS = Object.freeze(['attachment_too_large', 'attachment_invalid'])
+function attachmentError (res) {
+  if (!res) return null
+  const code = res.json && typeof res.json === 'object' ? res.json.error : null
+  if (ATTACHMENT_ERRORS.includes(code)) return code
+  return res.status === 413 ? 'attachment_too_large' : null
 }
 
 function validPending (input) {
@@ -208,6 +239,9 @@ function optionLetter (index) {
 module.exports = {
   MESSAGE_LIMIT,
   ATTACHMENT_TIMEOUT_MS,
+  SCREENSHOT_ONLY_BODY,
+  ATTACHMENT_ERRORS,
+  attachmentError,
   messagesPath,
   botPath,
   cleanBody,

@@ -96,12 +96,14 @@ function cacheName (url) {
 }
 
 // fetchText(url) → Promise<string|null>. dir: where the sheets are kept.
-function createAvatarCssCache ({ dir, fetchText, fsImpl = fs }) {
+// sanitize / validUrl: the avatar sheet's by default; the chat tokens sheet
+// (chat-tokens.js) brings its own, stricter pair through the same cache.
+function createAvatarCssCache ({ dir, fetchText, fsImpl = fs, sanitize = sanitizeAvatarCss, validUrl = validAvatarCssUrl }) {
   const memo = new Map() // url → Promise<string|null>
 
   function readCached (url) {
     try {
-      return sanitizeAvatarCss(fsImpl.readFileSync(path.join(dir, cacheName(url)), 'utf8'))
+      return sanitize(fsImpl.readFileSync(path.join(dir, cacheName(url)), 'utf8'))
     } catch {
       return null
     }
@@ -123,13 +125,13 @@ function createAvatarCssCache ({ dir, fetchText, fsImpl = fs }) {
 
   // The sheet for this URL: from memory, then disk, then the network.
   function get (value) {
-    const url = validAvatarCssUrl(value)
+    const url = validUrl(value)
     if (!url) return Promise.resolve(null)
     if (memo.has(url)) return memo.get(url)
     const job = (async () => {
       const cached = readCached(url)
       if (cached) return cached
-      const css = sanitizeAvatarCss(await fetchText(url).catch(() => null))
+      const css = sanitize(await fetchText(url).catch(() => null))
       if (css) writeCached(url, css)
       return css
     })()
