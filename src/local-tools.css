@@ -25,3 +25,5 @@ label.switch { display: flex; gap: 8px; align-items: center; }
 .privacy p { font-size: 12.5px; margin: 0 0 6px; }
 .privacy p:last-child { margin-bottom: 0; }
 .privacy strong { color: var(--ink); font-weight: 600; }
+pre.preview { max-height: 150px; background: transparent; }
+.meta-line { font-size: 12.5px; margin: -4px 0 10px; }
