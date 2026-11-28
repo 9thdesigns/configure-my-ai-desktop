@@ -526,3 +526,31 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .rec-dot, .island[data-chip="recording"] .chip::before { animation: none; }
 }
+
+/* Ambient (ambient-view.js): with the screen locked or asleep, or the
+   island hidden or covered, every looping animation (the recording dot,
+   the working glow, the typing dots, the faces) holds still. */
+:root[data-ambient="paused"] *,
+:root[data-ambient="paused"] *::before,
+:root[data-ambient="paused"] *::after { animation-play-state: paused !important; }
+
+/* Reduced transparency: the tints on the black pill become solid (the same
+   colours, mixed over black), as do the menu's and the grabber's. */
+:root[data-transparency="reduce"] { --line: #2a2a2a; }
+:root[data-transparency="reduce"] .island[data-chip="question"] .chip,
+:root[data-transparency="reduce"] .island[data-chip="approval"] .chip,
+:root[data-transparency="reduce"] .island[data-chip="waiting"] .chip { background: #2b1906; }
+:root[data-transparency="reduce"] .island[data-chip="working"] .chip { background: #08142a; }
+:root[data-transparency="reduce"] .island[data-chip="responded"] .chip { background: #091e13; }
+:root[data-transparency="reduce"] .island[data-chip="failed"] .chip { background: #290d0e; }
+:root[data-transparency="reduce"] .island[data-chip="screen"] .chip,
+:root[data-transparency="reduce"] .island[data-chip="recording"] .chip { background: #32100f; }
+:root[data-transparency="reduce"] .grabber { background: #666; }
+:root[data-transparency="reduce"] .menu { border-color: #3a3938; }
+:root[data-transparency="reduce"] .menu-item:hover,
+:root[data-transparency="reduce"] .menu-item:focus,
+:root[data-transparency="reduce"] .menu-item[aria-expanded="true"] { background: #2f2e2d; }
+:root[data-transparency="reduce"] .composer-pill,
+:root[data-transparency="reduce"] .chip-row { border-color: #3a3938; }
+:root[data-transparency="reduce"] .chip-x:hover,
+:root[data-transparency="reduce"] .composer-btn:hover:not([aria-disabled="true"]) { background: #2f2e2d; }

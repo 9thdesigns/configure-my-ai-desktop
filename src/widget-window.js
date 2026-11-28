@@ -47,6 +47,7 @@ const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PI
 const { UNSUPPORTED_RETRY_MS, rendererThreads, threadUrl } = require('./widget-threads')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
+const { validAmbient } = require('./ambient')
 const dockPlace = require('./dock-placement')
 const edgeDrag = require('./edge-drag')
 const { attachmentPayload, asksAboutScreen, serverRefusal, EXPLICIT_REASONS } = require('./screen-share')
@@ -324,6 +325,7 @@ const CLOSE_MS = 320
 function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, haptics = null, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   const { BrowserWindow, screen, session } = electron
 
+  let ambient = null // ambient.js: the screen locked / asleep, reduced transparency
   let win = null
   let expanded = false
   let openBotId = null
@@ -909,6 +911,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       // A fresh page has no stylesheet yet, whatever was sent before.
       sentCssUrl = null
       pushState()
+      if (ambient) send('cma-widget:ambient', ambient)
       place()
     })
 
@@ -1069,6 +1072,11 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     // The indicator (screen-share.js createIndicator): the composer says
     // "Viewing your screen" for as long as the island does.
     setCapturing: (on) => send('cma-widget:screen', { capturing: Boolean(on) }),
+    // The screen locked or asleep, reduced transparency (ambient.js).
+    setAmbient (state) {
+      ambient = validAmbient(state)
+      if (ambient) send('cma-widget:ambient', ambient)
+    },
     isWidgetWindow: (w) => Boolean(w && w === win),
     // The cable's "threads" ping (widget-cable.js): refetch the open card.
     refreshThreads: () => refreshThreads(),

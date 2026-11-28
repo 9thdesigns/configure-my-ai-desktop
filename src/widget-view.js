@@ -8,6 +8,9 @@
 
   const api = window.cmaWidget
   if (!api) return
+  // Paused while locked, asleep, hidden or covered; solid under reduced
+  // transparency (ambient-view.js).
+  if (window.Ambient) window.Ambient.attach(document, api.onAmbient)
 
   // Room inside the window for the dock's shadow, above and below it
   // (widget-window.js DOCK_SHADOW_TOP/BOTTOM say the same).
@@ -158,7 +161,10 @@
       button.classList.toggle('is-focused', bot.id === view.focused_bot_id)
       paintBadge(button, bot)
       button.title = `${bot.name} — ${bot.label}`
-      button.setAttribute('aria-label', `${bot.name}, ${bot.label}`)
+      // What a screen reader says: the name, the state, and the badge (which
+      // is hidden from it): "Max, Questions, 2 need you".
+      const needs = Math.max(0, Math.trunc(Number(bot.needs_count)) || 0)
+      button.setAttribute('aria-label', `${bot.name}, ${bot.label}${needs ? `, ${needs} ${needs === 1 ? 'needs' : 'need'} you` : ''}`)
     })
     const activity = window.DockShape.rimActivity(view.bots)
     if (dock.dataset.activity !== activity) dock.dataset.activity = activity

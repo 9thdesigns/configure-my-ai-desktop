@@ -14,7 +14,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, powerMonitor, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { installMenu } = require('./menu')
@@ -41,6 +41,7 @@ const { initLocalTools } = require('./local-tools-main')
 const { createElectronScreenShare, openScreenSettings } = require('./screen-share-main')
 const { createAreaSelect } = require('./area-select')
 const { createHaptics } = require('./haptics')
+const { createAmbient } = require('./ambient')
 const { createRecorder, FOLDER: RECORDINGS_FOLDER, recordingPermission } = require('./recorder')
 
 // Height of the strip at the top of the window that the user drags it by, and
@@ -717,6 +718,17 @@ function startWidgetFeedAndTray () {
   })
   island.registerIpc(ipcMain)
   island.sync()
+  // The screen locked or asleep, reduced transparency (src/ambient.js): the
+  // dock's and the island's looping animations hold still, their tints go
+  // solid.
+  const ambient = createAmbient({
+    powerMonitor,
+    nativeTheme,
+    systemPreferences,
+    onChange: (state) => { widget?.setAmbient(state); island?.setAmbient(state) },
+  })
+  widget.setAmbient(ambient.state())
+  island.setAmbient(ambient.state())
   // The island's shortcut (and any other) goes with the app.
   app.on('will-quit', () => globalShortcut.unregisterAll())
 
