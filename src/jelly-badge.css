@@ -1,0 +1,88 @@
+/* The jelly badge (jelly-badge.js): an 18px pill with a 3px ring in the
+   colour behind it (--jelly-ring), so it reads as cut out of the dock or
+   the island; white tabular digits; a gradient per kind. And the working
+   dots: a 28×14 pill with three 6px dots hopping. The host places the slot
+   (widget.css for the dock's seats, island.css for the island). */
+
+.jelly {
+  --jelly-ring: var(--dock-fill, #f8f7f5);
+  --jelly-unread: linear-gradient(180deg, #6d5efc, #4b3fd6);
+  --jelly-waiting: linear-gradient(180deg, #ff9a1f, #d0700c);
+  --jelly-failed: linear-gradient(180deg, #f04a5a, #b5172a);
+  display: inline-block;
+  pointer-events: none;
+  line-height: 0;
+}
+.jelly[data-empty] .jelly-pill { display: none; }
+
+.jelly-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  box-shadow: 0 0 0 3px var(--jelly-ring);
+  background: var(--jelly-unread);
+  color: #fff;
+  transform-origin: 50% 100%;
+  overflow: hidden;
+}
+.jelly[data-kind="waiting"] .jelly-pill { background: var(--jelly-waiting); }
+.jelly[data-kind="failed"] .jelly-pill { background: var(--jelly-failed); }
+/* Something new, no count: a dot. */
+.jelly[data-dot] .jelly-pill { height: 10px; min-width: 10px; width: 10px; padding: 0; border-radius: 5px; }
+
+.jelly-glyphs { position: relative; display: inline-block; }
+.jelly-glyph {
+  display: inline-block;
+  font: 700 12px/18px var(--font-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+/* The glyph rolling out sits over the one rolling in. */
+.jelly-glyph.is-leaving { position: absolute; left: 0; top: 0; }
+
+/* Working: three dots hopping, 130ms apart, squash and stretch. */
+.jelly-dots {
+  display: none;
+  box-sizing: border-box;
+  width: 28px;
+  height: 14px;
+  border-radius: 7px;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--jelly-ring);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.jelly[data-working] .jelly-dots { display: inline-flex; }
+.jelly-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-accent, #6d5efc);
+  transform-origin: 50% 100%;
+  animation: jelly-hop 960ms cubic-bezier(0.37, 0, 0.63, 1) infinite;
+}
+.jelly-dot:nth-child(2) { animation-delay: 130ms; }
+.jelly-dot:nth-child(3) { animation-delay: 260ms; }
+@keyframes jelly-hop {
+  0%, 60%, 100% { transform: translateY(0) scale(1, 1); }
+  8% { transform: translateY(0) scale(1.18, 0.82); }
+  22% { transform: translateY(-3px) scale(0.9, 1.12); }
+  34% { transform: translateY(-4px) scale(1, 1); }
+  50% { transform: translateY(0) scale(1.14, 0.86); }
+}
+/* Paused while the page is hidden (avatar-render.js sets data-cfa-paused);
+   still under reduced motion. */
+:root[data-cfa-paused] .jelly-dot { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .jelly-dot { animation: none; }
+}
+
+/* On the island, the ring is the island's own fill. */
+.island .jelly { --jelly-ring: var(--pill, #0a0a0a); }
