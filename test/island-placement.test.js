@@ -126,3 +126,10 @@ test('the keyboard moves it in steps, stopping at centre, or to the other edge',
   assert.equal(P.keyboardMove({ edge: 'top', offsetX: 0 }, { step: -1 }), null, 'already at the end')
   for (const bad of [null, {}, { step: 5 }, { edge: 'left' }]) assert.equal(P.keyboardMove(from, bad), null)
 })
+
+test('the generic edge maths is edge-drag.js, shared with the dock: no second copy here', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '../src/island-placement.js'), 'utf8')
+  assert.match(src, /require\('\.\/edge-drag'\)/)
+  for (const fn of ['E.resolve(', 'E.positionFor(', 'E.dragTo(']) assert.ok(src.includes(fn), fn)
+  assert.doesNotMatch(src, /const findDisplay|function findDisplay|sameRect/, 'display lookup lives in edge-drag.js')
+})
