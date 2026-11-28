@@ -48,7 +48,10 @@
       // Open, the window is sized for where the shell is going (its
       // content's full height), not each frame of the spring.
       const clipEl = island.querySelector('.island-clip')
-      const natural = shellOpen && clipEl ? Math.max(island.offsetHeight, clipEl.scrollHeight) : island.offsetHeight
+      const menuEl = document.querySelector('[data-role="menu"]')
+      let natural = shellOpen && clipEl ? Math.max(island.offsetHeight, clipEl.scrollHeight) : island.offsetHeight
+      // An open actions menu hangs below the island (top edge): room for it.
+      if (menuEl && !menuEl.hidden) for (const m of document.querySelectorAll('.menu:not([hidden])')) natural = Math.max(natural, m.offsetTop + m.offsetHeight + 8)
       api.reportHeight(Math.ceil(natural))
       reportHitRects()
     })
@@ -62,11 +65,76 @@
   function reportHitRects () {
     if (typeof api.reportHitRects !== 'function') return
     const r = island.getBoundingClientRect()
-    api.reportHitRects([{ x: r.left - SLACK, y: r.top - SLACK, width: r.width + SLACK * 2, height: r.height + SLACK * 2 }])
+    const rects = [{ x: r.left - SLACK, y: r.top - SLACK, width: r.width + SLACK * 2, height: r.height + SLACK * 2 }]
+    for (const m of document.querySelectorAll('.menu:not([hidden])')) {
+      const b = m.getBoundingClientRect()
+      rects.push({ x: b.left - SLACK, y: b.top - SLACK, width: b.width + SLACK * 2, height: b.height + SLACK * 2 })
+    }
+    api.reportHitRects(rects)
   }
   island.addEventListener('transitionend', reportHitRects)
 
   const letter = (i) => String.fromCharCode(65 + i)
+
+  // 16px line icons, drawn here (no assets): name → path data.
+  const ICONS = {
+    camera: 'M2.5 5.5h2.2l1.1-1.7h4.4l1.1 1.7h2.2v7h-11z M8 11a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z',
+    display: 'M2 3.5h12v8H2z M6 14h4 M8 11.5V14',
+    window: 'M2 3h12v10H2z M2 6h12',
+    crop: 'M4.5 1.5v10h10 M1.5 4.5h10v10',
+    record: 'M8 13.5a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11z M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+    share: 'M8 2v8 M4.75 5.25 8 2l3.25 3.25 M3 9.5v4h10v-4',
+    clip: 'M10.5 4.5 5.6 9.4a1.4 1.4 0 0 0 2 2l5-5a2.8 2.8 0 0 0-4-4l-5 5a4.2 4.2 0 0 0 6 6l4.4-4.4',
+    mic: 'M6 3.25a2 2 0 0 1 4 0V8a2 2 0 0 1-4 0z M3.5 7.5a4.5 4.5 0 0 0 9 0 M8 12v2.25',
+    open: 'M9 2.5h4.5V7 M13.5 2.5 7.5 8.5 M11.5 9.5v4h-9v-9h4',
+    close: 'M4.5 4.5l7 7 M11.5 4.5l-7 7',
+  }
+  const SVG = 'http://www.w3.org/2000/svg'
+  function icon (name, className = 'menu-icon') {
+    const svg = document.createElementNS(SVG, 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
+    svg.setAttribute('class', className)
+    svg.setAttribute('aria-hidden', 'true')
+    const p = document.createElementNS(SVG, 'path')
+    p.setAttribute('d', ICONS[name] || '')
+    p.setAttribute('fill', 'none')
+    p.setAttribute('stroke', 'currentColor')
+    p.setAttribute('stroke-width', '1.4')
+    p.setAttribute('stroke-linecap', 'round')
+    p.setAttribute('stroke-linejoin', 'round')
+    svg.append(p)
+    return svg
+  }
+
+  // mm:ss (h:mm:ss past an hour): recorder.js clock().
+  function clockText (ms) {
+    const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000))
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const sec = total % 60
+    const two = (n) => String(n).padStart(2, '0')
+    return h ? `${h}:${two(m)}:${two(sec)}` : `${two(m)}:${two(sec)}`
+  }
+
+  // The chip: the state's label, or while recording the label and a timer
+  // that counts on from what main said (a fake clock in the tests).
+  let recTimer = 0
+  function renderChip (v) {
+    clearInterval(recTimer)
+    recTimer = 0
+    if (!v.recording) {
+      chipEl.textContent = v.chip.label
+      return
+    }
+    const base = performance.now() - (Number(v.recording.elapsedMs) || 0)
+    const label = el('span', 'chip-label', v.chip.label)
+    const time = el('span', 'chip-timer', clockText(performance.now() - base))
+    time.setAttribute('role', 'timer')
+    chipEl.replaceChildren(label, time)
+    recTimer = setInterval(() => { time.textContent = clockText(performance.now() - base) }, 250)
+  }
   const otherText = () => other.value.trim()
 
   function setError (text) {
@@ -201,8 +269,9 @@
     api.hover(false)
   })
   // A click on the bar opens the Manager composer (whatever the state);
-  // a second click closes it again.
+  // a second click closes it again. While recording, it stops.
   bar.addEventListener('click', () => {
+    if (view?.recording && typeof api.stopRecording === 'function') return api.stopRecording()
     if (layout.composing || (layout.expanded && layout.focused)) return closeOpen()
     api.compose()
   })
@@ -264,7 +333,7 @@
     island.classList.toggle('is-idle', next.idle === true)
     paintAvatar(next.bot)
     nameEl.textContent = next.bot.name
-    chipEl.textContent = next.chip.label
+    renderChip(next)
     bar.setAttribute('aria-label', `${next.bot.name}: ${next.chip.label}`)
     renderBadge(next)
     renderCard()
@@ -489,7 +558,7 @@
     })
   }
 
-  const rowsOf = (section) => (section ? [...section.children].filter((n) => !n.hidden) : [])
+  const rowsOf = (section) => (section ? [...section.children].filter((n) => !n.hidden && n.getClientRects().length > 0) : [])
 
   function cancelRows () {
     for (const t of rowTimers) clearTimeout(t)
@@ -525,8 +594,15 @@
     return h
   }
 
+  // Bumped on every open: a close still fading out the old content must not
+  // touch the content that is coming back in.
+  let shellGen = 0
+  let closedByMain = false
+
   function openShell (section) {
     cancelRows()
+    shellGen++
+    closedByMain = false
     exiting = null
     contentOut = false
     const from = clip.offsetHeight
@@ -570,9 +646,11 @@
     cancelRows()
     const rows = rowsOf(openSection)
     const ms = reducedMotion() || !Motion ? FADE_MS : CONTENT_EXIT_MS
+    const gen = shellGen
     exiting = tween(ms, (t) => {
+      if (gen !== shellGen) return
       for (const row of rows) look(row, { opacity: 1 - t, scale: 1, blur: reducedMotion() ? 0 : SWAP_OUT.blur * t })
-    }).then(() => { contentOut = true })
+    }).then(() => { if (gen === shellGen) contentOut = true })
     return exiting
   }
 
@@ -606,7 +684,8 @@
   // shell (cma-island:layout with expanded false).
   function closeOpen () {
     if (!layout.expanded) return api.collapse()
-    exitContent().then(() => api.collapse())
+    const gen = shellGen
+    exitContent().then(() => { if (gen === shellGen) api.collapse() })
   }
 
   // --- The Manager composer --------------------------------------------------
@@ -659,7 +738,7 @@
   }
 
   function updateComposerButtons () {
-    const hasText = composeEls.input.value.trim().length > 0
+    const hasText = composeEls.input.value.trim().length > 0 || Boolean(composerState?.attachments?.screenshot) || Boolean(composerState?.attachments?.file)
     composeEls.send.hidden = !hasText
     composeEls.mic.hidden = hasText
     composeEls.send.disabled = sending || Boolean(composerState?.awaiting)
@@ -692,6 +771,7 @@
     }
     if (cv.error && COMPOSE_ERRORS[cv.error]) nodes.push(line('compose-line is-error', COMPOSE_ERRORS[cv.error]))
     composeEls.lines.replaceChildren(...nodes)
+    renderAttachments(cv.attachments || {}, cv.revealLabel || 'Show in Folder')
     updateComposerButtons()
     reportHeight()
   }
@@ -699,7 +779,8 @@
 
   async function sendComposed () {
     const text = composeEls.input.value.trim()
-    if (!text || sending || composerState?.awaiting) return
+    const attached = Boolean(composerState?.attachments?.screenshot || composerState?.attachments?.file)
+    if ((!text && !attached) || sending || composerState?.awaiting) return
     sending = true
     updateComposerButtons()
     const ok = await api.send(text)
@@ -721,7 +802,261 @@
   // Dictation happens in the app's composer, where the microphone works.
   composeEls.mic.addEventListener('click', () => api.openInApp('manager'))
   composeEls.open.addEventListener('click', () => api.openInApp('manager'))
-  composeEls.actions.addEventListener('click', (event) => event.preventDefault())
+  // --- Attachments: the chips under the Manager's lines ---------------------
+  const attachEl = $('[data-role="attach"]')
+  function chipX (what, label) {
+    const x = el('button', 'chip-x')
+    x.type = 'button'
+    x.setAttribute('aria-label', label)
+    x.append(icon('close'))
+    x.addEventListener('click', () => api.attachment('remove', what))
+    return x
+  }
+  function revealButton (what, label) {
+    const b = el('button', 'btn-link', label)
+    b.type = 'button'
+    b.addEventListener('click', () => api.attachment('reveal', what))
+    return b
+  }
+  function renderAttachments (a, revealLabel) {
+    const nodes = []
+    if (a.screenshot) {
+      const row = el('div', 'chip-row')
+      if (a.screenshot.preview) {
+        const img = el('img')
+        img.alt = ''
+        img.src = a.screenshot.preview
+        row.append(img)
+      }
+      row.append(el('span', 'chip-text', a.screenshot.source === 'window' ? 'Screenshot of a window' : 'Screenshot'), chipX('screenshot', 'Remove the screenshot'))
+      nodes.push(row)
+    }
+    if (a.file) {
+      const row = el('div', 'chip-row')
+      row.append(icon('clip'), el('span', 'chip-text', a.file.name), revealButton('file', revealLabel), chipX('file', 'Remove the file'))
+      row.title = a.file.shown
+      nodes.push(row)
+      nodes.push(el('p', 'chip-hint', a.file.readable
+        ? 'Sends where the file is, not the file. The Manager asks before opening it.'
+        : 'Turn on Computer → Allow Bots to Ask to Use This Computer so the Manager can open it.'))
+    }
+    if (a.saved) {
+      const row = el('div', 'chip-row')
+      const what = a.saved.kind === 'voice' ? 'Voice note saved' : 'Screen recording saved'
+      row.append(icon(a.saved.kind === 'voice' ? 'mic' : 'record'), el('span', 'chip-text', `${what} · ${clockText(a.saved.durationMs)}`), revealButton('saved', revealLabel), chipX('saved', 'Dismiss'))
+      row.title = a.saved.name
+      nodes.push(row)
+      nodes.push(el('p', 'chip-hint', 'Kept on this computer: the Manager can’t receive recordings yet.'))
+    }
+    if (a.notice) {
+      const row = el('div', 'notice')
+      row.setAttribute('role', 'status')
+      row.append(el('p', '', a.notice.message))
+      if (a.notice.turnOn) {
+        const b = el('button', 'btn', 'Turn on')
+        b.type = 'button'
+        b.addEventListener('click', () => api.attachment('turn-on', 'notice'))
+        row.append(b)
+      }
+      if (a.notice.settings) {
+        const b = el('button', 'btn', 'Open Settings')
+        b.type = 'button'
+        b.addEventListener('click', () => api.attachment('settings', 'notice'))
+        row.append(b)
+      }
+      row.append(chipX('notice', 'Dismiss'))
+      nodes.push(row)
+    }
+    attachEl.replaceChildren(...nodes)
+  }
+
+  // --- The actions menu ("+") -------------------------------------------------
+  // The same items as island-actions.js MENU (test/island-actions.test.js
+  // keeps the two in step). Main runs them; the page only names one.
+  const MENU = [
+    { id: 'screenshot', label: 'Screenshot', key: 'S', icon: 'camera', submenu: [
+      { id: 'screenshot-display', label: 'Whole screen', key: 'W', icon: 'display' },
+      { id: 'screenshot-window', label: 'This window', key: 'T', icon: 'window' },
+      { id: 'screenshot-area', label: 'Select area', key: 'A', icon: 'crop' },
+    ] },
+    { id: 'record', label: 'Record screen', key: 'R', icon: 'record' },
+    { id: 'share', label: 'Share what’s on screen with Manager', key: 'H', icon: 'share' },
+    { id: 'attach', label: 'Attach file', key: 'F', icon: 'clip' },
+    { id: 'voice', label: 'Voice note', key: 'V', icon: 'mic' },
+    { id: 'open-app', label: 'Open Manager in app', key: 'O', icon: 'open' },
+  ]
+  const MENU_MS = 160
+  const menuEl = $('[data-role="menu"]')
+  const trigger = composeEls.actions
+  let subEl = null
+  let menuBusy = false
+
+  function buildMenu (root, items, { sub = false } = {}) {
+    root.replaceChildren()
+    root.classList.toggle('is-sub', sub)
+    for (const item of items) {
+      const b = el('button', 'menu-item')
+      b.type = 'button'
+      b.setAttribute('role', 'menuitem')
+      b.tabIndex = -1
+      b.dataset.action = item.id
+      b.dataset.key = item.key
+      const key = el('span', 'menu-key', item.submenu ? '›' : item.key)
+      key.setAttribute('aria-hidden', 'true')
+      b.append(icon(item.icon, 'menu-icon'), el('span', 'menu-label', item.label), key)
+      if (item.submenu) {
+        b.setAttribute('aria-haspopup', 'menu')
+        b.setAttribute('aria-expanded', 'false')
+        b.setAttribute('aria-keyshortcuts', item.key)
+        b.addEventListener('click', () => openSub(b, item.submenu))
+      } else {
+        b.setAttribute('aria-keyshortcuts', item.key)
+        b.addEventListener('click', () => choose(item.id))
+      }
+      root.append(b)
+    }
+  }
+
+  const itemsOf = (root) => [...root.querySelectorAll('.menu-item')]
+
+  // Grow from the corner nearest the trigger: 0.96 → 1 and fading in.
+  function grow (root, origin) {
+    root.style.transformOrigin = origin
+    if (reducedMotion() || !Motion) {
+      root.style.opacity = '0'
+      return tween(FADE_MS, (t) => { root.style.opacity = t >= 1 ? '' : String(t) })
+    }
+    root.style.opacity = '0'
+    root.style.transform = 'scale(0.96)'
+    return tween(MENU_MS, (t) => {
+      const e = 1 - Math.pow(1 - t, 3)
+      root.style.opacity = t >= 1 ? '' : String(e)
+      root.style.transform = t >= 1 ? '' : `scale(${(0.96 + 0.04 * e).toFixed(4)})`
+    })
+  }
+
+  function placeMenu () {
+    const ir = island.getBoundingClientRect()
+    const tr = trigger.getBoundingClientRect()
+    const up = island.dataset.edge === 'bottom'
+    menuEl.style.left = `${Math.round(tr.left - ir.left)}px`
+    if (up) {
+      menuEl.style.top = ''
+      menuEl.style.bottom = `${Math.round(ir.bottom - tr.top + 6)}px`
+    } else {
+      menuEl.style.bottom = ''
+      menuEl.style.top = `${Math.round(tr.bottom - ir.top + 6)}px`
+    }
+    return up ? 'bottom left' : 'top left'
+  }
+
+  function openMenu ({ focusFirst = true } = {}) {
+    if (!menuEl.hidden || !layout.composing) return
+    buildMenu(menuEl, MENU)
+    menuEl.hidden = false
+    trigger.setAttribute('aria-expanded', 'true')
+    grow(menuEl, placeMenu())
+    if (focusFirst) itemsOf(menuEl)[0]?.focus()
+    reportHeight()
+  }
+
+  function closeSub () {
+    if (!subEl) return
+    subEl.remove()
+    subEl = null
+    for (const b of itemsOf(menuEl)) if (b.hasAttribute('aria-expanded')) b.setAttribute('aria-expanded', 'false')
+  }
+
+  function closeMenu ({ refocus = true } = {}) {
+    if (menuEl.hidden) return
+    closeSub()
+    menuEl.hidden = true
+    menuEl.style.transform = ''
+    menuEl.style.opacity = ''
+    trigger.setAttribute('aria-expanded', 'false')
+    if (refocus) trigger.focus()
+    reportHeight()
+  }
+
+  function openSub (owner, items) {
+    if (subEl) return itemsOf(subEl)[0]?.focus()
+    subEl = el('div', 'menu')
+    subEl.setAttribute('role', 'menu')
+    subEl.setAttribute('aria-label', owner.querySelector('.menu-label').textContent)
+    subEl.dataset.noDrag = ''
+    buildMenu(subEl, items, { sub: true })
+    island.append(subEl)
+    owner.setAttribute('aria-expanded', 'true')
+    const up = island.dataset.edge === 'bottom'
+    const ir = island.getBoundingClientRect()
+    const or = owner.getBoundingClientRect()
+    const mr = menuEl.getBoundingClientRect()
+    subEl.style.left = `${Math.round(mr.right - ir.left - 4)}px`
+    subEl.style.top = `${Math.round(or.top - ir.top - 7)}px`
+    grow(subEl, up ? 'bottom left' : 'top left')
+    itemsOf(subEl)[0]?.focus()
+    reportHeight()
+  }
+
+  async function choose (id) {
+    if (menuBusy) return
+    menuBusy = true
+    closeMenu({ refocus: false })
+    try {
+      await api.action(id)
+    } finally {
+      menuBusy = false
+      if (layout.composing) composeEls.input.focus()
+    }
+  }
+
+  trigger.addEventListener('click', (event) => {
+    event.preventDefault()
+    if (menuEl.hidden) openMenu({ focusFirst: event.detail === 0 })
+    else closeMenu()
+  })
+  trigger.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      openMenu()
+    }
+  })
+
+  // Keys inside the menus: arrows move, → opens the submenu, ← or Esc goes
+  // back, Enter or Space picks, a row's letter picks it, Tab leaves.
+  function onMenuKey (event) {
+    const root = event.target.closest('.menu')
+    if (!root) return
+    const items = itemsOf(root)
+    const i = items.indexOf(document.activeElement)
+    const isSub = root !== menuEl
+    const move = (to) => { event.preventDefault(); items[(to + items.length) % items.length]?.focus() }
+    if (event.key === 'ArrowDown') return move(i + 1)
+    if (event.key === 'ArrowUp') return move(i - 1)
+    if (event.key === 'Home') return move(0)
+    if (event.key === 'End') return move(items.length - 1)
+    if (event.key === 'ArrowRight' && !isSub && items[i]?.hasAttribute('aria-haspopup')) { event.preventDefault(); return items[i].click() }
+    if ((event.key === 'ArrowLeft' || event.key === 'Escape') && isSub) {
+      event.preventDefault()
+      event.stopPropagation()
+      const owner = itemsOf(menuEl).find((b) => b.hasAttribute('aria-haspopup'))
+      closeSub()
+      return owner?.focus()
+    }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); return closeMenu() }
+    if (event.key === 'Tab') return closeMenu({ refocus: false })
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); return items[i]?.click() }
+    if (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const hit = items.find((b) => b.dataset.key === event.key.toUpperCase())
+      if (hit) { event.preventDefault(); hit.focus(); hit.click() }
+    }
+  }
+  island.addEventListener('keydown', onMenuKey, true)
+  // A click anywhere else closes it.
+  document.addEventListener('pointerdown', (event) => {
+    if (menuEl.hidden || event.target.closest('.menu') || trigger.contains(event.target)) return
+    closeMenu({ refocus: false })
+  })
 
   // The web app's chat tokens: a constructed sheet, adopted after island.css
   // (nothing for the CSP to allow).
@@ -751,8 +1086,15 @@
       widthSpring.jump(pillWidth)
     }
     const section = next.expanded ? (next.composing ? compose : card) : null
-    if (section && (!shellOpen || section !== openSection)) openShell(section)
-    else if (!section && shellOpen) (contentOut ? Promise.resolve() : exitContent()).then(() => { if (!layout.expanded) closeShell() })
+    // Open again while the content is on its way out: bring it back in.
+    // (Only after main closed it: while Esc's own exit runs, main keeps
+    // saying "open" until it is asked to close.)
+    if (section && (!shellOpen || section !== openSection || (exiting && closedByMain))) openShell(section)
+    else if (!section && shellOpen) {
+      closedByMain = true
+      const gen = shellGen
+      ;(contentOut ? Promise.resolve() : exitContent()).then(() => { if (!layout.expanded && gen === shellGen) closeShell() })
+    }
     refresh()
     reportHeight()
   })

@@ -14,7 +14,7 @@
 // This shell never sends that marker, so it renders the full desktop UI —
 // which on a laptop or desktop is the point.
 
-const { app, BrowserWindow, globalShortcut, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, session, shell, systemPreferences } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const { installMenu } = require('./menu')
@@ -39,6 +39,8 @@ const { createCable, electronCookieHeader } = require('./widget-cable')
 const { installNativeFeel } = require('./native-feel')
 const { initLocalTools } = require('./local-tools-main')
 const { createElectronScreenShare, openScreenSettings } = require('./screen-share-main')
+const { createAreaSelect } = require('./area-select')
+const { createRecorder, FOLDER: RECORDINGS_FOLDER, recordingPermission } = require('./recorder')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -60,6 +62,8 @@ let widgetFeed = null
 let trayHandle = null
 let widget = null
 let island = null
+let localAccess = null
+let recorder = null
 let cable = null
 
 // The windows drawn without a native title bar — the app's own, but not the
@@ -494,7 +498,7 @@ app.whenReady().then(() => {
   // The shell's own switches (src/prefs.js), read before the menu so its
   // "Show Island" checkbox starts from the saved value.
   prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
-  const localAccess = initLocalTools({ prefs })
+  localAccess = initLocalTools({ prefs })
   installMenu({
     localAccess,
     prefs,
@@ -631,7 +635,20 @@ function startWidgetFeedAndTray () {
       widget?.setCapturing(on)
     },
     ownWindows: () => [widget?.window(), island?.window()],
+    // The island's Screenshot ▸ Select area (src/area-select.js).
+    selectArea: (() => { const areas = createAreaSelect(); return (image) => areas.select(image) })(),
   })
+
+  // The island's Record screen and Voice note (src/recorder.js): saved to
+  // ~/Movies/Configure My AI, kept on this computer.
+  recorder = createRecorder({
+    folder: () => path.join(app.getPath('videos'), RECORDINGS_FOLDER),
+    permission: (kind) => recordingPermission(kind),
+    onChange: (state) => island?.setRecording(state),
+    onSaved: (saved) => island?.recordingSaved(saved),
+    onError: (code, kind) => island?.recordingError(code, kind),
+  })
+  recorder.registerIpc()
 
   // The floating dock (src/widget-window.js): its own window, its own
   // lifecycle — shown while the pref is on and someone is signed in,
@@ -666,6 +683,19 @@ function startWidgetFeedAndTray () {
     openApp,
     avatarCss,
     chatCss,
+    // The composer's actions menu (src/island-actions.js).
+    screenShare,
+    recorder,
+    pickFile: async () => {
+      const { canceled, filePaths } = await dialog.showOpenDialog(island?.window() || undefined, { properties: ['openFile'] })
+      return canceled || !filePaths?.length ? null : filePaths[0]
+    },
+    statFile: (file) => {
+      try { const st = fs.statSync(file); return { isFile: st.isFile(), size: st.size } } catch { return null }
+    },
+    showInFolder: (file) => shell.showItemInFolder(file),
+    openScreenSettings: () => openScreenSettings(),
+    localTools: () => Boolean(localAccess?.isEnabled()),
     devOverrides: !app.isPackaged,
   })
   island.registerIpc(ipcMain)

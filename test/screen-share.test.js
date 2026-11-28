@@ -163,10 +163,14 @@ test('one capture at a time', async () => {
   assert.equal(calls.indicator.join(), 'true,false')
 })
 
-test('nothing in the app captures on a timer or from a bot: the widget IPC is the only caller', () => {
+test('nothing in the app captures on a timer or from a bot: the widget and island IPC are the only callers', () => {
   const sources = fs.readdirSync(path.join(__dirname, '../src')).filter((f) => f.endsWith('.js'))
   const callers = sources.filter((f) => /screenShare\.request\(|\.request\(\{ reason:/.test(read(f)))
-  assert.deepEqual(callers, ['widget-window.js'])
+  assert.deepEqual(callers, ['island-window.js', 'widget-window.js'])
+  // The island's actions menu: the user's click only, never on a timer.
+  const iw = read('island-window.js')
+  assert.doesNotMatch(iw, /setInterval\([^)]*screen/i)
+  for (const m of iw.matchAll(/screenShare\.request\(\{ reason: ([^,]+),/g)) assert.equal(m[1], "'button'")
   const ww = read('widget-window.js')
   assert.doesNotMatch(ww, /setInterval\([^)]*screenShare/)
   // Every request names an explicit reason: the button, or a message asking.
