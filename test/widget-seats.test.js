@@ -42,8 +42,20 @@ test('a seat\'s right-click menu: open, active, move up/down, remove', () => {
 
 test("the manager's menu has no move or remove", () => {
   const { actions } = recorder()
-  assert.deepEqual(S.seatContextMenuTemplate(state, 'manager', actions).map((i) => i.id || i.type), ['open', 'separator', 'active'])
+  assert.deepEqual(S.seatContextMenuTemplate(state, 'manager', actions).map((i) => i.id || i.type), ['open', 'separator', 'active', 'separator', 'share-screen'])
   assert.deepEqual(S.seatContextMenuTemplate(state, OPS, actions), [], 'not in the dock: no menu')
+})
+
+test('the manager\'s menu carries "Let Manager See Your Screen"; other bots\' menus do not', () => {
+  const { calls, actions } = recorder()
+  const item = S.seatContextMenuTemplate(state, 'manager', actions, { shareScreen: false }).find((i) => i.id === 'share-screen')
+  assert.equal(item.type, 'checkbox')
+  assert.equal(item.checked, false)
+  item.click({ checked: true })
+  assert.deepEqual(calls, [['setShareScreen', true]])
+  assert.equal(S.seatContextMenuTemplate(state, 'manager', actions, { shareScreen: true }).find((i) => i.id === 'share-screen').checked, true)
+  assert.ok(!S.seatContextMenuTemplate(state, ADA, actions).some((i) => i.id === 'share-screen'))
+  assert.ok(!S.seatContextMenuTemplate(state, 'manager', { open () {}, setActive () {} }).some((i) => i.id === 'share-screen'), 'no switch without the action')
 })
 
 test('a paused bot shows Active unchecked, and clicking resumes it', () => {

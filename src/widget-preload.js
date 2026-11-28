@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   onLayout: listen('cma-widget:layout'),
   onConversation: listen('cma-widget:conversation'),
   onAvatarCss: listen('cma-widget:avatar-css'),
+  onScreen: listen('cma-widget:screen'),
   onChatCss: listen('cma-widget:chat-css'),
   ready: () => ipcRenderer.send('cma-widget:ready'),
   reportHitRects: (rects, dockHeight) => ipcRenderer.send('cma-widget:hit-rects', { rects, dockHeight }),
@@ -30,4 +31,8 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   sendMessage: (botId, body) => ipcRenderer.invoke('cma-widget:send', { bot_id: botId, body }),
   answer: (payload) => ipcRenderer.invoke('cma-widget:answer', payload),
   decide: (payload) => ipcRenderer.invoke('cma-widget:decide', payload),
+  shareScreen: (botId, reason) => ipcRenderer.invoke('cma-widget:share-screen', { bot_id: botId, reason }),
+  discardScreen: (botId) => ipcRenderer.send('cma-widget:discard-screen', botId),
+  openScreenSettings: () => ipcRenderer.send('cma-widget:screen-settings'),
+  setShareScreen: (on) => ipcRenderer.send('cma-widget:set-share-screen', on === true),
 })

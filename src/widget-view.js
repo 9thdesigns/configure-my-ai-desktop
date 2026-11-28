@@ -26,7 +26,8 @@
   // The composer's animated placeholder (typing-placeholder.js): it types
   // its hints on one line while the field is empty and the popover open.
   const placeholderTyping = window.TypingPlaceholder.create($('[data-role="compose-placeholder"]', popover))
-  const syncPlaceholder = () => placeholderTyping.setActive(!popover.hidden && !compose.value)
+  const syncPlaceholder = () => placeholderTyping.setActive(!popover.hidden && !compose.value && !attached)
+  const screenEl = $('[data-role="screen"]', popover)
   const format = window.ChatFormat
 
   let view = { bots: [], candidates: [], focused_bot_id: null }
@@ -37,6 +38,14 @@
   let pendingKey
   let selected = new Set()
   let busy = false
+  // Share screen: what main allows (the server takes screenshots; the user's
+  // switch), the screenshot held for this chat (a small preview only — the
+  // image stays in main), whether a capture is under way, and the notice.
+  let screenState = { available: false, enabled: false }
+  let attached = null
+  let capturingHere = false
+  let capturingMain = false
+  let notice = null
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag)
@@ -44,6 +53,32 @@
     if (text !== undefined) node.textContent = text
     return node
   }
+
+  // Share screen mounts into the composer's tools slot only when it is
+  // offered (the server takes screenshots); otherwise the slot stays empty
+  // and takes no room.
+  const toolsSlot = $('[data-slot="composer-tools"]', composer)
+  const screenButton = (() => {
+    const button = el('button', 'btn-screen')
+    button.type = 'button'
+    button.dataset.action = 'share-screen'
+    button.setAttribute('aria-label', 'Share screen')
+    button.title = 'Share screen'
+    const ns = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('viewBox', '0 0 20 20')
+    svg.setAttribute('width', '18')
+    svg.setAttribute('height', '18')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    const rect = document.createElementNS(ns, 'rect')
+    for (const [k, v] of Object.entries({ x: '2.5', y: '3.5', width: '15', height: '10', rx: '1.8', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.5' })) rect.setAttribute(k, v)
+    const stand = document.createElementNS(ns, 'path')
+    for (const [k, v] of Object.entries({ d: 'M7 16.5h6M10 13.5v3', stroke: 'currentColor', 'stroke-width': '1.5', 'stroke-linecap': 'round' })) stand.setAttribute(k, v)
+    svg.append(rect, stand)
+    button.append(svg)
+    return button
+  })()
 
   // The bot's avatar — the web app's animated CFA face, its picture, or its
   // initials (src/avatar-render.js decides, and swaps states in place).
@@ -271,6 +306,9 @@
   //   * the view sticks to the bottom when it was there, and otherwise
   //     stays put.
   const MAX_THREAD = 200
+  // A screenshot sent with no text: the bubble's words (widget-chat.js gives
+  // the server's copy of such a message the same body, so they match up).
+  const SCREENSHOT_ONLY_BODY = 'Shared my screen'
   const rows = new Map() // row key -> <li>
   let rowsBot = null // whose thread the rows are
   let thread = [] // the messages on screen, oldest first
@@ -336,7 +374,7 @@
       }
       return
     }
-    setClass(row, ['message', `is-${item.role}`, item.groupStart && 'is-group-start', item.groupEnd && 'is-group-end', item.local && `is-${item.local}`].filter(Boolean).join(' '))
+    setClass(row, ['message', `is-${item.role}`, item.groupStart && 'is-group-start', item.groupEnd && 'is-group-end', item.local && `is-${item.local}`, item.screenshot && 'has-screenshot'].filter(Boolean).join(' '))
     setRowText(row, item.body)
   }
 
@@ -526,9 +564,13 @@
     if (done) done.disabled = busy || (selected.size === 0 && !otherText())
   }
 
+  // Send is live with text, or with a screenshot attached.
+  const canSend = () => Boolean(compose.value.trim() || attached)
+
   function setBusy (on) {
     busy = on
-    sendButton.disabled = on || !compose.value.trim()
+    sendButton.disabled = on || !canSend()
+    screenButton.disabled = on || capturingHere
     for (const button of pendingEl.querySelectorAll('button')) button.disabled = on
     if (!on) updateDone()
   }
@@ -579,10 +621,13 @@
     entry.failed = false
     renderMessages()
     setBusy(true)
-    const result = await api.sendMessage(botId, entry.body)
+    // `text` is what the user typed (empty for a screenshot alone); `body`
+    // is the bubble's words.
+    const result = await api.sendMessage(botId, entry.text ?? entry.body)
     setBusy(false)
     if (botId !== layout.botId || !outbox.includes(entry)) return
-    if (!result) {
+    if (result && result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
+    if (!result || result.failed) {
       entry.failed = true
       return renderMessages()
     }
@@ -591,22 +636,29 @@
 
   async function sendMessage () {
     const body = compose.value.trim()
-    if (!body || busy || !layout.botId) return
+    if ((!body && !attached) || busy || !layout.botId) return
+    // Main attaches the held screenshot, or takes one first when the
+    // message asks about the screen and the switch is on (screen-share.js).
+    // A failed send keeps it in main for the retry.
+    const screenshot = Boolean(attached)
+    attached = null
+    renderScreen()
     // No thread on screen to show it in (still loading, or no history
     // endpoint): send it plainly, and keep the text until it has gone.
     if (!conversation || !conversation.history) {
       setBusy(true)
       const result = await api.sendMessage(layout.botId, body)
-      if (result) {
+      if (result && result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
+      if (result && !result.failed) {
         compose.value = ''
         autosize()
       }
-      return takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
+      return takeConversation(result && !result.failed ? result : null, 'Couldn’t send your message. Try again, or open in app.')
     }
     compose.value = ''
     autosize()
     toBottom = true
-    const entry = { key: `out:${++outboxSeq}`, body, failed: false }
+    const entry = { key: `out:${++outboxSeq}`, body: body || SCREENSHOT_ONLY_BODY, text: body, screenshot, failed: false }
     outbox.push(entry)
     deliver(entry)
   }
@@ -621,6 +673,95 @@
     deliver(entry)
   }
 
+  // --- Share screen ----------------------------------------------------------
+
+  function renderScreen () {
+    const offered = screenState.available && Boolean(layout.botId)
+    if (offered && screenButton.parentNode !== toolsSlot) toolsSlot.append(screenButton)
+    if (!offered && screenButton.parentNode) screenButton.remove()
+    screenButton.disabled = busy || capturingHere
+    screenButton.classList.toggle('is-attached', Boolean(attached))
+    screenButton.setAttribute('aria-pressed', attached ? 'true' : 'false')
+    const capturing = capturingHere || capturingMain
+    const nodes = []
+    screenEl.classList.toggle('is-capturing', capturing)
+    if (capturing) {
+      nodes.push(el('span', 'rec'), el('span', 'grow', 'Viewing your screen…'))
+    } else if (notice) {
+      nodes.push(el('span', 'grow', notice.text))
+      for (const action of notice.actions || []) {
+        const button = el('button', action.primary ? 'btn btn-primary' : 'btn', action.label)
+        button.type = 'button'
+        button.addEventListener('click', action.run)
+        nodes.push(button)
+      }
+    } else if (attached) {
+      if (attached.preview && /^data:image\/(png|jpeg);base64,/.test(attached.preview)) {
+        const img = el('img')
+        img.alt = 'Your screen'
+        img.src = attached.preview
+        nodes.push(img)
+      }
+      nodes.push(el('span', 'grow', 'Screenshot attached — it goes with your next message.'))
+      const remove = el('button', 'btn', 'Remove')
+      remove.type = 'button'
+      remove.addEventListener('click', () => {
+        if (layout.botId) api.discardScreen(layout.botId)
+        attached = null
+        renderScreen()
+      })
+      nodes.push(remove)
+    }
+    screenEl.replaceChildren(...nodes)
+    screenEl.hidden = nodes.length === 0
+    sendButton.disabled = busy || !canSend()
+    // The placeholder types only into an empty composer with nothing attached.
+    syncPlaceholder()
+  }
+
+  function setNotice (next) {
+    notice = next
+    renderScreen()
+  }
+
+  function takeScreenResult (result) {
+    if (!result) return setNotice({ text: 'Couldn’t capture your screen. Try again.' })
+    if (result.status === 'ok') {
+      attached = { preview: result.preview }
+      notice = null
+      renderScreen()
+      compose.focus()
+      return
+    }
+    // A refusal: the message is main's (screen-share.js MESSAGES); the
+    // settings button opens a fixed pane in main, never a URL from here.
+    const actions = result.settingsUrl ? [{ label: 'Open System Settings', primary: true, run: () => api.openScreenSettings() }] : []
+    setNotice({ text: String(result.message || 'Couldn’t capture your screen.'), actions })
+  }
+
+  async function shareScreen () {
+    if (busy || capturingHere || !layout.botId || !screenState.available) return
+    if (!screenState.enabled) {
+      return setNotice({
+        text: 'Let Manager see your screen? It’s captured only when you ask.',
+        actions: [
+          { label: 'Turn on', primary: true, run: () => { api.setShareScreen(true); screenState = { ...screenState, enabled: true }; shareScreen() } },
+          { label: 'Not now', run: () => setNotice(null) },
+        ],
+      })
+    }
+    notice = null
+    capturingHere = true
+    renderScreen()
+    const botId = layout.botId
+    const result = await api.shareScreen(botId, 'button').catch(() => null)
+    capturingHere = false
+    if (botId !== layout.botId) return renderScreen()
+    takeScreenResult(result)
+  }
+
+  screenButton.addEventListener('click', () => shareScreen())
+
   // The field grows with its text up to --composer-max-height (the CSS
   // caps it, and scrolls past that); send is live once there is text.
   // A growing field shrinks the thread above it: one that was at the
@@ -630,7 +771,7 @@
     compose.style.height = 'auto'
     compose.style.height = `${compose.scrollHeight}px`
     if (stick) messagesEl.scrollTop = messagesEl.scrollHeight
-    sendButton.disabled = busy || !compose.value.trim()
+    sendButton.disabled = busy || !canSend()
     syncPlaceholder()
   }
 
@@ -678,6 +819,10 @@
   api.onState((next) => {
     if (!next || !Array.isArray(next.bots)) return
     view = next
+    if (next.screen_share && typeof next.screen_share === 'object') {
+      screenState = { available: next.screen_share.available === true, enabled: next.screen_share.enabled === true }
+      renderScreen()
+    }
     renderWorkspace()
     renderDock()
     if (layout.expanded && layout.mode === 'chat') renderHead()
@@ -710,6 +855,10 @@
       if (rowsBot !== next.botId) clearRows()
       toBottom = true
       showError(null)
+      // Main drops a held screenshot when the chat closes.
+      attached = null
+      notice = null
+      renderScreen()
       renderHead()
       renderMessages()
       renderPending()
@@ -729,6 +878,15 @@
     renderMessages()
     renderPending()
   })
+
+  // The indicator from main: up for the whole capture (and a moment after),
+  // the same as the island's chip.
+  if (typeof api.onScreen === 'function') {
+    api.onScreen((payload) => {
+      capturingMain = Boolean(payload && payload.capturing)
+      renderScreen()
+    })
+  }
 
   api.ready()
 })()

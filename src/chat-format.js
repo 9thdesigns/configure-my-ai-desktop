@@ -76,8 +76,8 @@
       first = false
       if (t !== null) prevTime = t
     }
-    for (const m of messages) push({ key: m.id, kind: 'message', role: m.role, body: m.body }, time(m.created_at))
-    for (const o of outbox) push({ key: o.key, kind: 'message', role: 'user', body: o.body, local: o.failed ? 'failed' : 'sending' }, null)
+    for (const m of messages) push({ key: m.id, kind: 'message', role: m.role, body: m.body, ...(m.screenshot ? { screenshot: true } : {}) }, time(m.created_at))
+    for (const o of outbox) push({ key: o.key, kind: 'message', role: 'user', body: o.body, local: o.failed ? 'failed' : 'sending', ...(o.screenshot ? { screenshot: true } : {}) }, null)
 
     // The status line: under the last outbox message, else under the latest
     // confirmed user message the bot hasn't answered yet.

@@ -10,7 +10,9 @@ test('macOS gets a Screen Recording usage string', () => {
 })
 
 test('the screen-recording helper opens the Privacy_ScreenCapture pane', () => {
-  assert.match(read('local-tools-main.js'), /x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_ScreenCapture/)
+  // One URL, kept in screen-share.js and used by both screen paths.
+  assert.match(read('screen-share.js'), /x-apple\.systempreferences:com\.apple\.preference\.security\?Privacy_ScreenCapture/)
+  assert.match(read('local-tools-main.js'), /SCREEN_SETTINGS_URL } = require\('\.\/screen-share'\)/)
 })
 
 test('the local-tools windows are sandboxed, isolated and load no remote content', () => {

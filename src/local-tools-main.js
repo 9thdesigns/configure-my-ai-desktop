@@ -7,13 +7,13 @@
 // The approval card is its own small always-on-top window, placed where the
 // island sits. It is deliberately not an island card: see ensureApprovalWindow.
 
-const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, screen, session, shell, systemPreferences } = require('electron')
+const { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const { GrantStore, AuditLog, ApprovalBroker } = require('./local-tools-approval')
 const { createPoller } = require('./local-tools-client')
-
-const SCREEN_SETTINGS_URL = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+const { SCREEN_SETTINGS_URL } = require('./screen-share')
+const { captureDisplay } = require('./screen-share-main')
 
 let approvalWindow = null
 let settingsWindow = null
@@ -22,6 +22,7 @@ let settingsFile
 let grants
 let audit
 let poller
+let prefs = null // the shell's prefs (src/prefs.js), for "Let Manager see your screen"
 
 function readSettings () {
   try { return { enabled: true, screenHelperShown: false, ...JSON.parse(fs.readFileSync(settingsFile, 'utf8')) } } catch {
@@ -133,11 +134,22 @@ function registerIpc () {
   })
   ipcMain.handle('lt:settings', (event) => {
     if (!fromWindow(event, settingsWindow)) return null
-    return { enabled: readSettings().enabled, grants: grants.list(), audit: audit.list({ limit: 200 }) }
+    return {
+      enabled: readSettings().enabled,
+      shareScreen: Boolean(prefs?.get().shareScreen),
+      platform: process.platform,
+      grants: grants.list(),
+      audit: audit.list({ limit: 200 }),
+    }
   })
   ipcMain.handle('lt:revoke', (event, id) => {
     if (!fromWindow(event, settingsWindow)) return false
     return grants.revoke(String(id))
+  })
+  ipcMain.handle('lt:set-share-screen', (event, on) => {
+    if (!fromWindow(event, settingsWindow) || !prefs) return false
+    prefs.set({ shareScreen: on === true })
+    return true
   })
   ipcMain.handle('lt:set-enabled', (event, on) => {
     if (!fromWindow(event, settingsWindow)) return false
@@ -168,17 +180,7 @@ async function screenPermissionHelper () {
 
 async function captureScreen ({ maxWidth }) {
   await screenPermissionHelper()
-  const display = screen.getPrimaryDisplay()
-  const scale = display.scaleFactor || 1
-  let width = Math.round(display.size.width * scale)
-  let height = Math.round(display.size.height * scale)
-  if (width > maxWidth) {
-    height = Math.round(height * (maxWidth / width))
-    width = maxWidth
-  }
-  const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width, height } })
-  const primary = sources.find((s) => String(s.display_id) === String(display.id)) || sources[0]
-  return primary ? primary.thumbnail : null
+  return captureDisplay({ maxWidth })
 }
 
 function isEnabled () {
@@ -189,7 +191,8 @@ function setEnabled (on) {
   writeSettings({ enabled: on })
 }
 
-function initLocalTools () {
+function initLocalTools (options = {}) {
+  prefs = options.prefs || null
   const dir = app.getPath('userData')
   settingsFile = path.join(dir, 'local-tools-settings.json')
   grants = new GrantStore(path.join(dir, 'local-tools-grants.json'))

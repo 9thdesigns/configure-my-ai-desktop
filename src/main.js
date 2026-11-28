@@ -38,6 +38,7 @@ const { createElectronLogoCache } = require('./workspace-logos')
 const { createCable, electronCookieHeader } = require('./widget-cable')
 const { installNativeFeel } = require('./native-feel')
 const { initLocalTools } = require('./local-tools-main')
+const { createElectronScreenShare, openScreenSettings } = require('./screen-share-main')
 
 // Height of the strip at the top of the window that the user drags it by, and
 // of the Windows caption-button overlay drawn into it. The page reserves this
@@ -490,10 +491,10 @@ app.whenReady().then(() => {
   registerIpc()
   // Bots' local computer access: shell, files and screenshot on THIS machine,
   // every call approved by the user (src/local-tools-main.js).
-  const localAccess = initLocalTools()
   // The shell's own switches (src/prefs.js), read before the menu so its
   // "Show Island" checkbox starts from the saved value.
   prefs = createPrefs({ file: path.join(app.getPath('userData'), 'prefs.json') })
+  const localAccess = initLocalTools({ prefs })
   installMenu({
     localAccess,
     prefs,
@@ -607,6 +608,7 @@ function startWidgetFeedAndTray () {
       widgetFeed.setEnabled(Boolean(on)).catch(() => {})
     },
     setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
+    setShareScreen: (on) => { prefs.set({ shareScreen: Boolean(on) }) },
     setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
     setOpenAtLogin: (on) => {
       try {
@@ -616,6 +618,18 @@ function startWidgetFeedAndTray () {
     },
     quit: () => app.quit(),
   }
+
+  // "Let Manager see your screen" (src/screen-share.js): a screenshot only
+  // when the user asks in the widget's chat, with the island (and the
+  // composer) saying "Viewing your screen" while it is taken.
+  const screenShare = createElectronScreenShare({
+    isEnabled: () => prefs.get().shareScreen === true,
+    onIndicator: (on) => {
+      island?.setCapturing(on)
+      widget?.setCapturing(on)
+    },
+    ownWindows: () => [widget?.window(), island?.window()],
+  })
 
   // The floating dock (src/widget-window.js): its own window, its own
   // lifecycle — shown while the pref is on and someone is signed in,
@@ -630,6 +644,8 @@ function startWidgetFeedAndTray () {
     logos,
     positionFile: path.join(app.getPath('userData'), 'widget-position.json'),
     avatarCss,
+    screenShare,
+    openScreenSettings: () => openScreenSettings(),
     chatCss,
   })
   widget.registerIpc(ipcMain)

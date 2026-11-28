@@ -11,6 +11,15 @@
   <p>Bots can ask to run commands, read files, list folders and take screenshots on this computer. Every request needs your approval unless you chose “Always allow” for it below.</p>
   <label class="switch"><input type="checkbox" id="enabled"> Allow bots to ask to use this computer</label>
 
+  <h2>Your screen</h2>
+  <label class="switch"><input type="checkbox" id="share-screen"> Let Manager see your screen</label>
+  <div class="privacy" id="screen-privacy">
+    <p><strong>What’s captured:</strong> one still screenshot of the display your pointer is on. The widget and island are kept out of it where your system allows. No video and no audio.</p>
+    <p><strong>When:</strong> only when you press Share screen in the widget’s chat, or send a message that asks about your screen (“what’s this error?”). Never in the background, never on a schedule, and never because a bot asked. The island shows “Viewing your screen” while it happens.</p>
+    <p><strong>Where it goes:</strong> it’s attached to that one message and sent to your Configure My AI chat over HTTPS, for the bot you’re talking to to read. It’s kept in memory until you send or close the chat (or for five minutes), and is never saved on this computer.</p>
+    <p id="screen-macos" hidden>macOS asks for Screen Recording permission the first time. You can change it any time in System Settings → Privacy &amp; Security → Screen Recording.</p>
+  </div>
+
   <h2>Always-allowed</h2>
   <div id="grants"></div>
 

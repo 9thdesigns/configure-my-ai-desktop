@@ -5,6 +5,7 @@
 const { Menu, shell } = require('electron')
 const { goBack, goHome } = require('./menu-actions')
 const { islandMenuItem, syncIslandMenuItem } = require('./island-window')
+const { shareScreenMenuItem, syncShareScreenMenuItem } = require('./screen-share')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
@@ -67,6 +68,9 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
               checked: localAccess.isEnabled(),
               click: (item) => localAccess.setEnabled(item.checked),
             },
+            // The widget's Share screen (src/screen-share.js).
+            ...(prefs ? [shareScreenMenuItem(prefs)] : []),
+            { type: 'separator' },
             { label: 'Local Computer Access…', click: () => localAccess.openSettings() },
           ],
         }]
@@ -92,7 +96,10 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
 
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
-  if (prefs) syncIslandMenuItem(menu, prefs)
+  if (prefs) {
+    syncIslandMenuItem(menu, prefs)
+    syncShareScreenMenuItem(menu, prefs)
+  }
 }
 
 module.exports = { installMenu }

@@ -13,6 +13,9 @@
 //   showWidget              — the floating bot dock is shown.
 //   showIsland              — the status pill at the top of the screen is
 //                             shown.
+//   shareScreen             — "Let Manager see your screen": the widget's
+//                             Share screen may capture the display when the
+//                             user asks (screen-share.js). Off by default.
 //   widgetPositions         — where the user dragged the dock, per display
 //   islandPositions           (and the island): [{ id, bounds, pos }], newest
 //                             first (widget-placement.js validates them).
@@ -33,6 +36,7 @@ function defaults (platform = process.platform) {
     keepRunningInBackground: platform === 'darwin',
     showWidget: true,
     showIsland: true,
+    shareScreen: false,
     widgetPositions: [],
     islandPositions: [],
   }

@@ -138,6 +138,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .island[data-chip="working"] .chip { background: rgba(47, 111, 235, 0.18); color: #8fb3ff; }
 .island[data-chip="responded"] .chip { background: rgba(48, 164, 108, 0.18); color: #6fd3a0; }
 .island[data-chip="failed"] .chip { background: rgba(229, 72, 77, 0.18); color: #ff8a8d; }
+/* Share screen is capturing (screen-share.js): a red recording dot. */
+.island[data-chip="screen"] .chip { background: rgba(229, 72, 77, 0.22); color: #ffb3b5; }
+.island[data-chip="screen"] .chip::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #ff5a5f; vertical-align: 1px; animation: screen-dot 1s ease-in-out infinite alternate; }
+@keyframes screen-dot { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .island[data-chip="screen"] .chip::before { animation: none; } }
 
 /* Idle: the same pill, quieter — the manager's mark, a muted name and a
    small green dot, so it reads as "on, nothing for you" at a glance. */

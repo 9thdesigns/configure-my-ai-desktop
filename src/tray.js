@@ -120,6 +120,14 @@ function trayMenuTemplate (state, options, actions) {
       click: (item) => actions.setShowIsland(typeof item?.checked === 'boolean' ? item.checked : !prefs.showIsland),
     },
     {
+      // The widget's Share screen (screen-share.js): off by default.
+      id: 'share-screen',
+      label: 'Let Manager See Your Screen',
+      type: 'checkbox',
+      checked: Boolean(prefs.shareScreen),
+      click: (item) => actions.setShareScreen?.(typeof item?.checked === 'boolean' ? item.checked : !prefs.shareScreen),
+    },
+    {
       id: 'keep-running',
       label: 'Keep Running in Background',
       type: 'checkbox',

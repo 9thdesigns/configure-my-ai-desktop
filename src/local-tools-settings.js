@@ -1,4 +1,5 @@
-// Local Computer Access settings: the on/off switch, the standing grants (each
+// Local Computer Access settings: the on/off switch, "Let Manager see your
+// screen" with what it means, the standing grants (each
 // revocable), and the audit trail. Built with textContent only.
 (function () {
   const $ = (id) => document.getElementById(id)
@@ -33,6 +34,8 @@
     const data = await window.cmaLocal.settings()
     if (!data) return
     $('enabled').checked = data.enabled !== false
+    $('share-screen').checked = data.shareScreen === true
+    $('screen-macos').hidden = data.platform !== 'darwin'
 
     const grants = $('grants')
     grants.replaceChildren()
@@ -74,5 +77,6 @@
   }
 
   $('enabled').addEventListener('change', async (e) => { await window.cmaLocal.setEnabled(e.target.checked); render() })
+  $('share-screen').addEventListener('change', async (e) => { await window.cmaLocal.setShareScreen(e.target.checked); render() })
   render()
 })()
