@@ -143,6 +143,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
   overflow: visible;
   pointer-events: none;
   filter: drop-shadow(0 var(--dock-shadow-y) var(--dock-shadow-blur) var(--dock-shadow-color));
+  /* The drag's stretch (widget-view.js): the outline grows toward the drag
+     from its trailing end; the faces inside never scale. */
+  transform: scaleY(var(--stretch-scale, 1));
+  transform-origin: 50% var(--stretch-origin, 0%);
 }
 .dock-fill { fill: var(--dock-fill); }
 .dock-rim {
@@ -194,7 +198,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Dragged to the left edge, the dock hugs the left of its window, its shape
    mirrored, and the popover opens to its right (widget-window.js layoutFor). */
 :root[data-side="left"] .dock { right: auto; left: 0; }
-:root[data-side="left"] .dock-shape { transform: scaleX(-1); }
+:root[data-side="left"] .dock-shape { transform: scaleX(-1) scaleY(var(--stretch-scale, 1)); }
 :root[data-side="left"] .popover { left: auto; right: 0; transform-origin: left top; }
 :root[data-side="left"] .popover { animation-name: popover-in-left; }
 @keyframes popover-in-left {
@@ -450,6 +454,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   user-select: text;
 }
 .popover[hidden] { display: none; }
+/* Opening: shown, but held back a frame while the window widens
+   (widget-view.js armPanel), then the entrance plays. */
+.popover[data-arming] { visibility: hidden; animation: none; }
 
 @keyframes popover-in {
   from { opacity: 0; transform: translateX(8px) scale(0.98); }

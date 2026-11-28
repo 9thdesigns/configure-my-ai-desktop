@@ -31,7 +31,7 @@ test('dragged positions persist per display; junk in the file is dropped', () =>
   const prefs = createPrefs({ file, platform: 'linux' })
   const seen = []
   prefs.onChange((p) => seen.push(p.widgetPositions.length))
-  const entry = { id: 7, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, pos: { side: 'left', offsetY: 120 } }
+  const entry = { id: 7, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, pos: { edge: 'left', offset: 0.25 } }
   prefs.set({ widgetPositions: [entry], islandEdge: { displayId: 7, displayBounds: entry.bounds, edge: 'bottom', offsetX: 0.3 } })
   prefs.set({ widgetPositions: [{ ...entry }] })
   assert.deepEqual(seen, [1], 'the same positions again: no change event')
@@ -39,13 +39,17 @@ test('dragged positions persist per display; junk in the file is dropped', () =>
   assert.deepEqual(reread.widgetPositions, [entry])
   assert.deepEqual(reread.islandEdge, { displayId: 7, displayBounds: entry.bounds, edge: 'bottom', offsetX: 0.3 })
   // get() hands out copies: mutating one does not change the store.
-  reread.widgetPositions[0].pos.side = 'right'
-  assert.equal(prefs.get().widgetPositions[0].pos.side, 'left')
+  reread.widgetPositions[0].pos.edge = 'right'
+  assert.equal(prefs.get().widgetPositions[0].pos.edge, 'left')
   fs.writeFileSync(file, JSON.stringify({ showWidget: false, widgetPositions: [{ id: 1, bounds: 'x', pos: {} }, entry], islandEdge: { edge: 'left' } }))
   const cleaned = createPrefs({ file, platform: 'linux' }).get()
   assert.deepEqual(cleaned.widgetPositions, [entry])
   assert.equal(cleaned.islandEdge, null)
   assert.equal(cleaned.showWidget, false)
+  // Older memory ({ side, offsetY } in px) is kept, marked for migration
+  // (widget-window.js turns it into a fraction once its display is used).
+  fs.writeFileSync(file, JSON.stringify({ widgetPositions: [{ ...entry, pos: { side: 'right', offsetY: 200 } }] }))
+  assert.deepEqual(createPrefs({ file, platform: 'linux' }).get().widgetPositions[0].pos, { edge: 'right', offsetY: 200, legacy: true })
   fs.rmSync(dir, { recursive: true, force: true })
 })
 

@@ -67,5 +67,37 @@
     return working ? 'working' : 'idle'
   }
 
-  return { dockPath, rimActivity }
+  // --- The drag's feel ------------------------------------------------------
+  // The dock stretches toward where it is being dragged: 9px per px/ms of
+  // pointer speed, at most 12px, sprung (motion.js 'stretch', 300/30); the
+  // seats lag behind by 0.3 of the stretch; on release it wobbles back
+  // ('wobbly', 210/13).
+
+  const STRETCH_PER_SPEED = 9
+  const MAX_STRETCH = 12
+  const SEAT_LAG = 0.3
+
+  // Pointer velocity (px/ms) from recent samples [{ t, y }], newest last:
+  // the slope over the last `window` ms; 0 once the pointer has stopped.
+  function velocity (samples, now, window = 60) {
+    const recent = (samples || []).filter((s) => now - s.t <= window)
+    if (recent.length < 2) return 0
+    const a = recent[0]
+    const b = recent[recent.length - 1]
+    const dt = b.t - a.t
+    return dt > 0 ? (b.y - a.y) / dt : 0
+  }
+
+  const stretchFor = (speed) => Math.min(Math.max((Number(speed) || 0) * STRETCH_PER_SPEED, -MAX_STRETCH), MAX_STRETCH)
+
+  // The CSS for a stretch of s px (positive: dragged down) on a dock h px
+  // tall: it grows toward the drag from its trailing end, and its seats
+  // shift back by SEAT_LAG of it.
+  function stretchStyle (s, h) {
+    const amount = Math.abs(s)
+    if (!h || amount < 0.01) return { scale: 1, origin: 'top', seats: 0 }
+    return { scale: (h + amount) / h, origin: s > 0 ? 'top' : 'bottom', seats: -s * SEAT_LAG }
+  }
+
+  return { dockPath, rimActivity, STRETCH_PER_SPEED, MAX_STRETCH, SEAT_LAG, velocity, stretchFor, stretchStyle }
 })

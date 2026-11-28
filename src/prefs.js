@@ -17,8 +17,11 @@
 //                             Share screen may capture the display when the
 //                             user asks (screen-share.js). Off by default.
 //   widgetPositions         — where the user dragged the dock, per display:
-//                             [{ id, bounds, pos }], newest first
-//                             (widget-placement.js validates them).
+//                             [{ id, bounds, pos: { edge: 'left' | 'right',
+//                             offset 0..1 } }], newest first
+//                             (dock-placement.js validates them; an older
+//                             { side, offsetY } is migrated the first time
+//                             its display is used).
 //   islandEdge              — where the island is attached: { displayId,
 //                             displayBounds, edge: 'top' | 'bottom', offsetX
 //                             0..1 } (island-placement.js), or null (top
@@ -27,13 +30,14 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
-const { validEntries, validWidgetPos, validIslandPos } = require('./widget-placement')
+const { validEntries, validIslandPos } = require('./widget-placement')
+const { validDockPos } = require('./dock-placement')
 const { validIslandEdge, migrateIslandPositions } = require('./island-placement')
 
 // Keys whose values are structures, each with its own validator; the rest
 // are plain values checked by type.
 const STRUCTURED = {
-  widgetPositions: (v) => validEntries(v, validWidgetPos),
+  widgetPositions: (v) => validEntries(v, validDockPos),
   islandEdge: (v) => validIslandEdge(v),
 }
 
