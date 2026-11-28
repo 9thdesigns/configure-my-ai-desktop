@@ -218,37 +218,141 @@
 
   // --- The popover ---------------------------------------------------------
 
+  // Only what changed is written: an unchanged string written again still
+  // replaces the node's text node, and every state push (each feed refetch)
+  // would repaint the head.
+  const setText = (node, text) => { if (node.textContent !== text) node.textContent = text }
+
   function renderHead () {
     const bot = botById(layout.botId)
     if (!bot) return
     paintAvatar($('[data-role="head-avatar"]', popover), bot)
-    $('[data-role="head-name"]', popover).textContent = bot.name
-    $('[data-role="head-state"]', popover).textContent = bot.label
-    compose.placeholder = `Message ${bot.name}…`
+    setText($('[data-role="head-name"]', popover), bot.name)
+    setText($('[data-role="head-state"]', popover), bot.label)
+    const placeholder = `Message ${bot.name}…`
+    if (compose.placeholder !== placeholder) compose.placeholder = placeholder
+  }
+
+  // The thread is patched, never rebuilt. Main re-sends the conversation on
+  // every poll (5 s), every feed refetch and every reply; rebuilding the list
+  // each time replayed every bubble's fade-in (.message's message-in), so the
+  // whole thread blinked out and back as if the popover had reloaded. Now:
+  //   * each message keeps its node, keyed by id (rows);
+  //   * a new message is appended; nothing else is touched;
+  //   * a reply that grows (streams) patches its one text node in place;
+  //   * an unchanged thread writes nothing at all;
+  //   * messages the server's 20-message window slid past stay above it (up
+  //     to MAX_ROWS), since they are still the thread — only a message gone
+  //     from inside the window is removed;
+  //   * the view sticks to the bottom when it was there, and otherwise
+  //     stays put.
+  const MAX_ROWS = 200
+  const rows = new Map() // message id -> <li>
+  let rowsBot = null // whose thread the rows are
+  let toBottom = true // the next render scrolls to the bottom regardless
+  let statusRow = null
+
+  const nearBottom = () => messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40
+
+  function clearRows () {
+    rows.clear()
+    rowsBot = null
+    statusRow = null
+    messagesEl.textContent = ''
+    toBottom = true
+  }
+
+  // "Loading…" and the like, in place of the thread.
+  function showStatus (text) {
+    if (rows.size) {
+      for (const row of rows.values()) row.remove()
+      rows.clear()
+    }
+    if (!statusRow) {
+      statusRow = el('li', 'messages-empty')
+      messagesEl.append(statusRow)
+    }
+    setText(statusRow, text)
+  }
+
+  function paintRow (row, message) {
+    const className = `message is-${message.role}`
+    if (row.className !== className) row.className = className
+    // Patch the text node itself, so a streaming reply is one characterData
+    // change, not a node swap.
+    const text = row.firstChild
+    if (text && text.nodeType === 3 && !text.nextSibling) {
+      if (text.data !== message.body) text.data = message.body
+    } else {
+      row.textContent = message.body
+    }
   }
 
   function renderMessages () {
-    const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 40
-    messagesEl.textContent = ''
     if (!conversation) {
-      messagesEl.append(el('li', 'messages-empty', 'Loading…'))
-      return
+      // Reopening the bot whose thread is still here: keep it on screen
+      // until the fresh copy arrives, rather than flash "Loading…".
+      if (rowsBot === layout.botId && rows.size) {
+        if (toBottom) messagesEl.scrollTop = messagesEl.scrollHeight
+        return
+      }
+      return showStatus('Loading…')
     }
-    if (!conversation.history) {
-      messagesEl.append(el('li', 'messages-empty', 'Open in app to see the full conversation.'))
-      return
+    if (rowsBot !== conversation.bot_id) {
+      clearRows()
+      rowsBot = conversation.bot_id
     }
-    if (!conversation.messages.length) {
-      messagesEl.append(el('li', 'messages-empty', 'No messages yet.'))
-      return
+    if (!conversation.history) return showStatus('Open in app to see the full conversation.')
+    if (!conversation.messages.length) return showStatus('No messages yet.')
+    if (statusRow) {
+      statusRow.remove()
+      statusRow = null
     }
-    for (const message of conversation.messages) {
-      messagesEl.append(el('li', `message is-${message.role}`, message.body))
+
+    const atBottom = toBottom || nearBottom()
+    const scrollTop = messagesEl.scrollTop
+    const messages = conversation.messages
+    const ids = new Set(messages.map((m) => m.id))
+    const first = rows.get(messages[0].id)
+
+    // Rows the server no longer sends: kept when they sit above the first
+    // message it sends (its window slid past them), removed otherwise.
+    let above = Boolean(first)
+    for (const row of [...messagesEl.children]) {
+      if (row === first) above = false
+      const id = row.dataset.messageId
+      if (above || ids.has(id)) continue
+      row.remove()
+      rows.delete(id)
     }
-    if (atBottom || !messagesEl.dataset.scrolled) {
-      messagesEl.scrollTop = messagesEl.scrollHeight
-      messagesEl.dataset.scrolled = '1'
+
+    // In order; a row moves only when it is out of place.
+    let cursor = first || messagesEl.firstChild
+    for (const message of messages) {
+      let row = rows.get(message.id)
+      if (!row) {
+        row = el('li')
+        row.dataset.messageId = message.id
+        rows.set(message.id, row)
+      }
+      paintRow(row, message)
+      if (row === cursor) cursor = cursor.nextSibling
+      else messagesEl.insertBefore(row, cursor)
     }
+
+    // A long-open popover: drop the oldest rows past the cap, keeping what
+    // the user is looking at where it is.
+    let trimmed = 0
+    while (rows.size > MAX_ROWS) {
+      const row = messagesEl.firstElementChild
+      trimmed += row.offsetHeight
+      rows.delete(row.dataset.messageId)
+      row.remove()
+    }
+
+    if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight
+    else if (trimmed) messagesEl.scrollTop = Math.max(0, scrollTop - trimmed)
+    toBottom = false
   }
 
   const letter = (i) => String.fromCharCode(65 + i)
@@ -488,7 +592,8 @@
     if (opened) {
       conversation = null
       pendingKey = undefined
-      delete messagesEl.dataset.scrolled
+      if (rowsBot !== next.botId) clearRows()
+      toBottom = true
       showError(null)
       renderHead()
       renderMessages()
