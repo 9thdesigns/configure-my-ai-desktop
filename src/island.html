@@ -16,6 +16,7 @@
     <div class="island-clip">
       <button type="button" class="island-bar" data-role="bar" aria-keyshortcuts="Alt+ArrowLeft Alt+ArrowRight Alt+ArrowUp Alt+ArrowDown">
         <span class="bar-content" data-role="content">
+          <span class="rec-dot" aria-hidden="true"></span>
           <span class="avatar-wrap" data-role="avatar-wrap">
             <span class="avatar" data-role="avatar"></span>
             <span class="badge-slot" data-role="badge" hidden></span>
@@ -39,9 +40,10 @@
           <button type="button" class="btn-link compose-open" data-role="compose-open">Open in app</button>
         </header>
         <div class="compose-row compose-lines" data-role="lines" aria-live="polite"></div>
+        <div class="compose-row compose-attach" data-role="attach" aria-live="polite"></div>
         <form class="compose-row composer" data-role="composer" autocomplete="off">
           <div class="composer-pill">
-            <button type="button" class="composer-btn" data-role="compose-actions" aria-label="More actions" aria-disabled="true" title="More actions are coming soon">
+            <button type="button" class="composer-btn" data-role="compose-actions" aria-label="Actions" aria-haspopup="menu" aria-expanded="false" aria-controls="island-menu" title="Screenshot, record, attach…">
               <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3v10M3 8h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
             </button>
             <input type="text" class="composer-input" data-role="input" placeholder="Ask the Manager…" aria-label="Message the Manager" maxlength="10000" enterkeyhint="send" spellcheck="true">
@@ -56,6 +58,7 @@
       </section>
     </div>
     <span class="grabber" data-role="grabber" aria-hidden="true"></span>
+    <div class="menu" id="island-menu" data-role="menu" role="menu" aria-label="Actions" data-no-drag hidden></div>
   </div>
   <script src="motion.js"></script>
   <script src="drag-gesture.js"></script>

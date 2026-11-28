@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Local, offline: the frozen capture comes in as a data: URL; nothing goes out. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Select an area</title>
+  <link rel="stylesheet" href="area-select.css">
+</head>
+<body>
+  <img class="shot" data-role="shot" alt="">
+  <div class="dim" data-role="dim"></div>
+  <div class="sel" data-role="sel" hidden></div>
+  <p class="hint" data-role="hint" role="status">Drag to select an area · Esc to cancel</p>
+  <script src="area-select-view.js"></script>
+</body>
+</html>

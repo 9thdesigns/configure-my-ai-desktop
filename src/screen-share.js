@@ -62,7 +62,14 @@ const MESSAGES = Object.freeze({
   attachment_too_large: 'That screenshot was too large for the server. Your message wasn’t sent — try again without it.',
   attachment_invalid: 'The server couldn’t read that screenshot. Your message wasn’t sent — try again without it.',
   busy: 'Already capturing your screen.',
+  selection_cancelled: 'Okay, nothing was captured.',
 })
+
+// What a capture covers: the display under the pointer, the front-most
+// window that isn't ours, or an area the user drags out over the display
+// (the island's Screenshot menu). The server takes `display` or `window`;
+// an area is a crop of the display.
+const SOURCES = Object.freeze(['display', 'window', 'area'])
 
 const EXPLAINER = Object.freeze({
   message: 'Let Manager see your screen?',
@@ -162,6 +169,21 @@ function asksAboutScreen (text) {
   return SCREEN_PHRASES.some((re) => re.test(text))
 }
 
+// A dragged-out rectangle, checked against the image: whole pixels, inside
+// it, at least 8px each way. Null for anything else (a cancel, junk).
+function cropRect (rect, image) {
+  if (!rect || typeof rect !== 'object') return null
+  const size = image?.getSize?.() || {}
+  const nums = [rect.x, rect.y, rect.width, rect.height].map(Number)
+  if (!nums.every(Number.isFinite) || !(size.width > 0) || !(size.height > 0)) return null
+  const x = Math.max(0, Math.round(nums[0]))
+  const y = Math.max(0, Math.round(nums[1]))
+  const width = Math.min(size.width - x, Math.round(nums[2]))
+  const height = Math.min(size.height - y, Math.round(nums[3]))
+  if (width < 8 || height < 8) return null
+  return { x, y, width, height }
+}
+
 // The indicator: show() when a capture starts, hide() when it ends, with a
 // minimum on-screen time. `onChange(on)` drives the island chip and the
 // widget's line. Overlapping captures keep it up until the last ends.
@@ -199,10 +221,16 @@ function createIndicator ({ onChange = () => {}, minMs = LIMITS.indicatorMinMs, 
 //   platform, env
 //   getMediaAccessStatus(t)  — systemPreferences.getMediaAccessStatus
 //   explain()                — macOS first-time explainer; resolves true/false
-//   capture({ maxWidth })    — resolves a NativeImage-like, or null
+//   capture({ maxWidth, source }) — resolves a NativeImage-like, or null
+//                              (source: 'display' | 'window'; an area is
+//                              captured as the display)
+//   select(image)            — an area capture: shows the frozen image and
+//                              resolves the rectangle the user dragged out
+//                              ({ x, y, width, height } in image pixels), or
+//                              null when they cancelled
 //   indicator                — createIndicator()
 //   now()
-function createScreenShare ({ isEnabled = () => false, platform = process.platform, env = process.env, getMediaAccessStatus, explain = async () => false, capture, indicator = createIndicator(), now = Date.now } = {}) {
+function createScreenShare ({ isEnabled = () => false, platform = process.platform, env = process.env, getMediaAccessStatus, explain = async () => false, capture, select = async () => null, indicator = createIndicator(), now = Date.now } = {}) {
   const held = new Map() // botId → { mime, data, width, height, source, capturedAt }
   let busy = false
 
@@ -211,8 +239,9 @@ function createScreenShare ({ isEnabled = () => false, platform = process.platfo
     for (const [id, h] of held) if (t - h.capturedAt > LIMITS.heldMs) held.delete(id)
   }
 
-  async function request ({ reason, botId } = {}) {
+  async function request ({ reason, botId, source = 'display' } = {}) {
     if (!EXPLICIT_REASONS.includes(reason)) return refusal('not_requested')
+    if (!SOURCES.includes(source)) return refusal('not_requested')
     if (typeof botId !== 'string' || !botId) return refusal('not_requested')
     if (!isEnabled()) return refusal('disabled')
     if (busy) return refusal('busy')
@@ -226,15 +255,24 @@ function createScreenShare ({ isEnabled = () => false, platform = process.platfo
         if (!ok) return refusal('explainer_declined')
       }
 
+      // The indicator stays up while an area is chosen: the frozen picture
+      // of the screen is on show the whole time.
       indicator.show()
       let image = null
+      let cancelled = false
       try {
-        image = typeof capture === 'function' ? await capture({ maxWidth: LIMITS.maxWidth }) : null
+        image = typeof capture === 'function' ? await capture({ maxWidth: source === 'area' ? LIMITS.maxWidth * 2 : LIMITS.maxWidth, source: source === 'window' ? 'window' : 'display' }) : null
+        if (image && source === 'area' && !(typeof image.isEmpty === 'function' && image.isEmpty())) {
+          const rect = cropRect(await Promise.resolve().then(() => select(image)).catch(() => null), image)
+          if (!rect) cancelled = true
+          else image = image.crop(rect)
+        }
       } catch {
         image = null
       } finally {
         indicator.hide()
       }
+      if (cancelled) return refusal('selection_cancelled')
 
       // The macOS prompt was raised by that capture: what did the user say?
       if (action === 'explain') {
@@ -250,7 +288,7 @@ function createScreenShare ({ isEnabled = () => false, platform = process.platfo
       if (encoded.tooLarge) return refusal('too_large')
 
       sweep()
-      const entry = { mime: encoded.mime, data: encoded.data, width: encoded.width, height: encoded.height, source: 'display', capturedAt: now() }
+      const entry = { mime: encoded.mime, data: encoded.data, width: encoded.width, height: encoded.height, source: source === 'window' ? 'window' : 'display', capturedAt: now() }
       held.set(botId, entry)
       return { status: 'ok', botId, mime: entry.mime, width: entry.width, height: entry.height, preview: previewOf(image) }
     } finally {
@@ -319,6 +357,8 @@ module.exports = {
   syncShareScreenMenuItem,
   LIMITS,
   EXPLICIT_REASONS,
+  SOURCES,
+  cropRect,
   PERMISSION,
   MESSAGES,
   EXPLAINER,

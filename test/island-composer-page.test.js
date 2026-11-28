@@ -72,7 +72,7 @@ const cs = (page, sel, prop) => page.locator(sel).first().evaluate((el, prop) =>
 const open = async (page, composer = COMPOSER) => {
   await page.evaluate(({ layout, composer }) => { window.__cma.composer(composer); window.__cma.layout(layout) }, { layout: OPEN, composer })
 }
-const rowOpacity = (page) => page.evaluate(() => [...document.querySelector('[data-role="compose"]').children].map((n) => Number(n.style.opacity === '' ? 1 : n.style.opacity)))
+const rowOpacity = (page) => page.evaluate(() => [...document.querySelector('[data-role="compose"]').children].filter((n) => n.getClientRects().length > 0).map((n) => Number(n.style.opacity === '' ? 1 : n.style.opacity)))
 
 pageTest('a click on the bar asks main for the composer', async (page) => {
   await page.click('[data-role="bar"]')
@@ -113,7 +113,7 @@ pageTest('the composer: a 36px pill, 14px text; the mic at the trailing edge, a 
   const actions = await box(page, '[data-role="compose-actions"]')
   const pill = await box(page, '.composer-pill')
   assert.ok(actions.x - pill.x < 10, 'actions at the leading edge')
-  assert.equal(await page.locator('[data-role="compose-actions"]').getAttribute('aria-disabled'), 'true')
+  assert.equal(await page.locator('[data-role="compose-actions"]').getAttribute('aria-haspopup'), 'menu')
   await page.fill('[data-role="input"]', 'Show me the plan')
   assert.equal(await page.locator('[data-role="mic"]').isVisible(), false)
   const send = await box(page, '[data-role="send"]')
@@ -160,7 +160,10 @@ pageTest('Esc: the content out over 280ms, then main is asked to close; then the
   await open(page)
   await page.clock.runFor(1500)
   await page.keyboard.press('Escape')
-  await page.clock.runFor(140)
+  await page.clock.runFor(70)
+  // Main re-sends the open layout meanwhile (a height report): Esc still wins.
+  await page.evaluate((layout) => window.__cma.layout(layout), OPEN)
+  await page.clock.runFor(70)
   const mid = await rowOpacity(page)
   assert.ok(mid.every((o) => o > 0.3 && o < 0.7), `half out (${mid})`)
   assert.deepEqual(await calls(page, 'collapse'), [], 'not yet')
@@ -218,3 +221,14 @@ pageTest('reduced motion: opening and closing are 150ms opacity fades', async (p
   await page.clock.runFor(100)
   assert.deepEqual(await calls(page, 'collapse'), [['collapse']], 'after a 150ms fade (to the next frame)')
 }, { reducedMotion: 'reduce' })
+
+pageTest('closed and opened again before the content has gone: it comes back, visible', async (page) => {
+  await open(page)
+  await page.clock.runFor(1500)
+  await page.evaluate((layout) => window.__cma.layout(layout), CLOSED)
+  await page.clock.runFor(100)
+  await open(page)
+  await page.clock.runFor(2000)
+  assert.deepEqual(await rowOpacity(page), [1, 1, 1])
+  assert.equal(Math.round((await box(page, '#island')).width), 440)
+})
