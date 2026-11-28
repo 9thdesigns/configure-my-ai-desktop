@@ -16,8 +16,8 @@
      (so it sits concentric with the end cap). The face's bob reaches about
      3px past its box while it works; 7px keeps it inside the pill, which
      clips. island-window.js COMPACT_HEIGHT matches the pill. */
-  --pill-h: 36px;
-  --face: 22px;
+  --pill-h: var(--island-pill-h);
+  --face: var(--island-face);
   color-scheme: dark;
 }
 
@@ -28,7 +28,7 @@ html, body {
   height: 100%;
   background: transparent;
   overflow: hidden;
-  font: 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: var(--text-13)/1.35 var(--font-ui);
   color: var(--ink);
   -webkit-user-select: none;
   user-select: none;
@@ -45,8 +45,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 18px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   overflow: hidden;
-  transition: border-radius 0.2s ease;
-  animation: island-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  transition: border-radius var(--dur-island-shape) var(--ease-hover);
+  animation: island-in var(--dur-island-in) var(--ease-island-in);
 }
 .island.is-expanded { border-radius: 18px; }
 
@@ -84,7 +84,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .avatar[data-shape="rounded"], .avatar[data-shape="squircle"] { border-radius: 30%; }
 .avatar[data-shape="hexagon"] { border-radius: 0; clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.island[data-chip="working"] .avatar { animation: thinking 1.8s ease-in-out infinite; }
+.island[data-chip="working"] .avatar { animation: thinking var(--dur-thinking) ease-in-out infinite; }
 
 /* The web app's animated CFA face (src/avatar-render.js), sized to its slot
    by --cfa-size — the same whole-pixel size as the box, always; the face
@@ -140,7 +140,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .island[data-chip="failed"] .chip { background: rgba(229, 72, 77, 0.18); color: #ff8a8d; }
 /* Share screen is capturing (screen-share.js): a red recording dot. */
 .island[data-chip="screen"] .chip { background: rgba(229, 72, 77, 0.22); color: #ffb3b5; }
-.island[data-chip="screen"] .chip::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #ff5a5f; vertical-align: 1px; animation: screen-dot 1s ease-in-out infinite alternate; }
+.island[data-chip="screen"] .chip::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #ff5a5f; vertical-align: 1px; animation: screen-dot var(--dur-pulse) ease-in-out infinite alternate; }
 @keyframes screen-dot { from { opacity: 1; } to { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .island[data-chip="screen"] .chip::before { animation: none; } }
 
@@ -172,7 +172,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   display: flex;
   flex-direction: column;
   gap: 8px;
-  animation: card-in 0.18s ease-out;
+  animation: card-in var(--dur-card-in) var(--ease-entrance);
 }
 .card[hidden] { display: none; }
 
@@ -192,7 +192,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--pill-2);
   border-radius: 10px;
   padding: 7px 10px;
-  transition: border-color 0.15s ease, background 0.15s ease;
+  transition: border-color var(--dur-hover) var(--ease-hover), background var(--dur-hover) var(--ease-hover);
 }
 .option:hover { border-color: rgba(255, 255, 255, 0.3); }
 .option.is-selected { border-color: var(--ink); }
@@ -225,7 +225,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 10px;
   padding: 6px 14px;
   font-weight: 600;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-hover) var(--ease-hover);
 }
 .btn-primary { background: var(--ink); color: var(--pill); border-color: var(--ink); }
 .btn:disabled { opacity: 0.45; cursor: default; }

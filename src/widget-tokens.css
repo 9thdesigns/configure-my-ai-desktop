@@ -1,0 +1,95 @@
+/* The widget and island design tokens: sizes, type, radii, durations,
+   easings and springs, by CMA's names, shared by widget.css and island.css
+   (each page links this sheet first). The motion maths lives in motion.js,
+   which reads the --spring-* tokens.
+
+   Two kinds of value live here:
+     * the scale — the values the rebuilt dock and island move onto (type
+       13–18px, radii 4–30px, durations 120–240ms, the ease-out curve and
+       the named springs);
+     * the "now" tokens — what the current sheets use today (a 150ms
+       ease hover, the 44px dock column, …), kept exactly so that wiring the
+       sheets to tokens changes no pixel. Later PRs move each of them onto
+       the scale, one change at a time. */
+
+:root {
+  /* --- Type ---------------------------------------------------------------- */
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-15: 15px;
+  --text-16: 16px;
+  --text-18: 18px;
+  --leading-18: 18px;
+  --leading-20: 20px;
+  --leading-22: 22px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+
+  /* --- Radii --------------------------------------------------------------- */
+  --radius-4: 4px;
+  --radius-6: 6px;
+  --radius-8: 8px;
+  --radius-12: 12px;
+  --radius-14: 14px;
+  --radius-20: 20px;
+  --radius-22: 22px;
+  --radius-30: 30px;
+
+  /* --- Icons and controls ------------------------------------------------ */
+  --icon-12: 12px;
+  --icon-14: 14px;
+  --icon-16: 16px;
+  --icon-20: 20px;
+  --control-24: 24px;
+  --control-32: 32px;
+
+  /* --- Durations and easings (the scale) ---------------------------------- */
+  --dur-120: 120ms;
+  --dur-160: 160ms;
+  --dur-200: 200ms;
+  --dur-240: 240ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-pop: cubic-bezier(0.34, 1.56, 0.64, 1);    /* an overshooting arrival */
+  --ease-enter: cubic-bezier(0.2, 0, 0, 1);         /* a badge appearing */
+  --ease-roll-in: cubic-bezier(0.22, 1, 0.36, 1);   /* a digit rolling in */
+  --ease-exit: cubic-bezier(0.5, 0, 0.75, 0);       /* leaving */
+
+  /* --- Springs: "stiffness damping" (unit mass), read by motion.js ---------- */
+  --spring-soft: 170 19;
+  --spring-snappy: 320 24;
+  --spring-wobbly: 210 13;
+  --spring-open: 190 19;
+  --spring-close: 280 33;
+  --spring-stretch: 300 30;
+  --spring-tuck: 260 22;
+
+  /* --- The dock -------------------------------------------------------------- */
+  --dock-face: 28px;          /* the bot's face in the dock (Dave: 28 since v0.4.1) */
+  --chat-face: 22px;          /* the face in the quick-chat header */
+  --dock-seat: 44px;          /* now: the dock's column (the rebuilt dock: 40px seats) */
+  --dock-gap: 10px;           /* between seats */
+  --dock-radius: 22px;        /* now: the dock's rounded ends */
+  --panel-width: 380px;       /* the quick-chat panel */
+  --panel-radius: 16px;       /* now (the rebuilt panel: 24px) */
+
+  /* --- The island ------------------------------------------------------------ */
+  --island-pill-h: 36px;
+  --island-face: 22px;
+
+  /* --- Motion in use now (kept exactly; moved onto the scale later) ------- */
+  --dur-hover: 150ms;          /* hovers and small state changes */
+  --ease-hover: ease;
+  --dur-popover-in: 160ms;
+  --dur-message-in: 180ms;
+  --dur-card-in: 180ms;
+  --dur-badge-in: 200ms;
+  --dur-ring: 200ms;           /* the avatar's focus/mood ring */
+  --dur-island-shape: 200ms;
+  --dur-island-in: 220ms;
+  --ease-island-in: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+  --ease-entrance: ease-out;   /* now: entrances (the scale: --ease-out) */
+  --dur-thinking: 1.8s;        /* the working glow's breath */
+  --dur-pulse: 1s;             /* the recording dot */
+}
