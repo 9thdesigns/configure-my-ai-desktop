@@ -10,8 +10,9 @@
 //     it is dropped on, at the height it was dropped. It is a column, so a
 //     side edge is the only place it reads as a dock; top and bottom would
 //     put a vertical strip across the menu bar or the taskbar.
-//   * The island snaps back to top-centre when dropped within SNAP_DISTANCE
-//     px of it; anywhere else it stays where it was dropped.
+//   * The island has its own rules now (island-placement.js: an edge and an
+//     offset along it); validIslandPos stays here to read its old memory
+//     once, for the migration.
 //   * Each is remembered per display (id, with the display's bounds as a
 //     second key for platforms whose ids change across restarts), newest
 //     first, in the prefs store. On launch, and whenever displays change, the
@@ -21,7 +22,6 @@
 //     change, a moved taskbar or a smaller display never leaves either one
 //     off screen.
 
-const SNAP_DISTANCE = 48
 const MAX_DISPLAYS = 8
 const MAX_COORD = 100000
 
@@ -47,8 +47,9 @@ function validWidgetPos (p) {
   return { side: p.side, offsetY: Math.round(p.offsetY) }
 }
 
-// The island: snapped to top-centre, or the top-left of its window relative
-// to the work area's top-left.
+// The island's old memory (before island-placement.js): snapped to
+// top-centre, or the top-left of its window relative to the work area's
+// top-left. Read only to migrate it (prefs.js).
 function validIslandPos (p) {
   if (!p || typeof p !== 'object') return null
   if (p.snap === 'top-center') return { snap: 'top-center' }
@@ -150,25 +151,6 @@ function snapWidget (bounds, workArea) {
   return { side, offsetY }
 }
 
-// --- The island -----------------------------------------------------------------
-
-// Dropped at `bounds`; `home` is where top-centre would put it. Within
-// SNAP_DISTANCE px (measured between the windows' top-centre points) it goes
-// home; otherwise it stays where it was dropped, relative to the work area.
-function snapIsland (bounds, home, workArea, distance = SNAP_DISTANCE) {
-  const d = Math.hypot((bounds.x + bounds.width / 2) - (home.x + home.width / 2), bounds.y - home.y)
-  if (d <= distance) return { snap: 'top-center' }
-  return { dx: Math.round(bounds.x - workArea.x), dy: Math.round(bounds.y - workArea.y) }
-}
-
-// The island's window for a saved position: home when snapped (or nothing
-// saved), else the saved spot, clamped so the whole pill — and, while it is
-// open, the card under it — stays in the work area.
-function islandPlaced (home, workArea, pos, slack = 0) {
-  if (!pos || pos.snap === 'top-center') return home
-  return clampToArea({ ...home, x: workArea.x + pos.dx, y: workArea.y + pos.dy }, workArea, slack)
-}
-
 // --- Wayland ----------------------------------------------------------------------
 
 // Wayland compositors (GNOME, KDE, Hyprland, Sway …) do not let a client place
@@ -186,7 +168,6 @@ const landed = (asked, actual, tolerance = 2) =>
   Boolean(actual) && Math.abs(actual.x - asked.x) <= tolerance && Math.abs(actual.y - asked.y) <= tolerance
 
 module.exports = {
-  SNAP_DISTANCE,
   MAX_DISPLAYS,
   validRect,
   validWidgetPos,
@@ -199,8 +180,6 @@ module.exports = {
   displayNearest,
   clampToArea,
   snapWidget,
-  snapIsland,
-  islandPlaced,
   likelyWayland,
   landed,
 }

@@ -651,8 +651,10 @@ function startWidgetFeedAndTray () {
   widget.registerIpc(ipcMain)
   widget.sync()
 
-  // The status pill by the notch (src/island-window.js): shown while the
-  // pref is on — the bot that needs the user, or a calm idle pill.
+  // The status pill on the top or bottom edge, round the notch at top
+  // centre (src/island-window.js): shown while the pref is on — the bot that
+  // needs the user, or a calm idle pill. devOverrides: CMA_SIMULATE_NOTCH
+  // draws a notch on any display, in unpackaged builds only.
   island = createIslandController({
     store: widgetStore,
     prefs,
@@ -661,6 +663,7 @@ function startWidgetFeedAndTray () {
     openBot,
     openApp,
     avatarCss,
+    devOverrides: !app.isPackaged,
   })
   island.registerIpc(ipcMain)
   island.sync()

@@ -16,8 +16,8 @@ test('the island is the dock\'s panel, in its own cookie-less session', () => {
   assert.equal(o.type, 'panel')
   for (const key of ['transparent', 'alwaysOnTop', 'skipTaskbar', 'hiddenInMissionControl']) assert.equal(o[key], true, key)
   for (const key of ['frame', 'hasShadow', 'resizable', 'movable', 'focusable', 'show', 'fullscreenable']) assert.equal(o[key], false, key)
-  assert.equal(o.width, I.ISLAND_WIDTH + I.SHADOW * 2)
-  assert.equal(o.height, I.COMPACT_HEIGHT + I.SHADOW * 2)
+  assert.ok(o.width >= I.ISLAND_WIDTH, 'room for the open card')
+  assert.ok(o.height > I.COMPACT_HEIGHT, 'room to grow on hover')
   assert.deepEqual({ ...o.webPreferences, preload: undefined }, { preload: undefined, contextIsolation: true, sandbox: true, nodeIntegration: false, partition: 'cma-island', spellcheck: true, backgroundThrottling: false })
 })
 
@@ -73,25 +73,25 @@ test('the view: bot, chip, and the pending card with lettered options from the f
   assert.ok(!JSON.stringify(ops).includes('session_id'))
 })
 
-test('the island sits centred at the top of the work area, growing downward', () => {
-  const wa = { x: 0, y: 37, width: 1512, height: 945 }
-  const compact = I.islandBounds(wa, I.COMPACT_HEIGHT)
-  assert.equal(compact.x + compact.width / 2, 756, 'centred')
-  assert.equal(compact.y, 37 + I.TOP_MARGIN - I.SHADOW)
-  assert.equal(compact.height, I.COMPACT_HEIGHT + I.SHADOW * 2)
-  const open = I.islandBounds(wa, 260)
-  assert.equal(open.y, compact.y, 'the top stays put')
-  assert.equal(open.height, 260 + I.SHADOW * 2)
-  assert.equal(I.islandBounds(wa, 9999).height, I.MAX_HEIGHT + I.SHADOW * 2)
-  assert.equal(I.islandBounds(wa, 'x').height, I.COMPACT_HEIGHT + I.SHADOW * 2)
-  const second = I.islandBounds({ x: 1512, y: 0, width: 1920, height: 1050 }, 44)
-  assert.equal(second.x + second.width / 2, 1512 + 960)
+test('islandPlace: the saved place on its display, the envelope and the pill', () => {
+  const mbp = { id: 1, internal: true, bounds: { x: 0, y: 0, width: 1512, height: 982 }, workArea: { x: 0, y: 37, width: 1512, height: 945 } }
+  const home = I.islandPlace({ saved: null, displays: [mbp], fallback: mbp, platform: 'darwin' })
+  assert.equal(home.pill.wrap, true)
+  assert.equal(home.window.y, 0)
+  const low = I.islandPlace({ saved: { edge: 'bottom', offsetX: 0.25, displayId: 1 }, displays: [mbp], fallback: mbp, platform: 'darwin', height: 200 })
+  assert.equal(low.window.y + low.window.height, 982)
+  assert.equal(low.window.x + low.pill.centre, 378)
+  // Linux, a simulated notch.
+  const sim = I.islandPlace({ saved: null, displays: [{ ...mbp, internal: false }], fallback: null, platform: 'linux', simulateNotch: { width: 185, height: 32 } })
+  assert.equal(sim.pill.wrap, true)
+  assert.equal(sim.pill.height, 32)
+  assert.equal(I.islandPlace({ saved: null, displays: [], fallback: null }), null)
 })
 
 test('every island IPC is gated to the island page in the island window; the page is offline', () => {
   const src = fs.readFileSync(path.join(__dirname, '../src/island-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
-  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 10)
+  assert.equal(ipc.match(/ipcMain\.(on|handle)\('cma-island:[a-z-]+'/g).length, 12)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromIsland\(event\)|, reply\(/, handler.slice(0, 40))
   }

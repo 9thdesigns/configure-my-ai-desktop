@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('cmaIsland', {
   ready: () => ipcRenderer.send('cma-island:ready'),
   drag: (phase, screenX, screenY) => ipcRenderer.send('cma-island:drag', { phase, screenX, screenY }),
   reportHeight: (height) => ipcRenderer.send('cma-island:height', height),
+  reportHitRects: (rects) => ipcRenderer.send('cma-island:hit-rects', rects),
+  move: (input) => ipcRenderer.send('cma-island:move', input),
   hover: (inside) => ipcRenderer.send('cma-island:hover', inside === true),
   activate: () => ipcRenderer.send('cma-island:activate'),
   collapse: () => ipcRenderer.send('cma-island:collapse'),
