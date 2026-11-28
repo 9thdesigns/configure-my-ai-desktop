@@ -83,7 +83,15 @@ refuses, with `status: 'refused'`:
 - a real path (symlinks resolved) outside the scope's real path, so a symlink
   inside the folder can't reach out;
 - a write, create or delete whose target is itself a symlink;
-- a call with no scope at all.
+- a call with no scope at all;
+- a file that changed between the check and the use. Writes, creates and
+  deletes open with `O_NOFOLLOW` (macOS, Linux); creates also use `O_EXCL`.
+  Every open file is then located again: on Linux through `/proc/self/fd`,
+  elsewhere by comparing the descriptor's device/inode with the path's real
+  path. A file that is now outside the folder, or reached through a link, is
+  refused (and anything a write created out there is removed). `write_file`
+  re-checks the folder right before its final rename, and the rename replaces
+  a link instead of following it.
 
 ## Result statuses
 

@@ -114,6 +114,59 @@ async function resolveInScope (input, scope, { mustExist = false, forWrite = fal
   return { target, real, scopeReal }
 }
 
+// --- Closing the gap between the check and the use -------------------------
+//
+// resolveInScope checks a path; by the time it is opened, a file (or a folder
+// on the way) could have been swapped for a symlink. So every open that acts
+// on a file is checked again *after* it is open, on the file descriptor:
+//   * writes, creates and deletes open with O_NOFOLLOW (macOS, Linux): a
+//     target that became a symlink fails to open (ELOOP);
+//   * creates also use O_EXCL, which never follows a symlink either;
+//   * then the opened descriptor is located — on Linux by reading
+//     /proc/self/fd/<fd>, elsewhere by comparing the descriptor's
+//     device/inode with the path's real path — and must still be inside
+//     the approved folder's real path. If not, the call is refused (and a
+//     file a write created out there is removed).
+// Node has no unlinkat, so a delete re-checks with the file open and unlinks
+// straight after; the window left is microseconds wide and only the
+// descriptor's own file is ever removed.
+
+const C = require('node:fs').constants
+const O_NOFOLLOW = C.O_NOFOLLOW || 0 // 0 on Windows: the re-check still runs
+
+// Where an open descriptor really is, or null when that can't be told.
+async function openedPath (handle, target, fs) {
+  if (process.platform === 'linux') {
+    try { return await fs.readlink(`/proc/self/fd/${handle.fd}`) } catch {}
+  }
+  try {
+    const [st, real] = await Promise.all([handle.stat(), fs.realpath(target)])
+    const st2 = await fs.stat(real)
+    return st.dev === st2.dev && st.ino === st2.ino ? real : null
+  } catch {
+    return null
+  }
+}
+
+// Refusal (or null when fine) for an open descriptor that must be inside
+// `scopeReal`, and — with `noLink` — must be the file at `target` itself,
+// not something reached through a link.
+async function verifyOpened (handle, target, scopeReal, fs, { noLink = false } = {}) {
+  const where = await openedPath(handle, target, fs)
+  if (!where || !isInside(scopeReal, where)) return fail('the file moved outside the approved folder', 'refused')
+  if (noLink) {
+    try {
+      const [st, lst] = await Promise.all([handle.stat(), fs.lstat(target)])
+      if (lst.isSymbolicLink() || st.dev !== lst.dev || st.ino !== lst.ino) return fail('the target changed into a symbolic link', 'refused')
+    } catch {
+      return fail('the target changed while it was being opened', 'refused')
+    }
+  }
+  return null
+}
+
+const linkError = (err) => err && (err.code === 'ELOOP' || err.code === 'EMLINK')
+
 function clampBytes (value, fallback, max) {
   const n = Number(value)
   if (!Number.isFinite(n) || n <= 0) return fallback
@@ -129,6 +182,8 @@ async function readFile (args, { scope, fs = fsp } = {}) {
     const stat = await fs.stat(r.real)
     if (!stat.isFile()) return fail('not a regular file')
     handle = await fs.open(r.real, 'r')
+    const moved = await verifyOpened(handle, r.real, r.scopeReal, fs)
+    if (moved) return moved
     const length = Math.min(stat.size, maxBytes)
     const buffer = Buffer.alloc(length)
     const { bytesRead } = await handle.read(buffer, 0, length, 0)
@@ -251,31 +306,67 @@ async function writeFile (args, { scope, create = false, fs = fsp } = {}) {
     existed = true
   } catch {}
   if (create && existed) return fail('a file with that name already exists')
+  const dir = path.dirname(r.real)
+  // create_file writes the file itself (O_EXCL: never an existing file or
+  // link); write_file writes a temp file next to it and renames it over,
+  // which replaces a link rather than following it.
+  const file = create ? r.real : path.join(dir, `.${path.basename(r.real)}.cma-${process.pid}-${Date.now()}.tmp`)
+  let handle
   try {
-    if (create) {
-      await fs.writeFile(r.real, content, { flag: 'wx' }) // fails if it appeared meanwhile
-    } else {
-      // Replace atomically: a temp file next to it, then a rename.
-      const tmp = path.join(path.dirname(r.real), `.${path.basename(r.real)}.cma-${process.pid}-${Date.now()}.tmp`)
-      await fs.writeFile(tmp, content, { flag: 'wx' })
-      try { await fs.rename(tmp, r.real) } catch (err) { await fs.unlink(tmp).catch(() => {}); throw err }
+    handle = await fs.open(file, C.O_WRONLY | C.O_CREAT | C.O_EXCL | O_NOFOLLOW, 0o644)
+  } catch (err) {
+    if (linkError(err)) return fail('the target is a symbolic link', 'refused')
+    if (err.code === 'EEXIST') {
+      const st = await fs.lstat(file).catch(() => null)
+      return st && st.isSymbolicLink() ? fail('the target is a symbolic link', 'refused') : fail('a file with that name already exists')
     }
+    return fail(err.code || err.message)
+  }
+  let ok = false
+  try {
+    const moved = await verifyOpened(handle, file, r.scopeReal, fs, { noLink: true })
+    if (moved) return moved
+    await handle.writeFile(content)
+    await handle.close()
+    handle = null
+    if (!create) {
+      // The folder must still be the approved one at the moment of the rename.
+      const dirReal = await fs.realpath(dir).catch(() => null)
+      if (!dirReal || !isInside(r.scopeReal, dirReal)) return fail('the file moved outside the approved folder', 'refused')
+      await fs.rename(file, r.real)
+    }
+    ok = true
     return { status: 'ok', path: r.target, bytes, created: !existed }
   } catch (err) {
-    return fail(err.code === 'EEXIST' ? 'a file with that name already exists' : (err.code || err.message))
+    return fail(err.code || err.message)
+  } finally {
+    await handle?.close?.().catch(() => {})
+    // Anything we created that didn't end up as the result goes.
+    if (!ok) await fs.unlink(file).catch(() => {})
   }
 }
 
 async function deleteFile (args, { scope, fs = fsp } = {}) {
   const r = await resolveInScope(args?.path, scope, { mustExist: true, forWrite: true, fs })
   if (r.error) return r.error
+  let handle
   try {
-    const st = await fs.lstat(r.real)
+    handle = await fs.open(r.real, C.O_RDONLY | O_NOFOLLOW)
+  } catch (err) {
+    if (linkError(err)) return fail('the target is a symbolic link', 'refused')
+    return fail(err.code === 'ENOENT' ? 'not found' : (err.code || err.message))
+  }
+  try {
+    const st = await handle.stat()
     if (!st.isFile()) return fail('only files can be deleted')
+    const moved = await verifyOpened(handle, r.real, r.scopeReal, fs, { noLink: true })
+    if (moved) return moved
     await fs.unlink(r.real)
     return { status: 'ok', path: r.target, deleted: true }
   } catch (err) {
     return fail(err.code || err.message)
+  } finally {
+    await handle.close().catch(() => {})
   }
 }
 
