@@ -110,54 +110,91 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* The dock --------------------------------------------------------------- */
 
-/* Sizes (widget-tokens.css), in whole pixels so the faces land on the pixel
-   grid at 1x and 2x: a 28px face (--dock-face) in a 44px column
-   (--dock-seat; 8px either side, 7px inside the border), a 22px face in the
-   chat header (--chat-face). The gaps leave room for a face's bob and sway,
-   which reach about 3px past its box while it works
+/* The dock grows out of the screen edge: one filled shape (dock-shape.js
+   draws it into .dock-shape), flush to the edge, flaring into it through
+   14px concave fillets above and below the body, in the theme's frame
+   colour, with no border and a shadow that falls away from the edge only
+   (the window ends at the screen edge, so nothing shows past it). A 2px
+   rim light runs along the seam: brand indigo, brighter (and breathing)
+   while a bot works, amber while one waits on you.
+
+   Sizes (widget-tokens.css), in whole pixels so faces land on the pixel
+   grid at 1x and 2x: 40px seats (--dock-seat) around a --dock-face face,
+   10px apart, inside 8px of padding — a 56px body. Seven seats show, then
+   the column scrolls with a fade. The face's bob and sway reach about 3px
+   past its box while it works, well inside the seat
    (test/avatar-geometry.test.js measures it). */
 
 .dock {
+  --dock-width: calc(var(--dock-seat) + 2 * var(--dock-pad));
   touch-action: none;
   position: absolute;
-  right: 4px;
+  right: 0;
   top: 0;
-  width: var(--dock-seat);
-  margin: 6px 0;
-  padding: 2px 0 8px;
+  width: var(--dock-width);
+  padding: var(--dock-fillet) 0;
+}
+
+.dock-shape {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  filter: drop-shadow(0 var(--dock-shadow-y) var(--dock-shadow-blur) var(--dock-shadow-color));
+}
+.dock-fill { fill: var(--dock-fill); }
+.dock-rim {
+  fill: var(--brand-accent);
+  opacity: 0.35;
+  transition: opacity var(--dur-200) var(--ease-out), fill var(--dur-200) var(--ease-out);
+}
+.dock[data-activity="working"] .dock-rim { opacity: 0.9; animation: rim-breathe var(--dur-rim-pulse) ease-in-out infinite; }
+.dock[data-activity="waiting"] .dock-rim { fill: var(--amber); opacity: 1; }
+@keyframes rim-breathe {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.dock-body {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--dock-radius);
-  box-shadow: var(--shadow);
+  gap: var(--dock-gap);
+  padding: var(--dock-pad);
 }
 
+/* The grab handle: our own grip, a rounded bar 8px below the last seat
+   (the gap is 10, so it pulls up 2), in a 28×20 hit area. 40% ink at rest;
+   70% and 28px wide on hover; 32px wide while dragging. The whole dock
+   drags (drag-gesture.js tells a drag from a tap); this says where. */
 .dock-grip {
-  width: 20px;
-  height: 12px;
+  width: 28px;
+  height: 20px;
+  margin-top: -2px;
+  margin-bottom: calc(-1 * var(--dock-pad) + 2px);
+  display: grid;
+  place-items: center;
   cursor: grab;
-  position: relative;
   flex: none;
 }
-.dock-grip::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  top: 5px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--line);
-  transition: background var(--dur-hover) var(--ease-hover);
+.dock-grip-bar {
+  width: var(--grip-w);
+  height: var(--grip-h);
+  border-radius: calc(var(--grip-h) / 2);
+  background: var(--ink);
+  opacity: 0.4;
+  transition: width var(--dur-160) var(--ease-out), opacity var(--dur-160) var(--ease-out);
 }
-.dock-grip:hover::after { background: var(--muted); }
+.dock-grip:hover .dock-grip-bar { width: var(--grip-w-hover); opacity: 0.7; }
+:root[data-dragging] .dock-grip-bar { width: var(--grip-w-drag); opacity: 0.7; }
 
-/* Dragged to the left edge, the dock hugs the left of its window and the
-   popover opens to its right (widget-window.js layoutFor). */
-:root[data-side="left"] .dock { right: auto; left: 4px; }
+/* Dragged to the left edge, the dock hugs the left of its window, its shape
+   mirrored, and the popover opens to its right (widget-window.js layoutFor). */
+:root[data-side="left"] .dock { right: auto; left: 0; }
+:root[data-side="left"] .dock-shape { transform: scaleX(-1); }
 :root[data-side="left"] .popover { left: auto; right: 0; transform-origin: left top; }
 :root[data-side="left"] .popover { animation-name: popover-in-left; }
 @keyframes popover-in-left {
@@ -167,34 +204,50 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* While dragged: a grabbing hand, and no hover effects chasing the pointer. */
 :root[data-dragging], :root[data-dragging] * { cursor: grabbing !important; }
 :root[data-dragging] .dock-bot { transform: none !important; }
+:root[data-dragging] .dock-bot:hover { background-color: transparent; }
+:root[data-dragging] .dock-add:hover span { border-color: rgba(127, 127, 127, 0.45); color: var(--muted); }
 :root[data-no-drag] .dock-grip { cursor: default; }
 
+/* The seats: seven show, then the column scrolls, fading out at whichever
+   end has more (data-more, set by widget-view.js). */
 .dock-bots {
   display: flex;
   flex-direction: column;
   gap: var(--dock-gap);
+  max-height: calc(var(--dock-seats-visible) * var(--dock-seat) + (var(--dock-seats-visible) - 1) * var(--dock-gap));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
 }
+.dock-bots::-webkit-scrollbar { display: none; }
+.dock-bots[data-more="below"] { mask-image: linear-gradient(to bottom, #000 calc(100% - var(--dock-fade)), transparent); }
+.dock-bots[data-more="above"] { mask-image: linear-gradient(to top, #000 calc(100% - var(--dock-fade)), transparent); }
+.dock-bots[data-more="both"] { mask-image: linear-gradient(to bottom, transparent, #000 var(--dock-fade), #000 calc(100% - var(--dock-fade)), transparent); }
 
 .dock-bot {
   position: relative;
-  display: block;
+  flex: none;
+  width: var(--dock-seat);
+  height: var(--dock-seat);
+  display: grid;
+  place-items: center;
   border: 0;
   padding: 0;
   background: none;
   border-radius: 50%;
-  transition: background-color var(--dur-hover) var(--ease-hover), box-shadow var(--dur-hover) var(--ease-hover);
+  transition: background-color var(--dur-hover) var(--ease-hover);
 }
 /* Hover is a soft halo, not a scale: a scaled face lands between pixels
    and blurs. */
-.dock-bot:hover { background-color: var(--surface-2); box-shadow: 0 0 0 4px var(--surface-2); }
-.dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink); }
+.dock-bot:hover { background-color: rgba(127, 127, 127, 0.14); }
+.dock-bot:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.dock-bot.is-focused .avatar { box-shadow: 0 0 0 2px var(--dock-fill), 0 0 0 4px var(--ink); }
 
 /* Mood rings: working pulses softly (the web avatar's thinking glow),
    waiting wears an orange count, failed a red ring, a fresh reply a dot,
    paused goes quiet. */
 .dock-bot[data-mood="working"] .avatar { animation: thinking var(--dur-thinking) ease-in-out infinite; }
-.dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--failed); }
+.dock-bot[data-mood="failed"] .avatar { box-shadow: 0 0 0 2px var(--dock-fill), 0 0 0 4px var(--failed); }
 .dock-bot[data-paused] .avatar { filter: grayscale(1); opacity: 0.55; animation: none; }
 
 @keyframes thinking {
@@ -202,10 +255,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
   50% { box-shadow: 0 0 0 4px rgba(47, 111, 235, 0.28); }
 }
 
+/* The count sits on the face's top-right corner, inside the seat (so the
+   scrolling column never clips it). */
 .dock-badge {
   position: absolute;
-  top: -5px;
-  right: -6px;
+  top: calc((var(--dock-seat) - var(--dock-face)) / 2 - 5px);
+  right: calc((var(--dock-seat) - var(--dock-face)) / 2 - 6px);
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
@@ -216,10 +271,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-weight: 700;
   line-height: 16px;
   text-align: center;
-  box-shadow: 0 0 0 2px var(--surface);
+  box-shadow: 0 0 0 2px var(--dock-fill);
   animation: badge-in var(--dur-badge-in) var(--ease-entrance);
 }
-.dock-badge.is-dot { min-width: 8px; width: 8px; height: 8px; padding: 0; top: -1px; right: -1px; }
+.dock-badge.is-dot {
+  min-width: 8px;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  top: calc((var(--dock-seat) - var(--dock-face)) / 2 - 1px);
+  right: calc((var(--dock-seat) - var(--dock-face)) / 2 - 1px);
+}
 .dock-bot[data-mood="responded"] .dock-badge { background: #2f6feb; }
 
 @keyframes badge-in {
@@ -227,19 +289,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
   to { transform: none; opacity: 1; }
 }
 
+/* "+": a seat like the others, a dashed ring the size of a face. */
 .dock-add {
-  width: 28px;
-  height: 28px;
+  flex: none;
+  width: var(--dock-seat);
+  height: var(--dock-seat);
   padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
   border-radius: 50%;
-  border: 1px dashed var(--line);
   background: none;
   color: var(--muted);
   font-size: 17px;
   line-height: 1;
-  transition: border-color var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover), transform var(--dur-hover) var(--ease-hover);
 }
-.dock-add:hover { border-color: var(--muted); color: var(--ink); transform: scale(1.06); }
+.dock-add span {
+  width: var(--dock-face);
+  height: var(--dock-face);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px dashed rgba(127, 127, 127, 0.45);
+  transition: border-color var(--dur-hover) var(--ease-hover), color var(--dur-hover) var(--ease-hover);
+}
+.dock-add:hover span { border-color: var(--muted); color: var(--ink); }
+.dock-add:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 
 /* The "+" picker */
 .picker-search { padding: 10px 12px; border-bottom: 1px solid var(--line); }
@@ -276,6 +351,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* The workspace mark at the top of the dock */
 .dock-workspace {
+  width: var(--dock-seat);
+  display: grid;
+  place-items: center;
   border: 0;
   padding: 0 0 7px;
   margin-bottom: -2px;
