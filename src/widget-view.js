@@ -270,8 +270,11 @@
     reportQueued = true
     requestAnimationFrame(() => {
       reportQueued = false
-      const rects = [dock, popover, picker, recentsEl]
-        .filter((node) => !node.hidden)
+      // Tucked (hide when not in use): only the strip at the edge. Out: the
+      // live areas; the shelf yields while a panel is open (hidden by the
+      // CSS), so it takes no clicks then either.
+      const rects = (tucked ? [barEl] : [dock, popover, picker, shelfEl, recentsEl])
+        .filter((node) => !node.hidden && !(node === shelfEl && layout.expanded))
         .map((node) => {
           const r = node.getBoundingClientRect()
           return { x: r.left, y: r.top, width: r.width, height: r.height }
@@ -376,6 +379,9 @@
 
   function onDragChange (on) {
     document.documentElement.toggleAttribute('data-dragging', on)
+    if (on) clearShelf()
+    dragOn = on
+    autoHideCheck()
     samples.length = 0
     if (feelFrame !== null) cancelAnimationFrame(feelFrame)
     feelFrame = null
@@ -445,6 +451,337 @@
       reportLayout()
     }, () => {})
   }
+
+  // --- A response arrived: the seat's nudge and the finished-work shelf --
+  // The seat springs 1 → 1.10 → 1 (snappy; nothing under reduced motion);
+  // the jelly badge enters or bumps on its own (the state says so).
+  function nudgeSeat (botId) {
+    const button = buttons.get(botId)
+    if (!button || reducedMotion() || typeof button.animate !== 'function') return
+    const { values, duration } = Motion.sample('snappy', { from: 1, to: 1, velocity: 1 })
+    const peak = Math.max(...values.map((v) => v - 1)) || 1
+    const frames = values.map((v) => ({ transform: `scale(${(1 + ((v - 1) / peak) * 0.1).toFixed(4)})` }))
+    frames[frames.length - 1] = { transform: 'scale(1)' }
+    button.animate(frames, { duration, easing: 'linear' })
+  }
+
+  // The shelf: up to three pills (then "N more"), each a bot's face, an
+  // icon (a message or a file) and its label; it drips out (560ms, from
+  // scale .6, transparent, 32px toward the edge, overshooting), lives 8s —
+  // hovering the dock or the shelf pauses that, with 600ms more once the
+  // pointer leaves — and leaves (300ms, fading 24px toward the edge).
+  // Clicking one opens that chat. Main widens the window while the shelf
+  // is out (api.shelf). Reduced motion: it fades.
+  const shelfEl = $('#shelf')
+  const shelfList = $('[data-role="shelf-list"]', shelfEl)
+  const SHELF_LIFE = 8000
+  const SHELF_GRACE = 600
+  const SHELF_SHOWN = 3
+  const SHELF_INSET = 22 // level with the first seat
+  // Our own icons, drawn as SVG nodes (nothing is set as HTML here).
+  const ICON_PATHS = {
+    message: 'M3.5 3h9A1.5 1.5 0 0 1 14 4.5v5a1.5 1.5 0 0 1-1.5 1.5H8l-3 2.5V11H3.5A1.5 1.5 0 0 1 2 9.5v-5A1.5 1.5 0 0 1 3.5 3Z',
+    file: 'M4.5 1.75h4.75L12.5 5v8.25a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1V2.75a1 1 0 0 1 1-1Z M9 1.9V5.25h3.3',
+  }
+  function iconNode (kind) {
+    const NS = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(NS, 'svg')
+    svg.setAttribute('viewBox', '0 0 16 16')
+    svg.setAttribute('width', '16')
+    svg.setAttribute('height', '16')
+    svg.setAttribute('aria-hidden', 'true')
+    svg.setAttribute('focusable', 'false')
+    const path = document.createElementNS(NS, 'path')
+    path.setAttribute('d', ICON_PATHS[kind] || ICON_PATHS.message)
+    path.setAttribute('fill', 'none')
+    path.setAttribute('stroke', 'currentColor')
+    path.setAttribute('stroke-width', '1.4')
+    path.setAttribute('stroke-linejoin', 'round')
+    svg.append(path)
+    return svg
+  }
+  let shelfItems = [] // { botId, name, label, kind, el, remaining, startedAt, timer, leaving }
+  let shelfHover = false
+  let moreEl = null
+  let shelfReported = false
+
+  const towardEdge = () => (document.documentElement.dataset.side === 'left' ? -1 : 1)
+
+  function reportShelf (open) {
+    if (open === shelfReported) return
+    shelfReported = open
+    if (typeof api.shelf === 'function') api.shelf(open)
+    autoHideCheck() // pills out: the dock is in use
+  }
+
+  function shelfArrive (a) {
+    const name = typeof a.name === 'string' ? a.name : ''
+    const label = typeof a.label === 'string' && a.label ? a.label : 'New message'
+    const kind = a.kind === 'file' ? 'file' : 'message'
+    const conversationId = typeof a.conversation_id === 'string' && a.conversation_id ? a.conversation_id : null
+    const same = shelfItems.find((i) => i.botId === a.bot_id && !i.leaving)
+    if (same) {
+      Object.assign(same, { name, label, kind, conversationId })
+      paintPill(same)
+      restartLife(same)
+      return
+    }
+    shelfItems.push({ botId: a.bot_id, name, label, kind, conversationId, el: null, remaining: SHELF_LIFE, startedAt: 0, timer: null, leaving: false })
+    // Ask for the room first; enter once the wider window is up (a frame,
+    // at most 250ms).
+    const wasOpen = shelfReported
+    reportShelf(true)
+    if (wasOpen) renderShelf()
+    else {
+      let done = false
+      const go = () => { if (!done) { done = true; renderShelf() } }
+      requestAnimationFrame(() => requestAnimationFrame(go))
+      setTimeout(go, 250)
+    }
+  }
+
+  function paintPill (item) {
+    const bot = botById(item.botId) || { id: item.botId, name: item.name }
+    const button = item.el
+    paintAvatar(button.querySelector('.avatar'), bot)
+    const icon = button.querySelector('.shelf-icon')
+    if (icon.dataset.kind !== item.kind) {
+      icon.dataset.kind = item.kind
+      icon.replaceChildren(iconNode(item.kind))
+    }
+    const text = item.label
+    button.querySelector('.shelf-label').textContent = text
+    button.title = `${item.name || bot.name}: ${text}`
+    button.setAttribute('aria-label', `${item.name || bot.name}: ${text}. Open the chat.`)
+  }
+
+  function makePill (item) {
+    const li = el('li')
+    const button = el('button', 'shelf-pill')
+    button.type = 'button'
+    button.append(el('span', 'avatar'), el('span', 'shelf-icon'), el('span', 'shelf-label'))
+    button.addEventListener('click', () => {
+      // The conversation it arrived in, pinned (main checks it is the one it
+      // saw); otherwise the bot's quick chat.
+      if (item.conversationId && typeof api.openThread === 'function') api.openThread(item.botId, item.conversationId)
+      else api.open(item.botId)
+      removeItem(item)
+    })
+    li.append(button)
+    item.el = button
+    item.li = li
+    paintPill(item)
+    return li
+  }
+
+  function startLife (item) {
+    if (item.timer || item.leaving || shelfHover) return
+    item.startedAt = Date.now()
+    item.timer = setTimeout(() => { item.timer = null; removeItem(item) }, Math.max(0, item.remaining))
+  }
+  function pauseLife (item) {
+    if (!item.timer) return
+    clearTimeout(item.timer)
+    item.timer = null
+    item.remaining -= Date.now() - item.startedAt
+  }
+  function restartLife (item) {
+    pauseLife(item)
+    item.remaining = SHELF_LIFE
+    startLife(item)
+  }
+
+  function renderShelf () {
+    const shown = shelfItems.filter((i) => !i.leaving).slice(0, SHELF_SHOWN)
+    for (const item of shown) {
+      if (item.li) continue
+      const li = makePill(item)
+      shelfList.insertBefore(li, moreEl ? moreEl.parentNode : null)
+      enterPill(item.el)
+      startLife(item)
+    }
+    const extra = shelfItems.filter((i) => !i.leaving).length - shown.length
+    if (extra > 0) {
+      if (!moreEl) {
+        const li = el('li')
+        moreEl = el('span', 'shelf-pill shelf-more')
+        li.append(moreEl)
+        shelfList.append(li)
+      }
+      moreEl.textContent = `${extra} more`
+    } else if (moreEl) {
+      moreEl.parentNode.remove()
+      moreEl = null
+    }
+    shelfEl.hidden = shelfItems.length === 0
+    if (!shelfItems.length) reportShelf(false)
+    reportLayout()
+  }
+
+  function enterPill (button) {
+    if (typeof button.animate !== 'function') return
+    if (reducedMotion()) return button.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 150 })
+    const dx = 32 * towardEdge()
+    button.animate([
+      { opacity: 0, transform: `translateX(${dx}px) scale(0.6)` },
+      { opacity: 1, transform: 'none' },
+    ], { duration: 560, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' })
+  }
+
+  function removeItem (item) {
+    if (item.leaving) return
+    item.leaving = true
+    pauseLife(item)
+    const finish = () => {
+      shelfItems = shelfItems.filter((i) => i !== item)
+      if (item.li) item.li.remove()
+      renderShelf()
+    }
+    if (!item.el || typeof item.el.animate !== 'function') return finish()
+    const frames = reducedMotion()
+      ? [{ opacity: 1 }, { opacity: 0 }]
+      : [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: `translateX(${24 * towardEdge()}px)` }]
+    const a = item.el.animate(frames, { duration: reducedMotion() ? 150 : 300, easing: 'cubic-bezier(0.5, 0, 0.75, 0)', fill: 'forwards' })
+    a.finished.then(finish, finish)
+    renderShelf() // the next one in line comes in as this one goes
+  }
+
+  function clearShelf () {
+    for (const item of shelfItems) pauseLife(item)
+    shelfItems = []
+    shelfList.textContent = ''
+    moreEl = null
+    shelfEl.hidden = true
+    reportShelf(false)
+  }
+
+  // Hovering the dock or the shelf holds every pill; once the pointer has
+  // been off both for 600ms, their clocks run on from where they stopped
+  // (so they still leave oldest first).
+  let graceTimer = null
+  function setShelfHover (on) {
+    clearTimeout(graceTimer)
+    graceTimer = null
+    if (on) {
+      if (shelfHover) return
+      shelfHover = true
+      for (const item of shelfItems) pauseLife(item)
+      return
+    }
+    if (!shelfHover) return
+    graceTimer = setTimeout(() => {
+      graceTimer = null
+      shelfHover = false
+      for (const item of shelfItems) startLife(item)
+    }, SHELF_GRACE)
+  }
+  let hoverDock = false
+  let hoverShelf = false
+  const syncHover = () => { setShelfHover(hoverDock || hoverShelf); autoHideCheck() }
+  dock.addEventListener('pointerenter', () => { hoverDock = true; syncHover() })
+  dock.addEventListener('pointerleave', () => { hoverDock = false; syncHover() })
+  shelfEl.addEventListener('pointerenter', () => { hoverShelf = true; syncHover() })
+  shelfEl.addEventListener('pointerleave', () => { hoverShelf = false; syncHover() })
+
+  // --- Hide when not in use -------------------------------------------------
+  // With the pref on (main sends it as view.auto_hide), once nothing has
+  // used the dock for 900ms it tucks 90px into its edge on the tuck spring
+  // (auto-hide.js has the rules), leaving a 3px strip flush to the edge;
+  // only the strip then takes the mouse. Hovering the strip (or anything
+  // else using the dock: a chat or card opening, a drag, finished-work
+  // pills, keyboard focus) slides it straight back out. A new question
+  // while tucked sends an amber wash up the strip, which stays amber while
+  // anyone waits. Reduced motion: it jumps, and the wash is just the colour.
+
+  const AH = window.AutoHide
+  const stripEl = $('#dock-strip')
+  const washEl = $('[data-role="strip-wash"]', stripEl)
+  const barEl = $('[data-role="strip-bar"]', stripEl)
+  let hoverStrip = false
+  let dockFocused = false
+  let dragOn = false
+  let hideTimer = null
+  let tucked = false // where the dock is headed: tucked, or out
+  let waitingBefore = null
+
+  const hideSpring = Motion.createSpring({
+    value: 0,
+    spring: AH.SPRING,
+    reduced: () => reducedMotion(),
+    onUpdate: (v) => {
+      const dir = towardEdge()
+      dock.style.translate = Math.abs(v) < 0.01 ? '' : `${(dir * v).toFixed(2)}px 0`
+    },
+  })
+
+  function autoHideState () {
+    return {
+      enabled: view.auto_hide === true,
+      hover: hoverDock || hoverShelf || hoverStrip,
+      expanded: Boolean(layout.expanded),
+      dragging: dragOn,
+      shelf: shelfItems.length > 0,
+      focused: dockFocused,
+    }
+  }
+
+  function placeStrip () {
+    stripEl.style.top = `${dock.offsetTop}px`
+    stripEl.style.height = `${dock.offsetHeight}px`
+  }
+
+  function setTucked (on) {
+    if (on === tucked) return
+    tucked = on
+    placeStrip()
+    document.documentElement.toggleAttribute('data-tucked', on)
+    stripEl.hidden = !on
+    if (on) hoverStrip = false
+    hideSpring.setTarget(on ? AH.TUCK_PX : 0)
+    reportLayout()
+  }
+
+  // Asked after anything that might change whether the dock is in use.
+  function autoHideCheck () {
+    if (AH.shouldHide(autoHideState())) {
+      if (!tucked && hideTimer === null) {
+        hideTimer = setTimeout(() => {
+          hideTimer = null
+          if (AH.shouldHide(autoHideState())) setTucked(true)
+        }, AH.HIDE_DELAY_MS)
+      }
+      return
+    }
+    clearTimeout(hideTimer)
+    hideTimer = null
+    setTucked(false)
+  }
+
+  function washStrip () {
+    if (!tucked || reducedMotion() || typeof washEl.animate !== 'function') return
+    washEl.animate([
+      { transform: 'translateY(100%)', opacity: 0 },
+      { transform: 'translateY(30%)', opacity: 1, offset: 0.35 },
+      { transform: 'translateY(-100%)', opacity: 0 },
+    ], { duration: AH.WASH_MS, easing: 'cubic-bezier(0.2, 0, 0, 1)' })
+  }
+
+  function autoHideOnState () {
+    const now = AH.waitingIds(view.bots)
+    const fresh = AH.newQuestions(waitingBefore, view.bots)
+    waitingBefore = now
+    stripEl.toggleAttribute('data-waiting', now.size > 0)
+    if (fresh.length) washStrip()
+    autoHideCheck()
+  }
+
+  barEl.addEventListener('pointerenter', () => { hoverStrip = true; autoHideCheck() })
+  barEl.addEventListener('pointerleave', () => { hoverStrip = false; autoHideCheck() })
+  dock.addEventListener('focusin', () => { dockFocused = true; autoHideCheck() })
+  dock.addEventListener('focusout', (event) => {
+    dockFocused = Boolean(event.relatedTarget && dock.contains(event.relatedTarget))
+    autoHideCheck()
+  })
 
   // --- A seat's recents card -----------------------------------------------
   // Its last chats (main fetched and checked them, widget-threads.js), in a
@@ -554,7 +891,10 @@
   recentsEl.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action
     if (!card) return
-    if (action === 'new-chat') api.open(card.botId)
+    if (action === 'new-chat') {
+      if (typeof api.openThread === 'function') api.openThread(card.botId, null)
+      else api.open(card.botId)
+    }
     if (action === 'recents-open-in-app') api.openInApp(card.botId)
   })
 
@@ -662,6 +1002,146 @@
     card = null
   }
 
+  // --- The card ↔ chat morph (recents-card.js has the frames) -------------
+
+  const isChat = (m) => m === 'chat' || m === 'thread'
+  let morph = null // what is running: { kind: 'in' | 'back' | 'close', anims, clone }
+  let lastThreadId = null // the row the chat grew out of, to land back on
+
+  function stopMorph () {
+    if (!morph) return
+    for (const a of morph.anims) a.cancel()
+    morph.clone?.remove()
+    popover.classList.remove('is-morphing')
+    morph = null
+  }
+
+  const panelSide = () => (layout.side === 'left' ? 'left' : 'right')
+  const contentNodes = () => [...popover.children].filter((n) => !n.hidden)
+
+  // A row opened: the card grows into the chat. The chat is laid out whole
+  // in the card's place, clipped to the card, and grows on OPEN (height,
+  // then width) under the card, which fades; the row's title flies to the
+  // header; the chat's content fades in at 85%. Held a frame first, while
+  // the window widens (at most 250ms).
+  function morphIn (next) {
+    stopMorph()
+    const reduced = reducedMotion()
+    const row = next.threadId ? rowsOf().find((r) => r.dataset.threadId === next.threadId) : null
+    const fromEl = row && row.querySelector('.recents-title')
+    const m = (morph = { kind: 'in', anims: [], clone: null })
+    popover.classList.add('is-morphing')
+    popover.style.visibility = 'hidden'
+    let done = false
+    const go = () => {
+      if (done || morph !== m) return
+      done = true
+      popover.style.visibility = ''
+      const finish = () => {
+        if (morph !== m) return
+        stopMorph()
+        hideCard()
+        compose.focus()
+        reportLayout()
+      }
+      if (reduced || typeof popover.animate !== 'function') {
+        const f = RC.morphFrames({ reduced: true })
+        if (typeof popover.animate === 'function') m.anims.push(popover.animate(f.keyframes, { duration: f.duration, fill: 'backwards' }))
+        recentsEl.hidden = true
+        return m.anims[0] ? m.anims[0].finished.then(finish, () => {}) : finish()
+      }
+      const f = RC.morphFrames({ width: popover.offsetWidth, height: popover.offsetHeight, cardTop: next.cardTop - next.popoverTop, cardHeight: next.cardHeight, cardWidth: cardWidth(), side: panelSide() })
+      const frame = popover.animate(f.keyframes, { duration: f.duration, easing: 'linear', fill: 'backwards' })
+      m.anims.push(frame)
+      const content = RC.contentFrames({ delay: f.contentDelay })
+      for (const node of contentNodes()) m.anims.push(node.animate(content.keyframes, content.options))
+      m.anims.push(recentsEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }))
+      // The title's flight: a copy from the row to the header, landing as
+      // the header fades in.
+      const toEl = $('[data-role="head-name"]', popover)
+      if (fromEl && toEl) {
+        const from = fromEl.getBoundingClientRect()
+        const to = toEl.getBoundingClientRect()
+        const clone = el('span', 'morph-title', fromEl.textContent)
+        const cs = getComputedStyle(fromEl)
+        clone.style.left = `${from.left}px`
+        clone.style.top = `${from.top}px`
+        clone.style.font = cs.font
+        clone.style.lineHeight = `${from.height}px`
+        document.body.append(clone)
+        m.clone = clone
+        const flightMs = f.contentDelay + RC.CONTENT_MS
+        m.anims.push(clone.animate(RC.flight(from, to, { fromSize: parseFloat(cs.fontSize), toSize: parseFloat(getComputedStyle(toEl).fontSize) }), { duration: flightMs, easing: RC.ROW_EASE, fill: 'forwards' }))
+        m.anims.push(clone.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 80, delay: flightMs - 80, fill: 'forwards', composite: 'add' }))
+      }
+      frame.finished.then(finish, () => {})
+    }
+    requestAnimationFrame(() => requestAnimationFrame(go))
+    setTimeout(go, 250)
+  }
+
+  // Back to the card: the chat shrinks into the card's place on CLOSE
+  // (width, then height), its content going first; the card fades back in
+  // on top as it lands. The window stays wide until main trims it.
+  function backToCard (next) {
+    if (morph && morph.kind === 'back') return placeCard(next)
+    stopMorph()
+    const seat = placeCard(next)
+    card = { botId: next.botId, top: next.cardTop, height: next.cardHeight, seat }
+    cardArm = null
+    cardClosing = false
+    recentsEl.hidden = false
+    recentsEl.style.visibility = ''
+    if (threads.bot_id === next.botId) renderRecentsHead()
+    const threadId = lastThreadId
+    const reduced = reducedMotion()
+    const m = (morph = { kind: 'back', anims: [], clone: null })
+    const finish = () => {
+      if (morph !== m) return
+      stopMorph()
+      popover.hidden = true
+      popover.classList.remove('is-thread')
+      const row = threadId && rowsOf().find((r) => r.dataset.threadId === threadId)
+      if (row) row.focus({ preventScroll: true })
+      else focusRow(0)
+      reportLayout()
+    }
+    if (popover.hidden || typeof popover.animate !== 'function') return finish()
+    const f = RC.morphFrames({ width: popover.offsetWidth, height: popover.offsetHeight, cardTop: next.cardTop - next.popoverTop, cardHeight: next.cardHeight, cardWidth: cardWidth(), side: panelSide(), back: true, reduced })
+    if (!reduced) popover.classList.add('is-morphing')
+    const frame = popover.animate(f.keyframes, { duration: f.duration, easing: 'linear', fill: 'forwards' })
+    m.anims.push(frame)
+    const content = RC.contentFrames({ back: true, reduced })
+    if (content) for (const node of contentNodes()) m.anims.push(node.animate(content.keyframes, content.options))
+    m.anims.push(recentsEl.animate([{ opacity: 0 }, { opacity: 1 }], reduced ? { duration: f.duration, fill: 'backwards' } : { duration: 160, delay: Math.round(f.duration * 0.6), easing: 'ease-out', fill: 'backwards' }))
+    frame.finished.then(finish, () => {})
+  }
+
+  // Closing the chat that grew out of the card: into the seat on CLOSE, in
+  // the still-wide window; then hidden.
+  function closeThread (next) {
+    if (popover.hidden || (morph && morph.kind === 'close')) return
+    stopMorph()
+    hideCard()
+    const m = (morph = { kind: 'close', anims: [], clone: null })
+    popover.dataset.closing = ''
+    const finish = () => {
+      if (morph !== m) return
+      stopMorph()
+      delete popover.dataset.closing
+      popover.hidden = true
+      popover.classList.remove('is-thread')
+      reportLayout()
+    }
+    if (typeof popover.animate !== 'function') return finish()
+    const reduced = reducedMotion()
+    const f = RC.budFrames({ width: popover.offsetWidth, height: popover.offsetHeight, seat: next.seatY - next.popoverTop, travel: budTravel(), side: panelSide(), closing: true, reduced })
+    if (!reduced) popover.classList.add('is-morphing')
+    const frame = popover.animate(f.card, { duration: f.duration, easing: 'linear', fill: 'forwards' })
+    m.anims.push(frame)
+    frame.finished.then(finish, () => {})
+  }
+
   if (typeof api.onThreads === 'function') {
     api.onThreads((next) => {
       if (!next || typeof next.bot_id !== 'string' || !Array.isArray(next.threads)) return
@@ -677,12 +1157,18 @@
   // would repaint the head.
   const setText = (node, text) => { if (node.textContent !== text) node.textContent = text }
 
+  // A chat grown out of the recents card: the row's title in the header
+  // (it flew there), the bot under it, and the way back to the card.
   function renderHead () {
     const bot = botById(layout.botId)
     if (!bot) return
+    const fromCard = layout.mode === 'thread'
+    const title = fromCard && layout.threadTitle ? layout.threadTitle : null
     paintAvatar($('[data-role="head-avatar"]', popover), bot)
-    setText($('[data-role="head-name"]', popover), bot.name)
-    setText($('[data-role="head-state"]', popover), bot.label)
+    setText($('[data-role="head-name"]', popover), title || bot.name)
+    setText($('[data-role="head-state"]', popover), title ? `${bot.name} · ${bot.label}` : bot.label)
+    const back = $('[data-action="back"]', popover)
+    if (back.hidden === fromCard) back.hidden = !fromCard
     const placeholder = `Message ${bot.name}…`
     placeholderTyping.setHints([placeholder, `Ask ${bot.name} anything…`, `Reply to ${bot.name} or give a new task…`])
     if (compose.getAttribute('aria-label') !== placeholder) compose.setAttribute('aria-label', placeholder)
@@ -754,6 +1240,15 @@
   const setClass = (row, className) => { if (row.className !== className) row.className = className }
 
   function paintRow (row, item) {
+    if (item.kind === 'typing') {
+      if (row.className !== 'typing') {
+        row.className = 'typing'
+        row.setAttribute('aria-label', 'Typing')
+        row.textContent = ''
+        for (let i = 0; i < 3; i++) row.append(document.createElement('i'))
+      }
+      return
+    }
     if (item.kind === 'separator') {
       setClass(row, 'time-sep')
       return setRowText(row, item.text)
@@ -827,6 +1322,8 @@
 
     const atBottom = toBottom || nearBottom()
     const items = format.threadItems(thread, { outbox })
+    // The bot is working on an answer: its typing dots, last.
+    if (botById(layout.botId)?.mood === 'working') items.push({ key: 'typing', kind: 'typing' })
     const keys = new Set(items.map((item) => item.key))
 
     // Something kept on screen, to hold the view still if rows above it go.
@@ -1192,13 +1689,17 @@
   popover.addEventListener('click', (event) => {
     const action = event.target.closest('[data-action]')?.dataset.action
     if (action === 'collapse') api.collapse()
+    if (action === 'back' && typeof api.back === 'function') api.back()
     if (action === 'open-in-app' && layout.botId) api.openInApp(layout.botId)
   })
 
   document.addEventListener('keydown', (event) => {
+    // Esc steps back one level: a chat grown out of the card goes back to
+    // the card; anything else closes.
     if (event.key === 'Escape') {
       event.preventDefault()
-      api.collapse()
+      if (layout.expanded && layout.mode === 'thread' && typeof api.back === 'function') api.back()
+      else api.collapse()
       return
     }
     // A–H pick a question's options, unless the user is typing.
@@ -1223,27 +1724,53 @@
     }
     renderWorkspace()
     renderDock()
-    if (layout.expanded && layout.mode === 'chat') renderHead()
+    if (layout.expanded && isChat(layout.mode)) {
+      renderHead()
+      renderMessages() // the typing dots follow the bot's mood
+    }
     if (layout.expanded && layout.mode === 'picker') renderPicker()
     if (card) renderRecentsHead()
+    autoHideOnState()
   })
+
+  // A bot's answer arrived (main, arrivals.js): its seat nudges, and — with
+  // "Show finished work" on — a pill drips out beside the dock.
+  if (typeof api.onArrival === 'function') {
+    api.onArrival((arrival) => {
+      if (!arrival || typeof arrival.bot_id !== 'string') return
+      nudgeSeat(arrival.bot_id)
+      if (arrival.shelf) shelfArrive(arrival)
+    })
+  }
 
   api.onLayout((next) => {
     if (!next) return
-    const opened = next.expanded && next.mode === 'chat' && next.botId !== layout.botId
+    const opened = next.expanded && isChat(next.mode) && (next.botId !== layout.botId || !isChat(layout.mode) || next.threadId !== layout.threadId)
     const pickerOpened = next.expanded && next.mode === 'picker' && !(layout.expanded && layout.mode === 'picker')
     layout = next
+    if (next.expanded && next.mode === 'thread') lastThreadId = next.threadId || null
     document.documentElement.dataset.side = next.side === 'left' ? 'left' : 'right'
     document.documentElement.toggleAttribute('data-no-drag', next.draggable === false)
+    document.documentElement.toggleAttribute('data-expanded', Boolean(next.expanded))
     dock.style.top = `${next.dockTop + SHADOW_TOP}px`
+    shelfEl.style.top = `${next.dockTop + SHADOW_TOP + SHELF_INSET}px`
     if (next.tuck) tuck()
     if (next.budIn) budIn(next.side)
-    const wantChat = next.expanded && next.mode === 'chat'
+    autoHideCheck()
+    if (tucked) placeStrip()
+    const wantChat = next.expanded && isChat(next.mode)
     const wantPicker = next.expanded && next.mode === 'picker'
+    // The card growing into the chat (a row opened), the chat shrinking back
+    // into the card, the chat closing into the seat.
+    const morphing = Boolean(next.expanded && next.mode === 'thread' && next.opening && card && !recentsEl.hidden && !cardClosing && card.botId === next.botId && !morph)
+    const stepping = Boolean(next.expanded && next.mode === 'recents' && next.back === true)
+    const closingThread = Boolean(next.closing && next.closingMode === 'thread')
+    popover.classList.toggle('is-thread', Boolean((next.expanded && next.mode === 'thread') || stepping || closingThread))
     for (const [panel, want] of [[popover, wantChat], [picker, wantPicker]]) {
+      if (panel === popover && (stepping || closingThread)) continue
       if (want) {
         delete panel.dataset.closing
-        if (panel.hidden && next.opening) armPanel(panel)
+        if (panel.hidden && next.opening && !(panel === popover && (morphing || morph))) armPanel(panel)
         panel.hidden = false
       } else if (next.closing && !panel.hidden) {
         closePanel(panel)
@@ -1251,9 +1778,11 @@
         panel.hidden = true
       }
     }
-    if (next.expanded && next.mode === 'recents' && Number.isFinite(next.cardTop) && Number.isFinite(next.cardHeight)) showCard(next)
+    if (stepping && Number.isFinite(next.cardTop)) backToCard(next)
+    else if (next.expanded && next.mode === 'recents' && Number.isFinite(next.cardTop) && Number.isFinite(next.cardHeight)) showCard(next)
     else if (next.closing && next.closingMode === 'recents') closeCard()
-    else if (!cardClosing) hideCard()
+    else if (morphing) placeCard(next)
+    else if (!cardClosing && !morph) hideCard()
     for (const panel of [popover, picker]) {
       if (panel.hidden || 'closing' in panel.dataset) continue
       panel.style.top = `${next.popoverTop}px`
@@ -1279,7 +1808,9 @@
       renderPending()
       compose.focus()
     }
-    if (!next.expanded || next.mode !== 'chat') {
+    if (morphing) morphIn(next)
+    if (closingThread) closeThread(next)
+    if (!next.expanded || !isChat(next.mode)) {
       conversation = null
       pendingKey = undefined
     }

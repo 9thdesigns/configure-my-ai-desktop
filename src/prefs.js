@@ -22,6 +22,11 @@
 //                             (dock-placement.js validates them; an older
 //                             { side, offsetY } is migrated the first time
 //                             its display is used).
+//   showFinishedWork        — a bot's finished answer drips out beside the
+//                             dock as a pill (widget-view.js). On by default.
+//   hideWhenNotInUse        — the dock tucks into its edge after 900ms
+//                             unused, leaving a 3px strip (auto-hide.js).
+//                             Off by default.
 //   hapticsEnabled          — haptic feedback on the trackpad (macOS; the
 //                             island and the dock, haptics.js). On by default.
 //   islandShortcut          — the global shortcut that opens the island's
@@ -53,6 +58,8 @@ function defaults (platform = process.platform) {
     keepRunningInBackground: platform === 'darwin',
     showWidget: true,
     showIsland: true,
+    showFinishedWork: true,
+    hideWhenNotInUse: false,
     shareScreen: false,
     widgetPositions: [],
     islandEdge: null,

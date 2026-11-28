@@ -542,10 +542,78 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .messages-empty { color: var(--chat-muted); text-align: center; margin: auto; font-size: 13px; }
 
+/* A new bubble rises 8px into place, unblurring (340ms). */
 @keyframes message-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
+
+/* The bot is typing: three 6px dots, a 1s loop, 150ms apart. */
+.typing {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 4px;
+  margin-top: var(--bubble-gap-change);
+  padding: 11px 12px;
+  border-radius: var(--bubble-radius);
+  background: var(--bubble-bot-bg);
+}
+.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chat-muted);
+  animation: typing-dot 1s ease-in-out infinite;
+}
+.typing i:nth-child(2) { animation-delay: 150ms; }
+.typing i:nth-child(3) { animation-delay: 300ms; }
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* The finished-work shelf: pills beside the dock, 18px from it (the window
+   widens for it, widget-window.js), each a 28px face, an icon and a label
+   of at most 240px; "N more" past three. */
+.shelf {
+  position: absolute;
+  top: 0;
+  right: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--panel-gap));
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.shelf[hidden] { display: none; }
+:root[data-side="left"] .shelf { right: auto; left: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--panel-gap)); align-items: flex-start; }
+:root[data-expanded] .shelf { visibility: hidden; }
+.shelf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; align-items: inherit; }
+.shelf-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  height: 40px;
+  padding: 0 14px 0 6px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--dock-fill);
+  color: var(--ink);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16), 0 1px 2px rgba(0, 0, 0, 0.1);
+  font: 500 13px/18px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transform-origin: 100% 50%;
+}
+:root[data-side="left"] .shelf-pill { transform-origin: 0 50%; }
+.shelf-pill:hover { background: color-mix(in srgb, var(--dock-fill) 92%, var(--ink)); }
+.shelf-pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.shelf-pill .avatar { width: 28px; height: 28px; --cfa-size: 28px; font-size: 11px; }
+.shelf-icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+.shelf-label { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf-more { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; color: var(--muted); cursor: default; }
 
 /* The pending question / approval card */
 .pending {
@@ -821,8 +889,78 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .recents-btn:hover { background: rgba(127, 127, 127, 0.2); }
 .recents-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
+/* A row of the recents card opened: the card grows into the quick chat in
+   its place — 380×560 (widget-window.js THREAD_*), the card's gap from the
+   dock and its 20px corners — with a back chevron in the header. While the
+   morph's clip runs the shadow is off (a clip cuts it), and it comes back
+   once the clip lets go. */
+.popover.is-thread {
+  left: auto;
+  right: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--recents-gap));
+  border-radius: var(--radius-20);
+  animation: none;
+  transition: box-shadow var(--dur-160) var(--ease-out);
+}
+:root[data-side="left"] .popover.is-thread { right: auto; left: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--recents-gap)); }
+.popover.is-morphing { box-shadow: none; transition: none; }
+.btn-back { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; margin-left: -6px; }
+.btn-back[hidden] { display: none; }
+/* The row's title on its way to the header (widget-view.js morphIn). */
+.morph-title {
+  position: fixed;
+  z-index: 10;
+  margin: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  transform-origin: 0 0;
+  font-family: var(--chat-font-family);
+  color: var(--ink);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* Hide when not in use (widget-view.js, auto-hide.js): the dock tucks 90px
+   into its edge on the tuck spring (its own `translate`, apart from the
+   edge flip's transform) and leaves a 3px bar flush to the edge, in the
+   rim's colour; amber while a bot waits on the user. A new question sends
+   a soft amber glow up the edge (the wash, 18px wide, never taking the
+   mouse: only the bar is a hit rect). */
+.dock-strip {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  overflow: hidden;
+  pointer-events: none;
+  animation: strip-in var(--dur-200) var(--ease-out) 120ms both;
+}
+.dock-strip[hidden] { display: none; }
+:root[data-side="left"] .dock-strip { right: auto; left: 0; }
+.dock-strip-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 3px;
+  border-radius: 3px 0 0 3px;
+  background: var(--brand-accent);
+  opacity: 0.55;
+  pointer-events: auto;
+}
+:root[data-side="left"] .dock-strip-bar { right: auto; left: 0; border-radius: 0 3px 3px 0; }
+.dock-strip[data-waiting] .dock-strip-bar { background: var(--amber); opacity: 1; }
+.dock-strip-wash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 100% 22% at 100% 50%, rgb(255 154 31 / 0.85), rgb(255 154 31 / 0) 100%);
+  opacity: 0;
+}
+:root[data-side="left"] .dock-strip-wash { background: radial-gradient(ellipse 100% 22% at 0% 50%, rgb(255 154 31 / 0.85), rgb(255 154 31 / 0) 100%); }
+@keyframes strip-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .dock-strip { animation: none; }
 }
 
 /* Ambient (ambient-view.js): with the screen locked or asleep, or this

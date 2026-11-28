@@ -615,6 +615,8 @@ function startWidgetFeedAndTray () {
       widgetFeed.setEnabled(Boolean(on)).catch(() => {})
     },
     setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
+    setShowFinishedWork: (on) => { prefs.set({ showFinishedWork: Boolean(on) }) },
+    setHideWhenNotInUse: (on) => { prefs.set({ hideWhenNotInUse: Boolean(on) }) },
     setIslandShortcut: (id) => { prefs.set({ islandShortcut: id }) },
     isShortcutUnavailable: () => Boolean(island?.shortcutUnavailable()),
     setHaptics: (on) => { prefs.set({ hapticsEnabled: Boolean(on) }) },
@@ -682,6 +684,8 @@ function startWidgetFeedAndTray () {
     screenShare,
     openScreenSettings: () => openScreenSettings(),
     chatCss,
+    // A bot's answer arrived: the island swaps to "New message" (its hook).
+    onResponseArrived: (arrival) => island?.responseArrived(arrival),
     haptics,
   })
   widget.registerIpc(ipcMain)

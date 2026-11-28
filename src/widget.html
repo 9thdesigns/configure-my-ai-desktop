@@ -14,6 +14,10 @@
 <body>
   <section id="popover" class="popover" hidden aria-label="Quick chat">
     <header class="popover-head">
+      <!-- Shown when the chat grew out of a seat's recents card: back to it. -->
+      <button type="button" class="btn-icon btn-back" data-action="back" aria-label="Back to recent chats" title="Back to recent chats" hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <span class="avatar avatar-sm" data-role="head-avatar"></span>
       <div class="popover-title">
         <strong data-role="head-name"></strong>
@@ -51,6 +55,11 @@
     <div class="picker-search"><input type="search" data-role="picker-query" placeholder="Search bots…" aria-label="Search bots"></div>
     <ul class="picker-list" data-role="picker-list"></ul>
   </section>
+  <!-- The finished-work shelf: a bot's answer drips out beside the dock as
+       a pill (widget-view.js); click one to open that chat. -->
+  <aside id="shelf" class="shelf" aria-label="Finished work" aria-live="polite" hidden>
+    <ol class="shelf-list" data-role="shelf-list"></ol>
+  </aside>
   <!-- A seat's recent chats (recents-card.js, widget-view.js): a card that
        buds out of the seat, joined to the dock by a short bridge. Before
        the dock, so the dock paints over the card while it starts on the
@@ -92,12 +101,17 @@
       <div class="dock-grip" data-role="grip" title="Drag to move" aria-hidden="true"><span class="dock-grip-bar"></span></div>
     </div>
   </nav>
+  <!-- Hide when not in use (auto-hide.js, widget-view.js): the 3px strip the
+       tucked dock leaves at the screen edge; hover it to bring the dock
+       back. The wash runs up it when a bot asks something. -->
+  <div id="dock-strip" class="dock-strip" aria-hidden="true" hidden><span class="dock-strip-wash" data-role="strip-wash"></span><span class="dock-strip-bar" data-role="strip-bar"></span></div>
   <script src="motion.js"></script>
   <script src="edge-drag.js"></script>
   <script src="dock-shape.js"></script>
   <script src="recents-card.js"></script>
   <script src="jelly-badge.js"></script>
   <script src="drag-gesture.js"></script>
+  <script src="auto-hide.js"></script>
   <script src="avatar-render.js"></script>
   <script src="chat-format.js"></script>
   <script src="typing-placeholder.js"></script>

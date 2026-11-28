@@ -120,7 +120,7 @@ test('dragged to the left edge, the dock hugs it and the popover opens rightward
 
 test('the renderer gets the dock bots and their labels, nothing else', () => {
   const view = W.widgetView(widgetStateFrom(fixture))
-  assert.deepEqual(Object.keys(view).sort(), ['bots', 'candidates', 'dock_full', 'focused_bot_id', 'max_pinned', 'needs_you', 'screen_share', 'workspace'])
+  assert.deepEqual(Object.keys(view).sort(), ['auto_hide', 'bots', 'candidates', 'dock_full', 'focused_bot_id', 'max_pinned', 'needs_you', 'screen_share', 'workspace'])
   assert.equal(view.dock_full, false)
   assert.equal(view.workspace.mark.initials, '9D')
   assert.deepEqual(view.candidates.map((b) => b.name), ['Ops'])
@@ -128,7 +128,7 @@ test('the renderer gets the dock bots and their labels, nothing else', () => {
   assert.deepEqual(view.bots.map((b) => [b.name, b.label, b.avatar_color, b.avatar_shape]), [['Max', 'Questions', '#231d1b', 'circle'], ['Ada', 'Working…', '#f2c94c', 'squircle'], ['Lin', 'Needs approval', '#6e56cf', 'hexagon']])
   assert.ok(!JSON.stringify(view).includes('session_id'), 'no session ids in the renderer: main addresses replies itself')
   assert.ok(!JSON.stringify(view).includes(fixture.csrf_token))
-  assert.deepEqual(W.widgetView(null), { screen_share: { available: false, enabled: false }, focused_bot_id: null, needs_you: 0, bots: [], candidates: [], dock_full: false, max_pinned: 12, workspace: null })
+  assert.deepEqual(W.widgetView(null), { auto_hide: false, screen_share: { available: false, enabled: false }, focused_bot_id: null, needs_you: 0, bots: [], candidates: [], dock_full: false, max_pinned: 12, workspace: null })
 })
 
 // The wiring, read from the sources.
@@ -136,7 +136,7 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const src = fs.readFileSync(path.join(__dirname, '../src/widget-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
-  assert.equal(handlers.length, 20)
+  assert.equal(handlers.length, 22)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromWidget\(event\)|, reply\(/, handler.slice(0, 40))
   }
@@ -199,4 +199,30 @@ test('on the left edge, the recents window grows rightward from it', () => {
   assert.equal(l.bounds.x, workArea.x)
   assert.equal(l.side, 'left')
   assert.equal(l.cardHeight, W.recentsCardHeight(2))
+})
+
+test('a row opened: the window holds the card where it was and the 380×560 chat it grows into, the chat\'s top at the card\'s', () => {
+  const args = { workArea, dockHeight: 300, offsetY: 200, seatY: 120, rows: 3 }
+  const card = W.recentsLayoutFor(args)
+  const t = W.threadLayoutFor(args)
+  assert.equal(W.THREAD_WINDOW_WIDTH, 24 + 380 + 10 + 56)
+  assert.equal(t.bounds.width, W.THREAD_WINDOW_WIDTH)
+  assert.equal(t.bounds.x + t.bounds.width, workArea.x + workArea.width)
+  assert.equal(t.popoverHeight, 560)
+  assert.equal(t.bounds.y + t.cardTop, card.bounds.y + card.cardTop, 'the card has not moved on screen')
+  assert.equal(t.bounds.y + t.dockTop, card.bounds.y + card.dockTop, 'nor the dock')
+  assert.equal(t.bounds.y + t.seatY, card.bounds.y + card.seatY, 'nor the seat')
+  assert.equal(t.popoverTop, t.cardTop, 'the chat grows down from the card\'s top')
+  assert.equal(t.cardHeight, W.recentsCardHeight(3))
+})
+
+test('a row opened low on the screen: the chat lifts to stay 8px inside; on a short screen it shrinks; on the left it grows rightward', () => {
+  const low = W.threadLayoutFor({ workArea, dockHeight: 300, offsetY: 9999, seatY: 250, rows: 5 })
+  assert.equal(low.bounds.y + low.popoverTop + low.popoverHeight, workArea.y + workArea.height - 8)
+  assert.ok(low.popoverTop < low.cardTop)
+  assert.ok(low.bounds.y + low.bounds.height <= workArea.y + workArea.height)
+  const short = W.threadLayoutFor({ workArea: { x: 0, y: 0, width: 1280, height: 500 }, dockHeight: 300, offsetY: 100, seatY: 120, rows: 2 })
+  assert.equal(short.popoverHeight, 500 - 16)
+  const left = W.threadLayoutFor({ workArea, dockHeight: 300, offsetY: 200, seatY: 120, rows: 2, side: 'left' })
+  assert.equal(left.bounds.x, workArea.x)
 })
