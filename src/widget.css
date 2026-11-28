@@ -17,6 +17,69 @@
   color-scheme: light dark;
 }
 
+/* Quick chat's tokens: the web app's chat look (its shared bubble and
+   composer component), by the web's names. These are the bundled values;
+   the web app's own sheet (the feed's chat_css_url, src/chat-tokens.js) is
+   adopted after this one and overrides them, so a change on the web reaches
+   the widget without a release. The rules below only ever read the tokens. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("assets/fonts/Inter-latin-wght.woff2") format("woff2");
+}
+
+:root {
+  --chat-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --chat-font-size: 14px;
+  --chat-line-height: 20px;
+  --chat-meta-size: 11px;
+  --chat-surface: var(--surface);
+  --chat-surface-2: var(--surface-2);
+  --chat-ink: var(--ink);
+  --chat-muted: var(--muted);
+  --chat-line: var(--line);
+  --bubble-radius: 18px;
+  --bubble-radius-grouped: 6px;
+  --bubble-pad-x: 12px;
+  --bubble-pad-y: 8px;
+  --bubble-max-width: 82%;
+  --bubble-gap-same: 4px;
+  --bubble-gap-change: 14px;
+  --bubble-user-bg: #231d1b;
+  --bubble-user-ink: #ffffff;
+  --bubble-bot-bg: #f1efec;
+  --bubble-bot-ink: var(--ink);
+  --bubble-system-ink: var(--muted);
+  --chat-time-sep-ink: #9a928d;
+  --chat-delivered-ink: #9a928d;
+  --composer-bg: var(--surface-2);
+  --composer-border: var(--line);
+  --composer-border-focus: rgba(35, 29, 27, 0.28);
+  --composer-radius: 22px;
+  --composer-min-height: 44px;
+  --composer-max-height: 140px;
+  --composer-placeholder-ink: #9a928d;
+  --composer-icon-ink: var(--muted);
+  --composer-send-bg: var(--ink);
+  --composer-send-ink: var(--surface);
+  --composer-send-disabled-bg: rgba(35, 29, 27, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bubble-user-bg: #f5f4f2;
+    --bubble-user-ink: #0a0a0a;
+    --bubble-bot-bg: #2a2a28;
+    --chat-time-sep-ink: #7d7874;
+    --chat-delivered-ink: #7d7874;
+    --composer-border-focus: rgba(255, 255, 255, 0.24);
+    --composer-placeholder-ink: #7d7874;
+    --composer-send-disabled-bg: rgba(255, 255, 255, 0.12);
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --surface: #1a1a19;
@@ -343,28 +406,90 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn-ghost:hover, .btn-icon:hover { background: var(--surface-2); color: var(--ink); }
 .btn-icon { font-size: 18px; line-height: 1; padding: 3px 8px; }
 
+.popover { font-family: var(--chat-font-family); }
+
 .messages {
   list-style: none;
   margin: 0;
-  padding: 12px 14px;
+  padding: 12px 14px 10px;
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
 }
+
+/* Bubbles: the sender's side gets the squared-off inner corners while a
+   run continues (chat-format.js groups them), 4–6px apart within a run,
+   12–16px on a change of sender. */
 .message {
-  max-width: 85%;
-  padding: 8px 11px;
-  border-radius: 14px;
-  background: var(--surface-2);
+  max-width: var(--bubble-max-width);
+  padding: var(--bubble-pad-y) var(--bubble-pad-x);
+  border-radius: var(--bubble-radius);
+  background: var(--bubble-bot-bg);
+  color: var(--bubble-bot-ink);
+  align-self: flex-start;
+  margin-top: var(--bubble-gap-same);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   animation: message-in 0.18s ease-out;
 }
-.message.is-user { align-self: flex-end; background: var(--bubble-user); color: var(--bubble-user-ink); }
-.message.is-system { align-self: center; background: none; color: var(--muted); font-size: 12px; }
-.messages-empty { color: var(--muted); text-align: center; margin: auto; }
+.message.is-group-start { margin-top: var(--bubble-gap-change); }
+.messages > .message:first-child, .messages > .time-sep:first-child { margin-top: 0; }
+.message.is-assistant:not(.is-group-start) { border-top-left-radius: var(--bubble-radius-grouped); }
+.message.is-assistant:not(.is-group-end) { border-bottom-left-radius: var(--bubble-radius-grouped); }
+.message.is-user { align-self: flex-end; background: var(--bubble-user-bg); color: var(--bubble-user-ink); }
+.message.is-user:not(.is-group-start) { border-top-right-radius: var(--bubble-radius-grouped); }
+.message.is-user:not(.is-group-end) { border-bottom-right-radius: var(--bubble-radius-grouped); }
+.message.is-system {
+  align-self: center;
+  background: none;
+  color: var(--bubble-system-ink);
+  font-size: var(--chat-meta-size);
+  line-height: 16px;
+  padding: 0 var(--bubble-pad-x);
+  text-align: center;
+}
+.message.is-sending { opacity: 0.6; }
+.message.is-failed { opacity: 0.6; }
+
+/* "Today 7:53 PM" between runs more than 15 minutes apart. */
+.time-sep {
+  align-self: center;
+  margin: var(--bubble-gap-change) 0 calc(var(--bubble-gap-change) - var(--bubble-gap-same));
+  color: var(--chat-time-sep-ink);
+  font-size: var(--chat-meta-size);
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.time-sep + .message { margin-top: 0; }
+
+/* "Delivered", "Sending…", "Not delivered · Retry" under the latest
+   outgoing message. */
+.delivery {
+  align-self: flex-end;
+  margin-top: 3px;
+  padding: 0 4px;
+  color: var(--chat-delivered-ink);
+  font-size: var(--chat-meta-size);
+  line-height: 16px;
+  white-space: nowrap;
+}
+.delivery.is-failed { color: var(--failed); }
+.delivery button {
+  border: 0;
+  background: none;
+  padding: 0 0 0 4px;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.messages-empty { color: var(--chat-muted); text-align: center; margin: auto; font-size: 13px; }
 
 @keyframes message-in {
   from { opacity: 0; transform: translateY(4px); }
@@ -431,39 +556,85 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .btn-primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
-/* The composer */
-.composer {
+/* The composer: one rounded pill that grows with the text — tools on the
+   left (the composer-tools slot), the field, send on the right, all on the
+   bottom line as it grows. The placeholder is its own one-line span, so a
+   long one ellipsizes instead of wrapping, and it shimmers gently. */
+.composer { padding: 8px 12px 12px; }
+.composer-pill {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
-  padding: 10px 12px 12px;
-  border-top: 1px solid var(--line);
+  gap: 6px;
+  min-height: var(--composer-min-height);
+  padding: 5px 5px 5px 6px;
+  background: var(--composer-bg);
+  border: 1px solid var(--composer-border);
+  border-radius: var(--composer-radius);
+  transition: border-color 0.15s ease;
 }
+.composer-pill:focus-within { border-color: var(--composer-border-focus); }
+.composer-tools { display: flex; align-items: center; gap: 2px; flex: none; min-height: 32px; color: var(--composer-icon-ink); }
+.composer-tools:empty { display: none; }
+.compose-field { position: relative; flex: 1; min-width: 0; align-self: stretch; display: flex; }
 .composer textarea {
   flex: 1;
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  max-height: calc(var(--composer-max-height) - 12px);
   resize: none;
-  max-height: 120px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 11px;
-  background: var(--surface-2);
-  color: var(--ink);
-  font: inherit;
+  border: 0;
+  margin: 0;
+  padding: 6px 4px 6px 8px;
+  background: none;
+  color: var(--chat-ink);
+  font-family: var(--chat-font-family);
+  font-size: var(--chat-font-size);
+  line-height: var(--chat-line-height);
   outline: none;
+  overflow-y: auto;
 }
-.composer textarea:focus { border-color: var(--muted); }
+.composer textarea::placeholder { color: transparent; }
+.compose-placeholder {
+  position: absolute;
+  left: 8px;
+  right: 4px;
+  top: 6px;
+  height: var(--chat-line-height);
+  line-height: var(--chat-line-height);
+  font-size: var(--chat-font-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  color: var(--composer-placeholder-ink);
+  visibility: hidden;
+  background: linear-gradient(90deg, var(--composer-placeholder-ink) 0%, var(--composer-placeholder-ink) 40%, var(--chat-ink) 50%, var(--composer-placeholder-ink) 60%, var(--composer-placeholder-ink) 100%);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: placeholder-shimmer 3.2s ease-in-out infinite;
+}
+.composer textarea:placeholder-shown + .compose-placeholder { visibility: visible; }
+@keyframes placeholder-shimmer {
+  0%, 30% { background-position: 100% 0; }
+  70%, 100% { background-position: 0 0; }
+}
 .btn-send {
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--surface);
-  font-size: 16px;
-  transition: opacity 0.15s ease;
+  display: grid;
+  place-items: center;
+  background: var(--composer-send-bg);
+  color: var(--composer-send-ink);
+  transition: background 0.15s ease, opacity 0.15s ease;
 }
-.btn-send:disabled { opacity: 0.4; cursor: default; }
+.btn-send:disabled { background: var(--composer-send-disabled-bg); color: var(--chat-muted); cursor: default; }
 
 .error-line { color: var(--failed); font-size: 12px; padding: 0 14px 6px; }
 
