@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('cmaWidget', {
   drag: (phase, screenX, screenY) => ipcRenderer.send('cma-widget:drag', { phase, screenX, screenY }),
   open: (botId) => ipcRenderer.send('cma-widget:open', botId),
   openThread: (botId, threadId) => ipcRenderer.send('cma-widget:open-thread', { bot_id: botId, thread_id: threadId }),
+  back: () => ipcRenderer.send('cma-widget:back'),
   recents: (botId, seatY) => ipcRenderer.send('cma-widget:recents', { bot_id: botId, seat_y: seatY }),
   collapse: () => ipcRenderer.send('cma-widget:collapse'),
   shelf: (open) => ipcRenderer.send('cma-widget:shelf', open === true),

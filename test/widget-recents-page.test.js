@@ -272,7 +272,7 @@ pageTest('keyboard: arrows move between rows, Enter opens one; the controls open
   await page.click('[data-action="new-chat"]')
   await page.click('[data-action="recents-open-in-app"]')
   await page.keyboard.press('Escape')
-  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => ['open', 'openThread', 'openInApp', 'collapse'].includes(c[0]))), [['openThread', 'bot-1', 't1'], ['open', 'bot-1'], ['openInApp', 'bot-1'], ['collapse']], 'a row opens its own conversation; New chat the bot\'s chat')
+  assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => ['open', 'openThread', 'openInApp', 'collapse'].includes(c[0]))), [['openThread', 'bot-1', 't1'], ['openThread', 'bot-1', null], ['openInApp', 'bot-1'], ['collapse']], 'a row opens its own conversation; New chat the bot\'s chat (no row), both out of the card')
 })
 
 for (const side of ['right', 'left']) {

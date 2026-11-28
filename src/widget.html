@@ -14,6 +14,10 @@
 <body>
   <section id="popover" class="popover" hidden aria-label="Quick chat">
     <header class="popover-head">
+      <!-- Shown when the chat grew out of a seat's recents card: back to it. -->
+      <button type="button" class="btn-icon btn-back" data-action="back" aria-label="Back to recent chats" title="Back to recent chats" hidden>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
       <span class="avatar avatar-sm" data-role="head-avatar"></span>
       <div class="popover-title">
         <strong data-role="head-name"></strong>
