@@ -103,7 +103,7 @@
   --dur-hover: 150ms;          /* hovers and small state changes */
   --ease-hover: ease;
   --dur-popover-in: 160ms;
-  --dur-message-in: 180ms;
+  --dur-message-in: 340ms;    /* a new bubble rises 8px, unblurring */
   --dur-card-in: 180ms;
   --dur-badge-in: 200ms;
   --dur-ring: 200ms;           /* the avatar's focus/mood ring */
