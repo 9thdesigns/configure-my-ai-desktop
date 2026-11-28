@@ -71,7 +71,7 @@ function ensureApprovalWindow () {
   const width = 460
   approvalWindow = smallWindow({
     width,
-    height: 340,
+    height: 440,
     x: Math.round(area.x + (area.width - width) / 2),
     y: area.y + 64,
     alwaysOnTop: true,

@@ -1,5 +1,5 @@
 // Local computer tools: what a bot may do on THIS machine, once the user has
-// approved it. Exactly four tools, and nothing here decides whether a call is
+// approved it. Nothing here decides whether a call is
 // allowed: that is the approval broker's job (local-tools-approval.js), and the
 // server-facing loop (local-tools-client.js) runs a tool only after it has a
 // decision. This module just does the work, with hard limits on time and size.
@@ -8,8 +8,9 @@
 //                     needs one (pipes, globs, $VARS, redirects, ;, &&, ~ …) is
 //                     refused unless the user approved that exact string, and
 //                     only then is it handed to the shell, verbatim.
-//   read_file       — a file's text, capped.
-//   list_dir        — a directory's entries, capped.
+//   list_dir, read_file, search_files, write_file, create_file, delete_file
+//                   — file tools, each run inside the folder the user
+//                     approved for it (local-files.js enforces the scope).
 //   take_screenshot — the primary screen as a PNG (desktopCapturer, injected so
 //                     the module stays testable without Electron).
 //
@@ -17,18 +18,15 @@
 // runs it under plain node.
 
 const childProcess = require('node:child_process')
-const fsp = require('node:fs/promises')
 const os = require('node:os')
 const path = require('node:path')
 
-const TOOL_NAMES = Object.freeze(['run_command', 'read_file', 'list_dir', 'take_screenshot'])
+const TOOL_NAMES = Object.freeze(['run_command', 'read_file', 'list_dir', 'take_screenshot', 'search_files', 'write_file', 'create_file', 'delete_file'])
 
 const LIMITS = Object.freeze({
   commandTimeoutMs: 30_000,
   maxCommandTimeoutMs: 90_000, // the server caps timeout_ms at 90 s too
   maxOutputBytes: 64 * 1024, // per stream, stdout and stderr each
-  maxFileBytes: 256 * 1024,
-  maxDirEntries: 1000,
   maxCommandLength: 4096,
   maxScreenshotWidth: 1920,
   maxScreenshotBytes: 5 * 1024 * 1024,
@@ -196,46 +194,6 @@ function runCommand (args, { spawn = childProcess.spawn, shellApproved = false, 
   })
 }
 
-async function readFile (args, { fs = fsp, maxBytes = LIMITS.maxFileBytes } = {}) {
-  const target = resolveUserPath(args?.path)
-  if (!target) return { status: 'error', error: 'path must be an absolute path' }
-  let handle
-  try {
-    const stat = await fs.stat(target)
-    if (!stat.isFile()) return { status: 'error', error: 'not a regular file' }
-    handle = await fs.open(target, 'r')
-    const length = Math.min(stat.size, maxBytes)
-    const buffer = Buffer.alloc(length)
-    const { bytesRead } = await handle.read(buffer, 0, length, 0)
-    return {
-      status: 'ok',
-      path: target,
-      content: buffer.subarray(0, bytesRead).toString('utf8'),
-      size: stat.size,
-      truncated: stat.size > bytesRead,
-    }
-  } catch (err) {
-    return { status: 'error', error: err.code || err.message }
-  } finally {
-    await handle?.close?.()
-  }
-}
-
-async function listDir (args, { fs = fsp, maxEntries = LIMITS.maxDirEntries } = {}) {
-  const target = resolveUserPath(args?.path)
-  if (!target) return { status: 'error', error: 'path must be an absolute path' }
-  try {
-    const dirents = await fs.readdir(target, { withFileTypes: true })
-    const entries = dirents.slice(0, maxEntries).map((d) => ({
-      name: d.name,
-      type: d.isDirectory() ? 'dir' : d.isSymbolicLink() ? 'link' : d.isFile() ? 'file' : 'other',
-    }))
-    return { status: 'ok', path: target, entries, total: dirents.length, truncated: dirents.length > entries.length }
-  } catch (err) {
-    return { status: 'error', error: err.code || err.message }
-  }
-}
-
 // take_screenshot. `capture` is supplied by main (desktopCapturer); it resolves
 // to a NativeImage-like object ({ toPNG(), toJPEG(q), getSize(), isEmpty() }).
 async function takeScreenshot (_args, { capture, maxBytes = LIMITS.maxScreenshotBytes } = {}) {
@@ -257,13 +215,18 @@ async function takeScreenshot (_args, { capture, maxBytes = LIMITS.maxScreenshot
   }
 }
 
+// File tools need deps.scope: the folder the user approved for this call
+// (the approval broker's decision). Without one they are refused.
 function runTool (tool, args, deps = {}) {
   switch (tool) {
     case 'run_command': return runCommand(args, deps)
-    case 'read_file': return readFile(args, deps)
-    case 'list_dir': return listDir(args, deps)
     case 'take_screenshot': return takeScreenshot(args, deps)
-    default: return Promise.resolve({ status: 'error', error: `unknown tool ${tool}` })
+    default: {
+      // Required here, not at the top: local-files.js requires this module.
+      const files = require('./local-files')
+      if (files.FILE_TOOLS.includes(tool)) return files.runFileTool(tool, args, deps)
+      return Promise.resolve({ status: 'error', error: `unknown tool ${tool}` })
+    }
   }
 }
 
@@ -276,8 +239,6 @@ module.exports = {
   clampTimeout,
   cappedCollector,
   runCommand,
-  readFile,
-  listDir,
   takeScreenshot,
   runTool,
 }
