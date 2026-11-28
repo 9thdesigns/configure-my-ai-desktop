@@ -135,6 +135,24 @@ test('the popover conversation: GET and compose through the wrappers', async () 
   assert.equal(await createWidgetFeed({ store, request: fakeServer({ [`GET /desktop/widget/bots/${ADA}/messages?limit=20`]: { status: 404 } }).request }).conversation(ADA), null, 'no wrapper yet: null')
 })
 
+test('a seat\'s recent chats: GET through the wrapper (limit 5); a 404 says the route is missing; anything else fails soft', async () => {
+  const store = createWidgetStore()
+  const threads = [{ id: 't1', title: 'Plan', preview: 'Draft ready', updated_at: '2026-11-28T10:00:00Z', unread: true }]
+  const server = fakeServer({
+    [`GET /desktop/widget/bots/${LIN}/threads?limit=5`]: { status: 200, json: threads },
+    'GET /desktop/widget/bots/manager/threads?limit=5': { status: 200, json: { threads: [] } },
+    [`GET /desktop/widget/bots/${ADA}/threads?limit=5`]: { status: 404 },
+    [`GET /desktop/widget/bots/${OPS}/threads?limit=5`]: { status: 500 },
+  })
+  const feed = createWidgetFeed({ store, request: server.request })
+  assert.deepEqual(await feed.threads(LIN), { status: 'ok', threads: [{ id: 't1', title: 'Plan', preview: 'Draft ready', updated_at: '2026-11-28T10:00:00.000Z', unread: true }] })
+  assert.deepEqual(await feed.threads('manager'), { status: 'ok', threads: [] })
+  assert.deepEqual(await feed.threads(ADA), { status: 'unsupported' })
+  assert.equal(await feed.threads(OPS), null)
+  assert.equal(await feed.threads('../x'), null)
+  assert.ok(!server.calls.some((c) => c.path.includes('..')), 'a bad id never reaches the network')
+})
+
 test('answers and approvals post to the wrappers and come back as the conversation', async () => {
   const store = createWidgetStore()
   const after = { bot_id: OPS, messages: [{ id: 'm9', role: 'user', body: 'EU West' }], pending: null }

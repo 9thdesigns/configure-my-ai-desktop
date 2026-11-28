@@ -746,6 +746,113 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes screen-rec { from { opacity: 1; } to { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .screen-share .rec { animation: none; } }
 
+/* A seat's recents card ---------------------------------------------------
+
+   288 wide, 20px corners, 8px of padding, in the dock's own fill so it and
+   the bridge read as one material with the dock: a 44px header (name 14/600,
+   status 13 muted), up to five 52px rows (title 14/500, a one-line preview
+   13 muted, the time 12 with tabular figures, an 8px accent dot while
+   unread), then "New chat" and "Open in app" (32px). widget-window.js sizes
+   the window from the same numbers (RECENTS_*). The wrapper is the card
+   plus the gap to the dock body, which the bridge spans; its drop shadow
+   falls from card and bridge as one shape. Placed by widget-view.js (top,
+   height); the bud is a clip-path and a shift (recents-card.js). */
+.recents {
+  position: absolute;
+  top: 0;
+  right: calc(var(--dock-seat) + 2 * var(--dock-pad));
+  width: calc(var(--recents-width) + var(--recents-gap));
+  font-family: var(--chat-font-family);
+  color: var(--ink);
+  filter: drop-shadow(0 6px 16px var(--dock-shadow-color));
+}
+.recents[hidden] { display: none; }
+:root[data-side="left"] .recents { right: auto; left: calc(var(--dock-seat) + 2 * var(--dock-pad)); }
+.recents-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--recents-width);
+  height: 100%;
+  padding: var(--recents-pad);
+  display: flex;
+  flex-direction: column;
+  background: var(--dock-fill);
+  border-radius: var(--radius-20);
+  clip-path: inset(0 round var(--radius-20));
+}
+:root[data-side="left"] .recents-card { left: auto; right: 0; }
+.recents-bridge {
+  position: absolute;
+  left: calc(var(--recents-width) - 1px);
+  width: calc(var(--recents-gap) + 2px);
+  overflow: visible;
+  pointer-events: none;
+}
+.recents-bridge path { fill: var(--dock-fill); }
+:root[data-side="left"] .recents-bridge { left: -1px; transform: scaleX(-1); }
+
+.recents-head {
+  flex: none;
+  height: var(--recents-head);
+  padding: 3px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.recents-head strong { font-size: var(--text-14); line-height: var(--leading-20); font-weight: var(--weight-semibold); }
+.recents-status { font-size: var(--text-13); line-height: var(--leading-18); color: var(--muted); }
+.recents-head strong, .recents-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.recents-list { list-style: none; margin: 0; padding: 0; flex: none; outline: none; }
+.recents-row {
+  height: var(--recents-row);
+  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: var(--leading-20) var(--leading-18);
+  column-gap: 8px;
+  align-items: center;
+  border-radius: var(--radius-12);
+  cursor: pointer;
+  outline: none;
+  transition: background-color var(--dur-hover) var(--ease-hover);
+}
+.recents-row:hover, .recents-row[aria-selected="true"] { background: rgba(127, 127, 127, 0.12); }
+.recents-row:focus-visible { box-shadow: inset 0 0 0 2px var(--ink); }
+.recents-title { font-size: var(--text-14); line-height: var(--leading-20); font-weight: var(--weight-medium); }
+.recents-preview { font-size: var(--text-13); line-height: var(--leading-18); color: var(--muted); }
+.recents-title, .recents-preview { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.recents-time { font-size: 12px; line-height: var(--leading-20); color: var(--muted); font-variant-numeric: tabular-nums; justify-self: end; }
+.recents-dot {
+  justify-self: end;
+  width: var(--recents-dot);
+  height: var(--recents-dot);
+  border-radius: 50%;
+  background: var(--brand-accent);
+  opacity: 0;
+}
+/* opacity, not visibility: a visible child would show through the card
+   while it is held back (visibility: hidden) for the window to widen. */
+.recents-row.is-unread .recents-dot { opacity: 1; }
+.recents-row.is-unread .recents-title { font-weight: var(--weight-semibold); }
+
+.recents-actions { flex: none; display: flex; gap: 8px; margin-top: 8px; }
+.recents-btn {
+  flex: 1;
+  height: var(--control-32);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-12);
+  background: rgba(127, 127, 127, 0.12);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+  transition: background-color var(--dur-hover) var(--ease-hover);
+}
+.recents-btn:hover { background: rgba(127, 127, 127, 0.2); }
+.recents-btn:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

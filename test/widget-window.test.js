@@ -136,7 +136,7 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const src = fs.readFileSync(path.join(__dirname, '../src/widget-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
-  assert.equal(handlers.length, 17)
+  assert.equal(handlers.length, 18)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromWidget\(event\)|, reply\(/, handler.slice(0, 40))
   }
@@ -159,4 +159,44 @@ test('the widget page cannot reach the network or run inline script', () => {
   assert.doesNotMatch(code, /cookie|session|\bnet\b|fetch/i)
   assert.match(code, /require\('electron'\)/)
   assert.doesNotMatch(code, /require\('(?!electron')/, 'nothing but contextBridge and ipcRenderer')
+})
+
+test('the recents card: the window widens inward only as far as the card needs; the header lines up with the seat; the dock stays put', () => {
+  const l = W.recentsLayoutFor({ workArea, dockHeight: 300, offsetY: 200, seatY: 120, rows: 5 })
+  const dock = W.layoutFor({ workArea, dockHeight: 300, offsetY: 200, expanded: false })
+  assert.equal(W.recentsCardHeight(5), 360)
+  assert.equal(W.recentsCardHeight(1), 152)
+  assert.equal(W.recentsCardHeight(9), 360, 'five rows at most')
+  assert.equal(l.bounds.width, W.RECENTS_WINDOW_WIDTH)
+  assert.equal(W.RECENTS_WINDOW_WIDTH, 24 + 288 + 10 + 56)
+  assert.ok(W.RECENTS_WINDOW_WIDTH < W.EXPANDED_WIDTH, 'narrower than the quick chat')
+  assert.equal(l.bounds.x + l.bounds.width, workArea.x + workArea.width)
+  assert.equal(l.bounds.y + l.dockTop, dock.bounds.y, 'the dock never moves on screen')
+  assert.equal(l.bounds.y + l.seatY, dock.bounds.y + 120, 'nor the seat')
+  assert.equal(l.seatY - l.cardTop, 38)
+  assert.equal(l.cardHeight, 360)
+})
+
+test('the recents card near the top or bottom of the screen stays on it (8px in), the seat still beside it', () => {
+  // The top seat of a dock at the very top (24px of shadow room, the 14px
+  // fillet, 8px of padding, half a 40px seat) still has room above it.
+  const real = W.recentsLayoutFor({ workArea, dockHeight: 300, offsetY: 0, seatY: 66, rows: 5 })
+  assert.equal(real.seatY - real.cardTop, 38)
+  assert.ok(real.bounds.y >= workArea.y)
+  // Higher than that, the card stops 8px in, the seat still beside it.
+  const top = W.recentsLayoutFor({ workArea, dockHeight: 300, offsetY: 0, seatY: 30, rows: 5 })
+  assert.equal(top.bounds.y + top.cardTop, workArea.y + 8)
+  assert.equal(top.bounds.y, workArea.y)
+  assert.ok(top.seatY - top.cardTop >= 20)
+  const bottom = W.recentsLayoutFor({ workArea, dockHeight: 300, offsetY: 9999, seatY: 220, rows: 5 })
+  assert.equal(bottom.bounds.y + bottom.cardTop + bottom.cardHeight, workArea.y + workArea.height - 8)
+  assert.ok(bottom.bounds.y + bottom.bounds.height <= workArea.y + workArea.height)
+  assert.ok(bottom.cardTop + bottom.cardHeight - bottom.seatY >= 35)
+})
+
+test('on the left edge, the recents window grows rightward from it', () => {
+  const l = W.recentsLayoutFor({ workArea, dockHeight: 300, offsetY: 200, seatY: 120, rows: 2, side: 'left' })
+  assert.equal(l.bounds.x, workArea.x)
+  assert.equal(l.side, 'left')
+  assert.equal(l.cardHeight, W.recentsCardHeight(2))
 })
