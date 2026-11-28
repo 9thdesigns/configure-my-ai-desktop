@@ -38,6 +38,10 @@ function stubBridge () {
     const popover = document.getElementById('popover')
     new MutationObserver((records) => {
       for (const r of records) {
+        // The composer's typing placeholder animates on its own; the thread
+        // is what is counted here.
+        const target = r.target.nodeType === 1 ? r.target : r.target.parentElement
+        if (target && target.closest('.compose-placeholder')) continue
         if (r.type === 'characterData') cma.counts.characterData++
         if (r.type === 'attributes') cma.counts.attributes++
         if (r.type !== 'childList') continue

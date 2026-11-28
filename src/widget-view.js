@@ -23,7 +23,10 @@
   const composer = $('[data-role="composer"]', popover)
   const compose = $('[data-role="compose"]', popover)
   const sendButton = $('.btn-send', composer)
-  const composePlaceholder = $('[data-role="compose-placeholder"]', popover)
+  // The composer's animated placeholder (typing-placeholder.js): it types
+  // its hints on one line while the field is empty and the popover open.
+  const placeholderTyping = window.TypingPlaceholder.create($('[data-role="compose-placeholder"]', popover))
+  const syncPlaceholder = () => placeholderTyping.setActive(!popover.hidden && !compose.value)
   const format = window.ChatFormat
 
   let view = { bots: [], candidates: [], focused_bot_id: null }
@@ -248,7 +251,7 @@
     setText($('[data-role="head-name"]', popover), bot.name)
     setText($('[data-role="head-state"]', popover), bot.label)
     const placeholder = `Message ${bot.name}…`
-    setText(composePlaceholder, placeholder)
+    placeholderTyping.setHints([placeholder, `Ask ${bot.name} anything…`, `Reply to ${bot.name} or give a new task…`])
     if (compose.getAttribute('aria-label') !== placeholder) compose.setAttribute('aria-label', placeholder)
   }
 
@@ -628,6 +631,7 @@
     compose.style.height = `${compose.scrollHeight}px`
     if (stick) messagesEl.scrollTop = messagesEl.scrollHeight
     sendButton.disabled = busy || !compose.value.trim()
+    syncPlaceholder()
   }
 
   composer.addEventListener('submit', (event) => {
@@ -715,6 +719,7 @@
       conversation = null
       pendingKey = undefined
     }
+    syncPlaceholder()
     reportLayout()
   })
 

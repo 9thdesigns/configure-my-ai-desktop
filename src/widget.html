@@ -29,9 +29,10 @@
         <div class="composer-tools" data-slot="composer-tools"></div>
         <div class="compose-field">
           <!-- placeholder=" " so :placeholder-shown says "empty"; the visible,
-               animated placeholder is the one-line span after it. -->
+               animated placeholder (typing-placeholder.js) is the one-line
+               span after it. -->
           <textarea rows="1" data-role="compose" placeholder=" " aria-label="Message"></textarea>
-          <span class="compose-placeholder" data-role="compose-placeholder" aria-hidden="true">Message…</span>
+          <span class="compose-placeholder" data-role="compose-placeholder" aria-hidden="true"><span class="compose-placeholder-text"></span></span>
         </div>
         <button type="submit" class="btn-send" aria-label="Send" disabled>
           <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8 13V3.5M3.5 7.5 8 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -56,6 +57,7 @@
   <script src="drag-gesture.js"></script>
   <script src="avatar-render.js"></script>
   <script src="chat-format.js"></script>
+  <script src="typing-placeholder.js"></script>
   <script src="widget-view.js"></script>
 </body>
 </html>
