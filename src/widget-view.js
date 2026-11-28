@@ -131,6 +131,11 @@
         button.dataset.botId = bot.id
         button.append(el('span', 'avatar'))
         button.addEventListener('click', () => api.open(bot.id))
+        // Haptics (main's haptics.js): a tick on entering a seat.
+        if (typeof api.haptic === 'function') {
+          button.addEventListener('mouseenter', () => api.haptic('hover', bot.id))
+          button.addEventListener('mouseleave', () => api.haptic('leave', bot.id))
+        }
         button.addEventListener('contextmenu', (event) => {
           event.preventDefault()
           api.contextMenu(bot.id)

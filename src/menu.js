@@ -6,6 +6,7 @@ const { Menu, shell } = require('electron')
 const { goBack, goHome } = require('./menu-actions')
 const { islandMenuItem, syncIslandMenuItem } = require('./island-window')
 const { shareScreenMenuItem, syncShareScreenMenuItem } = require('./screen-share')
+const { hapticsMenuItem, syncHapticsMenuItem } = require('./haptics')
 
 const RELEASES_URL = 'https://github.com/9thdesigns/configure-my-ai-desktop/releases'
 
@@ -55,6 +56,8 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
         // The status pill at the top of the screen (island-window.js); the
         // same pref as the tray's checkbox, kept in step both ways.
         ...(prefs ? [{ type: 'separator' }, islandMenuItem(prefs)] : []),
+        // Haptic feedback (haptics.js), macOS only; the tray's checkbox too.
+        ...(prefs && process.platform === 'darwin' ? [hapticsMenuItem(prefs)] : []),
       ],
     },
     ...(localAccess
@@ -99,6 +102,7 @@ function installMenu ({ appUrl, startUrl, getWindow, onCheckForUpdates, localAcc
   if (prefs) {
     syncIslandMenuItem(menu, prefs)
     syncShareScreenMenuItem(menu, prefs)
+    syncHapticsMenuItem(menu, prefs)
   }
 }
 

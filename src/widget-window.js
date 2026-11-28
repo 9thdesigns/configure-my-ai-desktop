@@ -264,7 +264,7 @@ const DRAG_TICK_MS = 16
 const TRIM_DELAY_MS = 700
 const CLOSE_MS = 320
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, chatCss = null, screenShare = null, openScreenSettings = () => {}, haptics = null, platform = process.platform, env = process.env, electron = require('electron'), timers = { setTimeout, clearTimeout, setInterval, clearInterval } }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -453,6 +453,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     displayId = d.id
     offset = dropped
     prefs.set({ widgetPositions: placement.remember(prefs.get().widgetPositions, d, { edge: target, offset: dropped }) })
+    // Haptics: settled on its edge, or carried over to the other one.
+    haptics?.play(target === edge ? 'drop' : 'flip')
     if (target === edge) return place()
     // Across: tuck out of this edge, then bud in on the other.
     send('cma-widget:layout', layoutMessage(currentLayout(false), { tuck: true }))
@@ -754,9 +756,19 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       else dragEnd(d)
     })
 
+    // A seat's hover (haptics): entering it ticks once; leaving rests it.
+    ipcMain.on('cma-widget:haptic', (event, input) => {
+      if (!fromWidget(event) || !input || typeof input !== 'object') return
+      const id = validId(input.bot_id)
+      if (!id) return
+      if (input.kind === 'hover') haptics?.play('hover', `seat:${id}`)
+      else if (input.kind === 'leave') haptics?.leave(`seat:${id}`)
+    })
+
     ipcMain.on('cma-widget:open', (event, botId) => {
       const id = validId(botId)
       if (!fromWidget(event) || !id) return
+      haptics?.play('click')
       if (expanded && openBotId === id) return collapse()
       feed.setFocus(id).catch(() => {})
       expand(id)

@@ -12,6 +12,7 @@ const listen = (channel) => (fn) => {
 }
 
 contextBridge.exposeInMainWorld('cmaWidget', {
+  haptic: (kind, botId) => ipcRenderer.send('cma-widget:haptic', { kind: String(kind), bot_id: botId }),
   onState: listen('cma-widget:state'),
   onLayout: listen('cma-widget:layout'),
   onConversation: listen('cma-widget:conversation'),

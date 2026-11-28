@@ -40,6 +40,7 @@ const { installNativeFeel } = require('./native-feel')
 const { initLocalTools } = require('./local-tools-main')
 const { createElectronScreenShare, openScreenSettings } = require('./screen-share-main')
 const { createAreaSelect } = require('./area-select')
+const { createHaptics } = require('./haptics')
 const { createRecorder, FOLDER: RECORDINGS_FOLDER, recordingPermission } = require('./recorder')
 
 // Height of the strip at the top of the window that the user drags it by, and
@@ -614,6 +615,7 @@ function startWidgetFeedAndTray () {
     setShowIsland: (on) => { prefs.set({ showIsland: Boolean(on) }) },
     setIslandShortcut: (id) => { prefs.set({ islandShortcut: id }) },
     isShortcutUnavailable: () => Boolean(island?.shortcutUnavailable()),
+    setHaptics: (on) => { prefs.set({ hapticsEnabled: Boolean(on) }) },
     setShareScreen: (on) => { prefs.set({ shareScreen: Boolean(on) }) },
     setKeepRunning: (on) => { prefs.set({ keepRunningInBackground: Boolean(on) }) },
     setOpenAtLogin: (on) => {
@@ -624,6 +626,18 @@ function startWidgetFeedAndTray () {
     },
     quit: () => app.quit(),
   }
+
+  // Trackpad haptics for the island and the dock (src/haptics.js): a fixed
+  // osascript helper on macOS, nothing elsewhere; off with the pref or
+  // while the system asks for reduced motion.
+  const haptics = createHaptics({
+    enabled: () => prefs.get().hapticsEnabled !== false,
+    reducedMotion: () => {
+      try { return Boolean(systemPreferences.getAnimationSettings().prefersReducedMotion) } catch { return false }
+    },
+    spawn: require('node:child_process').spawn,
+  })
+  app.on('will-quit', () => haptics.shutdown())
 
   // "Let Manager see your screen" (src/screen-share.js): a screenshot only
   // when the user asks in the widget's chat, with the island (and the
@@ -666,6 +680,7 @@ function startWidgetFeedAndTray () {
     screenShare,
     openScreenSettings: () => openScreenSettings(),
     chatCss,
+    haptics,
   })
   widget.registerIpc(ipcMain)
   widget.sync()
@@ -696,6 +711,7 @@ function startWidgetFeedAndTray () {
     showInFolder: (file) => shell.showItemInFolder(file),
     openScreenSettings: () => openScreenSettings(),
     localTools: () => Boolean(localAccess?.isEnabled()),
+    haptics,
     devOverrides: !app.isPackaged,
   })
   island.registerIpc(ipcMain)
