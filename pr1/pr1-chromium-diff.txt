@@ -1,0 +1,36 @@
+PR 1 — Chromium (Playwright) pixel diff, main vs branch: 8 scenes x light/dark x 1x/2x, animations settled, fake clock
+SAME  chat-dark-1x.png  0/257600 px differ 
+SAME  chat-dark-2x.png  0/1030400 px differ 
+SAME  chat-left-dark-1x.png  0/257600 px differ 
+SAME  chat-left-dark-2x.png  0/1030400 px differ 
+SAME  chat-left-light-1x.png  0/257600 px differ 
+SAME  chat-left-light-2x.png  0/1030400 px differ 
+SAME  chat-light-1x.png  0/257600 px differ 
+SAME  chat-light-2x.png  0/1030400 px differ 
+SAME  dock-dark-1x.png  0/55200 px differ 
+SAME  dock-dark-2x.png  0/220800 px differ 
+SAME  dock-light-1x.png  0/55200 px differ 
+SAME  dock-light-2x.png  0/220800 px differ 
+SAME  island-card-dark-1x.png  0/151200 px differ 
+SAME  island-card-dark-2x.png  0/604800 px differ 
+SAME  island-card-light-1x.png  0/151200 px differ 
+SAME  island-card-light-2x.png  0/604800 px differ 
+SAME  island-dark-1x.png  0/30400 px differ 
+SAME  island-dark-2x.png  0/121600 px differ 
+SAME  island-idle-dark-1x.png  0/30400 px differ 
+SAME  island-idle-dark-2x.png  0/121600 px differ 
+SAME  island-idle-light-1x.png  0/30400 px differ 
+SAME  island-idle-light-2x.png  0/121600 px differ 
+SAME  island-light-1x.png  0/30400 px differ 
+SAME  island-light-2x.png  0/121600 px differ 
+SAME  island-working-dark-1x.png  0/30400 px differ 
+SAME  island-working-dark-2x.png  0/121600 px differ 
+SAME  island-working-light-1x.png  0/30400 px differ 
+SAME  island-working-light-2x.png  0/121600 px differ 
+SAME  picker-dark-1x.png  0/257600 px differ 
+SAME  picker-dark-2x.png  0/1030400 px differ 
+SAME  picker-light-1x.png  0/257600 px differ 
+SAME  picker-light-2x.png  0/1030400 px differ 
+32 scenes, 0 differ
+
+Computed motion/size properties (transition*, animation*, font, width, border-radius, gap) of every element, main vs branch: identical in 32/32 scenes

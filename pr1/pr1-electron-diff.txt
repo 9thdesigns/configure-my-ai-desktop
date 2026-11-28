@@ -1,0 +1,25 @@
+PR 1 — real Electron 44.2.0 under Xvfb, capturePage, main vs branch
+--- 1x (--force-device-scale-factor=1)
+SAME  chat-dark.png  0/257600 px differ 
+SAME  chat-light.png  0/257600 px differ 
+SAME  dock-dark.png  0/48000 px differ 
+SAME  dock-light.png  0/48000 px differ 
+SAME  island-card-dark.png  0/151200 px differ 
+SAME  island-card-light.png  0/151200 px differ 
+SAME  island-dark.png  0/30400 px differ 
+SAME  island-light.png  0/30400 px differ 
+8 scenes, 0 differ
+--- 2x (--force-device-scale-factor=2)
+DIFF  chat-dark.png  37/1030400 px differ 837,137,842,186
+DIFF  chat-light.png  24/1030400 px differ 838,137,842,186
+SAME  dock-dark.png  0/192000 px differ 
+SAME  dock-light.png  0/192000 px differ 
+SAME  island-card-dark.png  0/604800 px differ 
+SAME  island-card-light.png  0/604800 px differ 
+SAME  island-dark.png  0/121600 px differ 
+SAME  island-light.png  0/121600 px differ 
+8 scenes, 2 differ
+
+Baseline noise: two runs of the SAME code at 2x
+DIFF  chat-dark.png  33/1030400 px differ 837,137,841,186
+8 scenes, 1 differ
