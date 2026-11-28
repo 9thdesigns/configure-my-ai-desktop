@@ -453,3 +453,76 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Open on the composer: 24px corners, 18px shoulders, the open shadow
    (the corner radius and the shoulders follow the open spring). */
 .island.is-composing { filter: drop-shadow(0 0 12px rgba(0, 0, 0, 0.55)); }
+
+/* --- The actions menu (island-actions.js): it grows out of the "+" (160ms,
+   0.96 → 1 and fading in, from the button's corner); radius 12, 6px
+   padding, 32px rows with 16px icons and the row's key on the right. */
+.menu {
+  position: absolute;
+  z-index: 5;
+  min-width: 252px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #1d1c1b;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  font-family: var(--chat-font-family);
+}
+.menu[hidden] { display: none; }
+.menu.is-sub { min-width: 196px; }
+.menu-item {
+  width: 100%;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.menu-item:hover, .menu-item:focus { background: rgba(255, 255, 255, 0.08); }
+.menu-item:focus { outline: none; }
+.menu-item:focus-visible { outline: 2px solid #8fb3ff; outline-offset: -2px; }
+.menu-item[aria-expanded="true"] { background: rgba(255, 255, 255, 0.08); }
+.menu-icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+.menu-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.menu-key { flex: none; color: var(--muted); font-size: 12px; min-width: 12px; text-align: right; }
+.menu-sep { height: 1px; margin: 4px 6px; background: rgba(255, 255, 255, 0.1); }
+
+/* The composer's chips: the screenshot waiting to go, the attached file,
+   a recording just saved, and a notice. */
+.compose-attach { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.compose-attach:empty { display: none; }
+.chip-row { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 2px 4px 2px 6px; border-radius: 10px; background: var(--composer-bg); border: 1px solid var(--composer-border); color: var(--chat-ink); }
+.chip-row img { width: 44px; height: 28px; object-fit: cover; border-radius: 4px; flex: none; }
+.chip-row .chip-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-row .btn-link { margin: 0; padding: 4px 6px; min-height: 28px; font-size: 12px; }
+.chip-x { flex: none; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--muted); display: grid; place-items: center; }
+.chip-x:hover { background: rgba(255, 255, 255, 0.08); color: var(--ink); }
+.chip-x:focus-visible, .chip-row .btn-link:focus-visible, .notice .btn:focus-visible { outline: 2px solid #8fb3ff; outline-offset: 2px; }
+.chip-hint { margin: 0 6px; line-height: 16px; }
+.notice { display: flex; align-items: center; gap: 8px; color: #ffb3b5; }
+.notice p { margin: 0; flex: 1; line-height: 16px; }
+.notice .btn { padding: 4px 10px; font-size: 12px; min-height: 28px; }
+
+/* Recording: the red dot pulses once every 1.2s beside the timer; a click
+   on the pill stops it. Round the notch, the dot takes the left ear and the
+   timer the right. */
+.rec-dot { display: none; flex: none; width: 8px; height: 8px; border-radius: 50%; background: #ff5a5f; animation: screen-dot 0.6s ease-in-out infinite alternate; }
+.island[data-chip="recording"] .chip { background: rgba(229, 72, 77, 0.22); color: #ffb3b5; font-variant-numeric: tabular-nums; display: inline-flex; align-items: center; gap: 6px; }
+.island[data-chip="recording"] .chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ff5a5f; animation: screen-dot 0.6s ease-in-out infinite alternate; }
+.island[data-chip="recording"]:not([data-wrap]) .island-name { display: none; }
+.island[data-chip="recording"]:not([data-wrap]) .chip { margin-left: auto; }
+.island[data-wrap][data-chip="recording"] .avatar-wrap { display: none; }
+.island[data-wrap][data-chip="recording"] .rec-dot { display: block; }
+.island[data-wrap][data-chip="recording"] .chip { font-size: 11px; width: auto; height: auto; padding: 0 !important; background: none !important; border-radius: 0; }
+.island[data-wrap][data-chip="recording"] .chip::before,
+.island[data-wrap][data-chip="recording"] .chip-label { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .rec-dot, .island[data-chip="recording"] .chip::before { animation: none; }
+}
