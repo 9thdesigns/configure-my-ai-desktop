@@ -37,7 +37,7 @@ test('the menu: open, focused bot, workspaces, bots, switches, quit — in that 
   const { actions } = recorder()
   const template = trayMenuTemplate(state, { prefs: { showWidget: true, keepRunningInBackground: true }, openAtLogin: false, platform: 'darwin' }, actions)
   const ids = template.map((i) => i.id || i.type)
-  assert.deepEqual(ids, ['open', 'separator', 'focused-bot', 'workspaces', 'bots', 'separator', 'show-widget', 'show-island', 'haptics', 'island-shortcut', 'share-screen', 'keep-running', 'open-at-login', 'separator', 'quit'])
+  assert.deepEqual(ids, ['open', 'separator', 'focused-bot', 'workspaces', 'bots', 'separator', 'show-widget', 'show-island', 'haptics', 'show-finished-work', 'island-shortcut', 'share-screen', 'keep-running', 'open-at-login', 'separator', 'quit'])
   assert.equal(byId(template, 'focused-bot').label, 'Max — Questions')
   assert.equal(byId(template, 'show-widget').checked, true)
   assert.equal(byId(template, 'keep-running').checked, true)

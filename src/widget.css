@@ -541,10 +541,78 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .messages-empty { color: var(--chat-muted); text-align: center; margin: auto; font-size: 13px; }
 
+/* A new bubble rises 8px into place, unblurring (340ms). */
 @keyframes message-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; transform: translateY(8px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
+
+/* The bot is typing: three 6px dots, a 1s loop, 150ms apart. */
+.typing {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 4px;
+  margin-top: var(--bubble-gap-change);
+  padding: 11px 12px;
+  border-radius: var(--bubble-radius);
+  background: var(--bubble-bot-bg);
+}
+.typing i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--chat-muted);
+  animation: typing-dot 1s ease-in-out infinite;
+}
+.typing i:nth-child(2) { animation-delay: 150ms; }
+.typing i:nth-child(3) { animation-delay: 300ms; }
+@keyframes typing-dot {
+  0%, 60%, 100% { opacity: 0.35; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-3px); }
+}
+
+/* The finished-work shelf: pills beside the dock, 18px from it (the window
+   widens for it, widget-window.js), each a 28px face, an icon and a label
+   of at most 240px; "N more" past three. */
+.shelf {
+  position: absolute;
+  top: 0;
+  right: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--panel-gap));
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+}
+.shelf[hidden] { display: none; }
+:root[data-side="left"] .shelf { right: auto; left: calc(var(--dock-seat) + 2 * var(--dock-pad) + var(--panel-gap)); align-items: flex-start; }
+:root[data-expanded] .shelf { visibility: hidden; }
+.shelf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; align-items: inherit; }
+.shelf-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 320px;
+  height: 40px;
+  padding: 0 14px 0 6px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--dock-fill);
+  color: var(--ink);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16), 0 1px 2px rgba(0, 0, 0, 0.1);
+  font: 500 13px/18px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transform-origin: 100% 50%;
+}
+:root[data-side="left"] .shelf-pill { transform-origin: 0 50%; }
+.shelf-pill:hover { background: color-mix(in srgb, var(--dock-fill) 92%, var(--ink)); }
+.shelf-pill:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.shelf-pill .avatar { width: 28px; height: 28px; --cfa-size: 28px; font-size: 11px; }
+.shelf-icon { flex: none; width: 16px; height: 16px; color: var(--muted); }
+.shelf-label { max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shelf-more { height: 28px; padding: 0 12px; border-radius: 14px; font-size: 12px; color: var(--muted); cursor: default; }
 
 /* The pending question / approval card */
 .pending {

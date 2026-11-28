@@ -47,7 +47,8 @@ function botLabel (name, needsCount) {
 //   options — { prefs: { showWidget, keepRunningInBackground }, openAtLogin,
 //               platform }
 //   actions — { openApp, openBot(id), switchWorkspace(id), setPinned(id, on),
-//               setShowWidget(on), setShowIsland(on), setIslandShortcut(id),
+//               setShowWidget(on), setShowIsland(on), setShowFinishedWork(on),
+//               setIslandShortcut(id),
 //               setKeepRunning(on), setOpenAtLogin(on),
 //               quit }
 function trayMenuTemplate (state, options, actions) {
@@ -126,6 +127,15 @@ function trayMenuTemplate (state, options, actions) {
       checked: prefs.hapticsEnabled !== false,
       click: (item) => actions.setHaptics?.(typeof item?.checked === 'boolean' ? item.checked : prefs.hapticsEnabled === false),
     }] : []),
+    {
+      // A bot's finished answer drips out beside the dock (widget-view.js).
+      id: 'show-finished-work',
+      label: 'Show Finished Work',
+      type: 'checkbox',
+      checked: prefs.showFinishedWork !== false,
+      enabled: Boolean(prefs.showWidget),
+      click: (item) => actions.setShowFinishedWork?.(typeof item?.checked === 'boolean' ? item.checked : prefs.showFinishedWork === false),
+    },
     {
       // The global shortcut that opens the island's Manager composer.
       id: 'island-shortcut',
