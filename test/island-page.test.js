@@ -94,7 +94,7 @@ pageTest('round the notch: as tall as the notch, the avatar and the state in the
   const b = await box(page, '#island')
   assert.deepEqual([Math.round(b.width), Math.round(b.height)], [268, 37])
   assert.equal(await page.locator('.island-name').isVisible(), false)
-  const avatar = await box(page, '.avatar')
+  const avatar = await box(page, '[data-role="avatar"]')
   const chip = await box(page, '.chip')
   const notchLeft = b.x + (b.width - 185) / 2
   assert.ok(avatar.x + avatar.width <= notchLeft, 'the avatar is left of the notch')

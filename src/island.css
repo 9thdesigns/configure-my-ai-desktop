@@ -343,3 +343,113 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* --- The Manager composer (island-composer.js, island-view.js) ----------
+   Click the island and it opens 440 wide into the Manager: its avatar and
+   name, its last two lines, and a composer — a 36px pill, 14px text, an
+   actions button at the leading edge and, at the trailing edge, the mic
+   (empty) or a 28px send (once there is text). The composer wears the web
+   composer's tokens: the web app's sheet (the feed's chat_css_url,
+   chat-tokens.js) is adopted after this one, and the island is always dark
+   (data-theme="dark" on the root), so the sheet's dark block wins; these
+   are the bundled dark values it overrides. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("assets/fonts/Inter-latin-wght.woff2") format("woff2");
+}
+:root[data-theme="dark"] {
+  --chat-font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --chat-font-size: 14px;
+  --chat-line-height: 20px;
+  --chat-ink: #f5f4f2;
+  --chat-muted: #a39e9a;
+  --composer-bg: #1d1c1b;
+  --composer-border: rgba(255, 255, 255, 0.12);
+  --composer-border-focus: rgba(255, 255, 255, 0.28);
+  --composer-placeholder-ink: #8c8681;
+  --composer-icon-ink: #a39e9a;
+  --composer-send-bg: #f5f4f2;
+  --composer-send-ink: #0a0a0a;
+  --composer-send-disabled-bg: rgba(255, 255, 255, 0.12);
+}
+
+.compose { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.compose[hidden] { display: none; }
+.compose-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
+.compose-avatar { --face: 24px; --cfa-size: 24px; }
+.compose-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.compose-open { margin-right: 0; min-height: 28px; }
+.compose-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--chat-font-family);
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--chat-muted);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.compose-lines:empty { display: none; }
+.compose-line { margin: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.compose-line.is-sent { color: var(--chat-ink); align-self: flex-end; max-width: 85%; background: var(--composer-bg); border-radius: 12px; padding: 4px 10px; -webkit-line-clamp: 3; }
+.compose-line.is-reply { color: var(--chat-ink); -webkit-line-clamp: 8; white-space: pre-wrap; }
+.compose-line.is-error { color: #ff8a8d; }
+/* A reply on its way: three dots breathing in turn. */
+.compose-typing { display: inline-flex; gap: 4px; padding: 6px 0; }
+.compose-typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--chat-muted); animation: compose-dot 1.2s ease-in-out infinite; }
+.compose-typing span:nth-child(2) { animation-delay: 0.15s; }
+.compose-typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes compose-dot { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
+
+.composer-pill {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 4px;
+  background: var(--composer-bg);
+  border: 1px solid var(--composer-border);
+  border-radius: 18px;
+}
+.composer-pill:focus-within { border-color: var(--composer-border-focus); }
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  padding: 0 6px;
+  background: none;
+  color: var(--chat-ink);
+  font-family: var(--chat-font-family);
+  font-size: var(--chat-font-size);
+  outline: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.composer-input::placeholder { color: var(--composer-placeholder-ink); }
+.composer-btn, .composer-send {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+}
+.composer-btn { background: none; color: var(--composer-icon-ink); }
+.composer-btn:hover:not([aria-disabled="true"]) { background: var(--composer-send-disabled-bg); color: var(--chat-ink); }
+.composer-btn[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.composer-send { background: var(--composer-send-bg); color: var(--composer-send-ink); }
+.composer-send:disabled { background: var(--composer-send-disabled-bg); color: var(--chat-muted); cursor: default; }
+.composer-btn[hidden], .composer-send[hidden] { display: none; }
+.composer-btn:focus-visible, .composer-send:focus-visible, .compose-open:focus-visible { outline: 2px solid #8fb3ff; outline-offset: 2px; }
+.composer-pill:has(.composer-input:focus-visible) { outline: 2px solid #8fb3ff; outline-offset: 2px; }
+
+/* Open on the composer: 24px corners, 18px shoulders, the open shadow
+   (the corner radius and the shoulders follow the open spring). */
+.island.is-composing { filter: drop-shadow(0 0 12px rgba(0, 0, 0, 0.55)); }

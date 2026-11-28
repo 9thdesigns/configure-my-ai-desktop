@@ -19,6 +19,9 @@
 //   widgetPositions         — where the user dragged the dock, per display:
 //                             [{ id, bounds, pos }], newest first
 //                             (widget-placement.js validates them).
+//   islandShortcut          — the global shortcut that opens the island's
+//                             Manager composer, one of island-composer.js
+//                             SHORTCUTS ('ctrl-alt-space' by default, 'off').
 //   islandEdge              — where the island is attached: { displayId,
 //                             displayBounds, edge: 'top' | 'bottom', offsetX
 //                             0..1 } (island-placement.js), or null (top
@@ -29,12 +32,14 @@ const fs = require('node:fs')
 const path = require('node:path')
 const { validEntries, validWidgetPos, validIslandPos } = require('./widget-placement')
 const { validIslandEdge, migrateIslandPositions } = require('./island-placement')
+const { validShortcut, DEFAULT_SHORTCUT } = require('./island-composer')
 
 // Keys whose values are structures, each with its own validator; the rest
 // are plain values checked by type.
 const STRUCTURED = {
   widgetPositions: (v) => validEntries(v, validWidgetPos),
   islandEdge: (v) => validIslandEdge(v),
+  islandShortcut: (v) => validShortcut(v),
 }
 
 function defaults (platform = process.platform) {
@@ -45,6 +50,7 @@ function defaults (platform = process.platform) {
     shareScreen: false,
     widgetPositions: [],
     islandEdge: null,
+    islandShortcut: DEFAULT_SHORTCUT,
   }
 }
 

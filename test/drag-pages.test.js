@@ -33,7 +33,7 @@ function stubBridge () {
     decide: async () => null,
   }
   window.cmaIsland = {
-    ...api(['ready', 'drag', 'hover', 'activate', 'collapse', 'openInApp', 'openApp']),
+    ...api(['ready', 'drag', 'hover', 'activate', 'compose', 'collapse', 'openInApp', 'openApp']),
     onView: on('view'),
     onLayout: on('islandLayout'),
     onAvatarCss: on('css'),
@@ -195,7 +195,7 @@ pageTest('a page told it cannot drag (Wayland) only clicks', async (page) => {
   assert.deepEqual(await calls(page, 'open'), [['open', 'bot-2']])
 })
 
-pageTest('island: a tap on the bar still opens it; a drag moves it and does not', async (page) => {
+pageTest('island: a tap on the bar opens the composer; a drag moves it and does not', async (page) => {
   await page.setViewportSize({ width: 380, height: 120 })
   await page.goto(ISLAND_URL)
   await page.evaluate(() => {
@@ -205,16 +205,16 @@ pageTest('island: a tap on the bar still opens it; a drag moves it and does not'
   await page.waitForTimeout(300)
   const bar = await centre(page, '.island-bar')
   await press(page, bar, { x: bar.x + 1, y: bar.y + 1 })
-  assert.deepEqual(await calls(page, 'activate'), [['activate']])
+  assert.deepEqual(await calls(page, 'compose'), [['compose']])
   assert.deepEqual(await calls(page, 'drag'), [])
   await reset(page)
   await press(page, { x: bar.x - 60, y: bar.y }, { x: bar.x + 40, y: bar.y + 50 })
   const drag = await calls(page, 'drag')
   assert.equal(drag[0][1], 'start')
   assert.equal(drag.at(-1)[1], 'end')
-  assert.deepEqual(await calls(page, 'activate'), [], 'the drop did not toggle the card')
+  assert.deepEqual(await calls(page, 'compose'), [], 'the drop did not open it')
   // The chip is part of the bar: a tap on it is a click too.
   await reset(page)
   await press(page, await centre(page, '.chip'))
-  assert.deepEqual(await calls(page, 'activate'), [['activate']])
+  assert.deepEqual(await calls(page, 'compose'), [['compose']])
 })
