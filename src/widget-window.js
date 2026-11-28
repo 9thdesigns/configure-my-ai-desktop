@@ -37,6 +37,7 @@ const { popoverConversation } = require('./widget-chat')
 const { isPaused, reorder, seatContextMenuTemplate, pickerBots, dockFull, MAX_PINNED } = require('./widget-seats')
 const { workspaceMenuItems, currentWorkspace } = require('./workspaces')
 const placement = require('./widget-placement')
+const { attachmentPayload, asksAboutScreen, EXPLICIT_REASONS } = require('./screen-share')
 
 const DOCK_WIDTH = 56 // the dock column (44px, widget.css), with room for its shadow
 const EDGE_MARGIN = 4 // gap between the dock and the screen edge
@@ -174,9 +175,16 @@ const { validDrag } = placement
 // What the widget renderer is sent: the dock's bots in order, each with its
 // one-line state, and which one is focused. Already-validated data only;
 // nothing else from the server (no CSRF token, no workspace list) goes in.
-function widgetView (state) {
+function widgetView (state, { shareScreen = false } = {}) {
   const focused = focusedBot(state)
   return {
+    // The composer's Share screen button: offered when the server takes a
+    // screenshot on a chat turn; `enabled` is the user's "Let Manager see
+    // your screen" switch (off: the button asks to turn it on first).
+    screen_share: {
+      available: Boolean(state && Array.isArray(state.chat_attachments) && state.chat_attachments.includes('screenshot')),
+      enabled: Boolean(shareScreen),
+    },
     focused_bot_id: focused ? focused.id : null,
     needs_you: state ? state.needs_you : 0,
     bots: dockBots(state).map((bot) => ({
@@ -227,7 +235,7 @@ const MAX_MISSED_MOVES = 3
 const HTML_PATH = path.join(__dirname, 'widget.html')
 const HTML_URL = pathToFileURL(HTML_PATH).href
 
-function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, platform = process.platform, env = process.env, electron = require('electron') }) {
+function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, switchWorkspace = () => {}, logos = null, positionFile, avatarCss = null, screenShare = null, openScreenSettings = () => {}, platform = process.platform, env = process.env, electron = require('electron') }) {
   const { BrowserWindow, screen, session } = electron
 
   let win = null
@@ -345,7 +353,7 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
 
   function pushState () {
     const state = store.get()
-    send('cma-widget:state', widgetView(state))
+    send('cma-widget:state', widgetView(state, { shareScreen: prefs.get().shareScreen }))
     pushAvatarCss(state)
   }
 
@@ -420,7 +428,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
         if (order) feed.setSeatOrder(order).catch(() => {})
       },
       setActive: (id, on) => { setActive(id, on) },
-    })
+      setShareScreen: (on) => { prefs.set({ shareScreen: Boolean(on) }) },
+    }, { shareScreen: prefs.get().shareScreen })
     if (template.length && alive()) Menu.buildFromTemplate(template).popup({ window: win })
   }
 
@@ -433,6 +442,8 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
   }
 
   function collapse () {
+    // A screenshot the user took but didn't send goes with the popover.
+    if (openBotId) screenShare?.discard(openBotId)
     clearInterval(conversationTimer)
     conversationTimer = null
     if (!expanded || !alive()) return
@@ -455,7 +466,9 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     win.webContents.on('will-navigate', (event) => event.preventDefault())
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
-    win.on('blur', collapse)
+    // Not while a screen capture is asking for permission: the explainer and
+    // the system prompt take focus, and the answer comes back here.
+    win.on('blur', () => { if (!screenShare?.busy) collapse() })
     win.on('closed', () => {
       win = null
       drag = null
@@ -503,6 +516,29 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     if (!alive() || event.sender !== win.webContents) return false
     const url = (event.senderFrame && event.senderFrame.url) || event.sender.getURL()
     return url === HTML_URL
+  }
+
+  // The server takes a screenshot on a chat turn (widget.json says so).
+  const screenAvailable = () => widgetView(store.get()).screen_share.available
+
+  // A message, with the screenshot held for its bot when there is one. A
+  // message that asks about the screen ("what's this error?") takes one
+  // first, when the switch is on and nothing is attached yet: the user asked,
+  // and the indicator shows it. The screenshot is dropped once the server
+  // has it; a failed send keeps it for the retry. `screen` is the capture's
+  // outcome, for the composer to show a refusal.
+  async function sendWithScreen (input) {
+    const botId = validId(input?.bot_id)
+    const can = Boolean(botId && screenShare && screenAvailable())
+    let screen = null
+    if (can && botId === openBotId && prefs.get().shareScreen === true && !screenShare.has(botId) && asksAboutScreen(input?.body)) {
+      screen = await screenShare.request({ reason: 'message', botId }).catch(() => null)
+    }
+    const held = can ? screenShare.peek(botId) : null
+    const attachment = held ? attachmentPayload(held) : null
+    const conversation = attachment ? await feed.sendMessage(input, { attachment }) : await feed.sendMessage(input)
+    if (conversation && attachment) screenShare.discard(botId)
+    return { conversation, screen }
   }
 
   function registerIpc (ipcMain) {
@@ -583,8 +619,39 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
       const conversation = await run(input).catch(() => null)
       return conversation ? popoverFor(conversation.bot_id, conversation) : null
     }
-    ipcMain.handle('cma-widget:send', reply((input) => feed.sendMessage(input)))
+    ipcMain.handle('cma-widget:send', async (event, input) => {
+      if (!fromWidget(event)) return null
+      const { conversation, screen } = await sendWithScreen(input).catch(() => ({}))
+      if (!conversation) return null
+      const view = await popoverFor(conversation.bot_id, conversation)
+      return screen ? { ...view, screen: { status: screen.status, message: screen.message, settingsUrl: screen.settingsUrl } } : view
+    })
     ipcMain.handle('cma-widget:answer', reply((input) => feed.answer(input)))
+
+    // Share screen: only for the chat that is open, only for a user action
+    // (the button, or a message asking about the screen), and only while
+    // the server takes screenshots. screen-share.js refuses the rest (the
+    // switch off, no OS permission). The renderer gets a small preview,
+    // never the image.
+    ipcMain.handle('cma-widget:share-screen', async (event, input) => {
+      if (!fromWidget(event) || !screenShare || !input || typeof input !== 'object') return null
+      const botId = validId(input.bot_id)
+      if (!expanded || !botId || botId !== openBotId || !EXPLICIT_REASONS.includes(input.reason)) return null
+      if (!screenAvailable()) return null
+      return screenShare.request({ reason: input.reason, botId }).catch(() => null)
+    })
+    ipcMain.on('cma-widget:discard-screen', (event, botId) => {
+      const id = validId(botId)
+      if (fromWidget(event) && id && screenShare) screenShare.discard(id)
+    })
+    // The fixed macOS Screen Recording pane; the renderer names no URL.
+    ipcMain.on('cma-widget:screen-settings', (event) => {
+      if (fromWidget(event)) openScreenSettings()
+    })
+    // "Turn on" from the composer's prompt: the same switch as the menus'.
+    ipcMain.on('cma-widget:set-share-screen', (event, on) => {
+      if (fromWidget(event)) prefs.set({ shareScreen: on === true })
+    })
     ipcMain.handle('cma-widget:decide', reply((input) => feed.decide(input)))
   }
 
@@ -592,6 +659,10 @@ function createWidgetController ({ store, prefs, feed, getMainWindow, openBot, s
     sync,
     registerIpc,
     collapse,
+    window: () => (alive() ? win : null),
+    // The indicator (screen-share.js createIndicator): the composer says
+    // "Viewing your screen" for as long as the island does.
+    setCapturing: (on) => send('cma-widget:screen', { capturing: Boolean(on) }),
     isWidgetWindow: (w) => Boolean(w && w === win),
     destroy () {
       offStore()

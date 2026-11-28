@@ -105,6 +105,15 @@ function islandView (state, options) {
   }
 }
 
+// While the widget's Share screen is capturing (screen-share.js), the pill
+// says so, whatever else it was showing: the user always sees when their
+// screen is being looked at.
+const SCREEN_CHIP = Object.freeze({ kind: 'screen', label: 'Viewing your screen' })
+function withScreenIndicator (view, capturing) {
+  if (!view || !capturing) return view
+  return { ...view, chip: SCREEN_CHIP, capturing: true }
+}
+
 // Centred at the top of the work area. The work area is the display minus
 // the menu bar (macOS — the notch lives inside the menu bar, so this is just
 // under it), the taskbar (Windows, when docked at the top) or the panel
@@ -198,6 +207,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   let missedMoves = 0
   // Wayland: the compositor places windows (see the README's Hyprland rules).
   let draggable = !placement.likelyWayland(platform, env)
+  let capturing = false
 
   const islandSession = session.fromPartition(PARTITION)
   islandSession.setPermissionRequestHandler((_c, _p, callback) => callback(false))
@@ -325,7 +335,7 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
   function sync () {
     const state = store.get()
     const next = prefs.get().showIsland
-      ? islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null })
+      ? withScreenIndicator(islandView(state, { signedIn: typeof feed?.isSignedIn === 'function' ? feed.isSignedIn() : null }), capturing)
       : null
     const pendingChanged = JSON.stringify(next?.pending) !== JSON.stringify(view?.pending) || next?.bot.id !== view?.bot.id
     view = next
@@ -452,6 +462,12 @@ function createIslandController ({ store, prefs, feed, getMainWindow, openBot, o
     sync,
     registerIpc,
     isVisible: () => alive() && win.isVisible(),
+    window: () => (alive() ? win : null),
+    setCapturing (on) {
+      if (capturing === Boolean(on)) return
+      capturing = Boolean(on)
+      sync()
+    },
     destroy () {
       clearTimeout(collapseTimer)
       clearTimeout(settleTimer)
@@ -479,6 +495,8 @@ module.exports = {
   islandChip,
   islandBot,
   islandView,
+  withScreenIndicator,
+  SCREEN_CHIP,
   islandIdleView,
   islandBounds,
   islandDisplay,

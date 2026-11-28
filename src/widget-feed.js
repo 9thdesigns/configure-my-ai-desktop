@@ -138,11 +138,12 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
   // accepts in place of a CSRF token (electronRequest), so there is nothing
   // to fetch first; the token from widget.json rides along when we have one.
   // A 422 may still be a stale token: refresh and retry, once.
-  async function write (method, path, body) {
-    const res = await request({ method, path, body, csrfToken })
+  async function write (method, path, body, timeoutMs) {
+    const extra = timeoutMs ? { timeoutMs } : {}
+    const res = await request({ method, path, body, csrfToken, ...extra })
     if (res.status !== 422) return res
     await refresh()
-    return request({ method, path, body, csrfToken })
+    return request({ method, path, body, csrfToken, ...extra })
   }
 
   // A settings write. The store was already updated optimistically; if the
@@ -160,7 +161,7 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
   // state is refreshed after every write.
   async function conversationWrite (command) {
     if (!command) return null
-    const res = await write('POST', command.path, command.body)
+    const res = await write('POST', command.path, command.body, command.timeoutMs)
     refresh().catch(() => {})
     return res.status >= 200 && res.status < 300 ? conversationFrom(res.json, command.botId) : null
   }
@@ -236,7 +237,7 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
       const res = await request({ method: 'GET', path })
       return res.status === 200 ? conversationFrom(res.json, botId) : null
     },
-    sendMessage: (input) => conversationWrite(composeFrom(input)),
+    sendMessage: (input, options) => conversationWrite(composeFrom(input, options)),
     answer: (input) => conversationWrite(answerFrom(input, store.get())),
     decide: (input) => conversationWrite(decisionFrom(input, store.get())),
 
@@ -254,7 +255,7 @@ function createWidgetFeed ({ store, request, onStream = () => {}, setIntervalFn 
 // signed-in cookies go with it and nothing ever passes through a renderer.
 // Redirects are not followed — an expired session redirects to sign-in, and
 // that is "signed out", not a page to parse.
-function electronRequest ({ method, path, body, csrfToken }) {
+function electronRequest ({ method, path, body, csrfToken, timeoutMs = REQUEST_TIMEOUT_MS }) {
   const { net, session } = require('electron')
   const url = `${APP_URL}${path}`
   if (!isAppUrl(url)) return Promise.resolve({ status: 0 })
@@ -275,7 +276,7 @@ function electronRequest ({ method, path, body, csrfToken }) {
       done({ status: 0 })
       return
     }
-    const timer = setTimeout(() => { try { req.abort() } catch {} done({ status: 0 }) }, REQUEST_TIMEOUT_MS)
+    const timer = setTimeout(() => { try { req.abort() } catch {} done({ status: 0 }) }, Math.min(Math.max(Number(timeoutMs) || REQUEST_TIMEOUT_MS, REQUEST_TIMEOUT_MS), 120_000))
 
     req.setHeader('Accept', 'application/json')
     req.setHeader('X-Requested-With', 'XMLHttpRequest')

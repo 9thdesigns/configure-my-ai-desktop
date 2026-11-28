@@ -14,8 +14,15 @@ test('keep running in background is on by default on macOS only', () => {
 })
 
 test('only known keys of the right type are read back', () => {
-  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, widgetPositions: [], islandPositions: [] })
+  assert.deepEqual(sanitize({ showWidget: 'no', keepRunningInBackground: true, evil: 1 }, 'linux'), { keepRunningInBackground: true, showWidget: true, showIsland: true, shareScreen: false, widgetPositions: [], islandPositions: [] })
   assert.deepEqual(sanitize(null, 'darwin'), defaults('darwin'))
+})
+
+test('"Let Manager see your screen" is off until the user turns it on', () => {
+  assert.equal(defaults('darwin').shareScreen, false)
+  assert.equal(defaults('linux').shareScreen, false)
+  assert.equal(sanitize({ shareScreen: 'yes' }, 'linux').shareScreen, false, 'only a real boolean turns it on')
+  assert.equal(sanitize({ shareScreen: true }, 'linux').shareScreen, true)
 })
 
 test('dragged positions persist per display; junk in the file is dropped', () => {

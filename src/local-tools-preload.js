@@ -11,4 +11,5 @@ contextBridge.exposeInMainWorld('cmaLocal', {
   settings: () => ipcRenderer.invoke('lt:settings'),
   revoke: (id) => ipcRenderer.invoke('lt:revoke', String(id)),
   setEnabled: (on) => ipcRenderer.invoke('lt:set-enabled', Boolean(on)),
+  setShareScreen: (on) => ipcRenderer.invoke('lt:set-share-screen', on === true),
 })

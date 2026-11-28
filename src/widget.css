@@ -467,6 +467,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .error-line { color: var(--failed); font-size: 12px; padding: 0 14px 6px; }
 
+/* Share screen (screen-share.js): the composer's button, then above the
+   composer the attached screenshot, the "Viewing your screen" indicator, or
+   a one-line notice (turn it on, permission, a failure). */
+.btn-screen {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  padding: 0;
+}
+.btn-screen:hover:not(:disabled), .btn-screen.is-attached { color: var(--ink); border-color: var(--muted); }
+.btn-screen:disabled { opacity: 0.4; cursor: default; }
+.btn-screen[hidden] { display: none; }
+.screen-share { display: flex; align-items: center; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--muted); }
+.screen-share[hidden] { display: none; }
+.screen-share img { width: 56px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); flex: none; }
+.screen-share .grow { flex: 1; min-width: 0; }
+.screen-share .btn { height: 26px; padding: 0 9px; font-size: 12px; }
+.screen-share.is-capturing { color: var(--failed); }
+.screen-share .rec { width: 8px; height: 8px; border-radius: 50%; background: var(--failed); flex: none; animation: screen-rec 1s ease-in-out infinite alternate; }
+@keyframes screen-rec { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .screen-share .rec { animation: none; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

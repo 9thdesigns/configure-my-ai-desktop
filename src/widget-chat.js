@@ -10,7 +10,7 @@
 // validated conversation below reaches the widget renderer.
 //
 //   GET  /desktop/widget/bots/:id/messages?limit=20
-//   POST /desktop/widget/bots/:id/messages   { body }
+//   POST /desktop/widget/bots/:id/messages   { body, attachments? }
 //   POST /desktop/widget/bots/:id/answer     { pending_id?, option_ids, text } | { pending_id?, skip: true }
 //   POST /desktop/widget/bots/:id/approval   { pending_id?, decision }
 //
@@ -35,6 +35,7 @@ const MAX_COMPOSE = 10_000
 const ROLES = Object.freeze(['user', 'assistant', 'system'])
 const PENDING_KINDS = Object.freeze(['question', 'approval'])
 const DECISIONS = Object.freeze(['approve', 'decline'])
+const ATTACHMENT_TIMEOUT_MS = 60_000
 
 function botPath (botId, leaf) {
   const id = validId(botId)
@@ -99,12 +100,21 @@ function conversationFrom (input, expectedBotId) {
 
 // What the widget renderer may ask main to send — rebuilt like everything
 // else, since a compromised renderer is still untrusted input to main.
-function composeFrom (input) {
+// `attachment` never comes from the renderer: it is the screenshot main is
+// holding for this bot (screen-share.js attachmentPayload), and with one the
+// text may be empty ("here's my screen").
+function composeFrom (input, { attachment = null } = {}) {
   if (!input || typeof input !== 'object') return null
   const botId = validId(input.bot_id)
   const body = cleanBody(input.body, MAX_COMPOSE)
-  if (!botId || !body) return null
-  return { botId, path: botPath(botId, 'messages'), body: { body } }
+  if (!botId || (!body && !attachment)) return null
+  return {
+    botId,
+    path: botPath(botId, 'messages'),
+    body: attachment ? { body, attachments: [attachment] } : { body },
+    // An upload of a few MB needs longer than a text reply.
+    ...(attachment ? { timeoutMs: ATTACHMENT_TIMEOUT_MS } : {}),
+  }
 }
 
 // Can the widget answer this bot's pending card itself? Questions, yes —
@@ -197,6 +207,7 @@ function optionLetter (index) {
 
 module.exports = {
   MESSAGE_LIMIT,
+  ATTACHMENT_TIMEOUT_MS,
   messagesPath,
   botPath,
   cleanBody,

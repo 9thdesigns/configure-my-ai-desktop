@@ -120,7 +120,7 @@ test('dragged to the left edge, the dock hugs it and the popover opens rightward
 
 test('the renderer gets the dock bots and their labels, nothing else', () => {
   const view = W.widgetView(widgetStateFrom(fixture))
-  assert.deepEqual(Object.keys(view).sort(), ['bots', 'candidates', 'dock_full', 'focused_bot_id', 'max_pinned', 'needs_you', 'workspace'])
+  assert.deepEqual(Object.keys(view).sort(), ['bots', 'candidates', 'dock_full', 'focused_bot_id', 'max_pinned', 'needs_you', 'screen_share', 'workspace'])
   assert.equal(view.dock_full, false)
   assert.equal(view.workspace.mark.initials, '9D')
   assert.deepEqual(view.candidates.map((b) => b.name), ['Ops'])
@@ -128,7 +128,7 @@ test('the renderer gets the dock bots and their labels, nothing else', () => {
   assert.deepEqual(view.bots.map((b) => [b.name, b.label, b.avatar_color, b.avatar_shape]), [['Max', 'Questions', '#231d1b', 'circle'], ['Ada', 'Working…', '#f2c94c', 'squircle'], ['Lin', 'Needs approval', '#6e56cf', 'hexagon']])
   assert.ok(!JSON.stringify(view).includes('session_id'), 'no session ids in the renderer: main addresses replies itself')
   assert.ok(!JSON.stringify(view).includes(fixture.csrf_token))
-  assert.deepEqual(W.widgetView(null), { focused_bot_id: null, needs_you: 0, bots: [], candidates: [], dock_full: false, max_pinned: 12, workspace: null })
+  assert.deepEqual(W.widgetView(null), { screen_share: { available: false, enabled: false }, focused_bot_id: null, needs_you: 0, bots: [], candidates: [], dock_full: false, max_pinned: 12, workspace: null })
 })
 
 // The wiring, read from the sources.
@@ -136,7 +136,7 @@ test('every widget IPC is gated to the widget page in the widget window', () => 
   const src = fs.readFileSync(path.join(__dirname, '../src/widget-window.js'), 'utf8')
   const ipc = src.slice(src.indexOf('function registerIpc'))
   const handlers = ipc.match(/ipcMain\.(on|handle)\('cma-widget:[a-z-]+'/g)
-  assert.equal(handlers.length, 13)
+  assert.equal(handlers.length, 17)
   for (const handler of ipc.split(/ipcMain\.(?:on|handle)\(/).slice(1)) {
     assert.match(handler.slice(0, 220), /fromWidget\(event\)|, reply\(/, handler.slice(0, 40))
   }

@@ -48,6 +48,7 @@ const MAX_WORKSPACES = 50
 const MAX_NAME = 80
 const MAX_INITIALS = 4
 const MAX_DETAIL = 500
+const CHAT_ATTACHMENT_KINDS = Object.freeze(['screenshot'])
 const MAX_COUNT = 9999
 const MAX_URL = 2048
 
@@ -302,6 +303,11 @@ function widgetStateFrom (input, { trusted = false } = {}) {
     focused_bot_id: focused && known.has(focused) ? focused : (manager ? manager.id : null),
     enabled: input.enabled !== false,
     avatar_css_url: trusted ? validAvatarCssUrl(input.avatar_css_url) : null,
+    // What the server takes on a chat turn besides text (widget-chat.js);
+    // the widget offers Share screen only when it lists 'screenshot'.
+    chat_attachments: Array.isArray(input.chat_attachments)
+      ? CHAT_ATTACHMENT_KINDS.filter((k) => input.chat_attachments.includes(k))
+      : [],
   }
 }
 
@@ -356,6 +362,7 @@ module.exports = {
   MAX_SEATS,
   MAX_WORKSPACES,
   MAX_NAME,
+  CHAT_ATTACHMENT_KINDS,
   validId,
   cleanText,
   validImageUrl,

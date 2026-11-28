@@ -51,7 +51,7 @@ function reorder (state, botId, delta) {
 
 // The avatar's right-click menu, as a Menu.buildFromTemplate template.
 // actions: { open(id), remove(id), move(id, delta), setActive(id, on) }
-function seatContextMenuTemplate (state, botId, actions) {
+function seatContextMenuTemplate (state, botId, actions, { shareScreen = false } = {}) {
   const bot = dockBots(state).find((b) => b.id === validId(botId))
   if (!bot) return []
   const template = [
@@ -68,6 +68,13 @@ function seatContextMenuTemplate (state, botId, actions) {
       click: () => actions.setActive(bot.id, isPaused(bot)),
     },
   ]
+  // The manager's menu carries the Share screen switch (screen-share.js).
+  if (bot.isManager && typeof actions.setShareScreen === 'function') {
+    template.push(
+      { type: 'separator' },
+      { id: 'share-screen', label: 'Let Manager See Your Screen', type: 'checkbox', checked: Boolean(shareScreen), click: (item) => actions.setShareScreen(typeof item?.checked === 'boolean' ? item.checked : !shareScreen) },
+    )
+  }
   if (!bot.isManager) {
     template.push(
       { type: 'separator' },

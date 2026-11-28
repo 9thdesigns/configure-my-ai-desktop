@@ -23,6 +23,8 @@
   const composer = $('[data-role="composer"]', popover)
   const compose = $('[data-role="compose"]', popover)
   const sendButton = $('.btn-send', composer)
+  const screenEl = $('[data-role="screen"]', popover)
+  const screenButton = $('[data-action="share-screen"]', composer)
 
   let view = { bots: [], candidates: [], focused_bot_id: null }
   let layout = { expanded: false, dockTop: 0, popoverTop: 0, popoverHeight: 0, botId: null }
@@ -32,6 +34,14 @@
   let pendingKey
   let selected = new Set()
   let busy = false
+  // Share screen: what main allows (the server takes screenshots; the user's
+  // switch), the screenshot held for this chat (a small preview only — the
+  // image stays in main), whether a capture is under way, and the notice.
+  let screenState = { available: false, enabled: false }
+  let attached = null
+  let capturingHere = false
+  let capturingMain = false
+  let notice = null
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag)
@@ -356,6 +366,7 @@
   function setBusy (on) {
     busy = on
     sendButton.disabled = on
+    screenButton.disabled = on || capturingHere
     for (const button of pendingEl.querySelectorAll('button')) button.disabled = on
     if (!on) updateDone()
   }
@@ -400,15 +411,104 @@
 
   async function sendMessage () {
     const body = compose.value.trim()
-    if (!body || busy || !layout.botId) return
+    if ((!body && !attached) || busy || !layout.botId) return
     setBusy(true)
+    // Main attaches the held screenshot, or takes one first when the
+    // message asks about the screen and the switch is on (screen-share.js).
     const result = await api.sendMessage(layout.botId, body)
     if (result) {
       compose.value = ''
       autosize()
+      attached = null
+      if (result.screen && result.screen.status !== 'ok') takeScreenResult(result.screen)
+      else renderScreen()
     }
     takeConversation(result, 'Couldn’t send your message. Try again, or open in app.')
   }
+
+  // --- Share screen ----------------------------------------------------------
+
+  function renderScreen () {
+    screenButton.hidden = !screenState.available || !layout.botId
+    screenButton.disabled = busy || capturingHere
+    screenButton.classList.toggle('is-attached', Boolean(attached))
+    screenButton.setAttribute('aria-pressed', attached ? 'true' : 'false')
+    const capturing = capturingHere || capturingMain
+    const nodes = []
+    screenEl.classList.toggle('is-capturing', capturing)
+    if (capturing) {
+      nodes.push(el('span', 'rec'), el('span', 'grow', 'Viewing your screen…'))
+    } else if (notice) {
+      nodes.push(el('span', 'grow', notice.text))
+      for (const action of notice.actions || []) {
+        const button = el('button', action.primary ? 'btn btn-primary' : 'btn', action.label)
+        button.type = 'button'
+        button.addEventListener('click', action.run)
+        nodes.push(button)
+      }
+    } else if (attached) {
+      if (attached.preview && /^data:image\/(png|jpeg);base64,/.test(attached.preview)) {
+        const img = el('img')
+        img.alt = 'Your screen'
+        img.src = attached.preview
+        nodes.push(img)
+      }
+      nodes.push(el('span', 'grow', 'Screenshot attached — it goes with your next message.'))
+      const remove = el('button', 'btn', 'Remove')
+      remove.type = 'button'
+      remove.addEventListener('click', () => {
+        if (layout.botId) api.discardScreen(layout.botId)
+        attached = null
+        renderScreen()
+      })
+      nodes.push(remove)
+    }
+    screenEl.replaceChildren(...nodes)
+    screenEl.hidden = nodes.length === 0
+  }
+
+  function setNotice (next) {
+    notice = next
+    renderScreen()
+  }
+
+  function takeScreenResult (result) {
+    if (!result) return setNotice({ text: 'Couldn’t capture your screen. Try again.' })
+    if (result.status === 'ok') {
+      attached = { preview: result.preview }
+      notice = null
+      renderScreen()
+      compose.focus()
+      return
+    }
+    // A refusal: the message is main's (screen-share.js MESSAGES); the
+    // settings button opens a fixed pane in main, never a URL from here.
+    const actions = result.settingsUrl ? [{ label: 'Open System Settings', primary: true, run: () => api.openScreenSettings() }] : []
+    setNotice({ text: String(result.message || 'Couldn’t capture your screen.'), actions })
+  }
+
+  async function shareScreen () {
+    if (busy || capturingHere || !layout.botId || !screenState.available) return
+    if (!screenState.enabled) {
+      return setNotice({
+        text: 'Let Manager see your screen? It’s captured only when you ask.',
+        actions: [
+          { label: 'Turn on', primary: true, run: () => { api.setShareScreen(true); screenState = { ...screenState, enabled: true }; shareScreen() } },
+          { label: 'Not now', run: () => setNotice(null) },
+        ],
+      })
+    }
+    notice = null
+    capturingHere = true
+    renderScreen()
+    const botId = layout.botId
+    const result = await api.shareScreen(botId, 'button').catch(() => null)
+    capturingHere = false
+    if (botId !== layout.botId) return renderScreen()
+    takeScreenResult(result)
+  }
+
+  screenButton.addEventListener('click', () => shareScreen())
 
   function autosize () {
     compose.style.height = 'auto'
@@ -459,6 +559,10 @@
   api.onState((next) => {
     if (!next || !Array.isArray(next.bots)) return
     view = next
+    if (next.screen_share && typeof next.screen_share === 'object') {
+      screenState = { available: next.screen_share.available === true, enabled: next.screen_share.enabled === true }
+      renderScreen()
+    }
     renderWorkspace()
     renderDock()
     if (layout.expanded && layout.mode === 'chat') renderHead()
@@ -490,6 +594,10 @@
       pendingKey = undefined
       delete messagesEl.dataset.scrolled
       showError(null)
+      // Main drops a held screenshot when the chat closes.
+      attached = null
+      notice = null
+      renderScreen()
       renderHead()
       renderMessages()
       renderPending()
@@ -508,6 +616,15 @@
     renderMessages()
     renderPending()
   })
+
+  // The indicator from main: up for the whole capture (and a moment after),
+  // the same as the island's chip.
+  if (typeof api.onScreen === 'function') {
+    api.onScreen((payload) => {
+      capturingMain = Boolean(payload && payload.capturing)
+      renderScreen()
+    })
+  }
 
   api.ready()
 })()
