@@ -57,3 +57,10 @@ test('a window with its own frame is never stamped', () => {
   assert.ok(!('desktopFullscreen' in page.root.dataset))
   assert.equal(page.handlers['cfa:fullscreen'], undefined)
 })
+
+test('a vibrant window stamps <html data-desktop-vibrancy="sidebar">; others never do', () => {
+  assert.equal(runPreload({ ...chromeless, vibrancy: true }).root.dataset.desktopVibrancy, 'sidebar')
+  assert.ok(!('desktopVibrancy' in runPreload({ ...chromeless, vibrancy: false }).root.dataset))
+  assert.ok(!('desktopVibrancy' in runPreload({ ...chromeless }).root.dataset))
+  assert.ok(!('desktopVibrancy' in runPreload({ chromeless: false, vibrancy: true }).root.dataset))
+})

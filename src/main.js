@@ -23,7 +23,7 @@ const updater = require('./updater')
 
 const { APP_HOST, APP_URL, START_URL, parseUrl, isAppUrl, isAuthUrl } = require('./url-policy')
 const { webRefreshClearOptions, senderAllowed } = require('./web-refresh')
-const { defaultColors, colorsFromPage, overlayOptions } = require('./window-chrome')
+const { defaultColors, colorsFromPage, overlayOptions, hasVibrancy, vibrancyOptions } = require('./window-chrome')
 const { applyBadge } = require('./badge')
 const { createPrefs } = require('./prefs')
 const { createTray } = require('./tray')
@@ -197,7 +197,8 @@ function hasTitleBarOverlay () {
 // a resize catches up) and, where there is one, the caption-button band.
 function applyChromeColors (win, colors) {
   if (!win || win.isDestroyed()) return
-  win.setBackgroundColor(colors.background)
+  // A vibrant window stays transparent: its background IS the sidebar material.
+  if (!hasVibrancy(process.platform)) win.setBackgroundColor(colors.background)
   if (hasTitleBarOverlay() && typeof win.setTitleBarOverlay === 'function') {
     try {
       win.setTitleBarOverlay(overlayOptions(colors, TITLEBAR_HEIGHT))
@@ -229,6 +230,9 @@ function createMainWindow () {
     ...(fs.existsSync(iconPath) ? { icon: iconPath } : {}),
     // The page's colour, not white: a dark window flashed white on every load.
     backgroundColor: defaultColors(nativeTheme.shouldUseDarkColors).background,
+    // macOS: the sidebar material behind a transparent window (window-chrome.js);
+    // spread after the colour above so a vibrant window's transparent one wins.
+    ...vibrancyOptions(process.platform),
     // Linux keeps the menu for its accelerators (Back/Forward, zoom, reload)
     // but not as a GTK bar across a chromeless window; Alt shows it.
     autoHideMenuBar: process.platform === 'linux',
@@ -293,6 +297,9 @@ function registerIpc () {
       // Whether this window is full screen as the page loads; changes after
       // that arrive as cfa:fullscreen (createMainWindow).
       fullscreen: Boolean(win && win.isFullScreen()),
+      // Whether the OS draws the sidebar material behind this window (macOS):
+      // the preload stamps html[data-desktop-vibrancy] and the page lets it show.
+      vibrancy: Boolean(win && chromelessWindows.has(win) && hasVibrancy(process.platform)),
       platform: process.platform,
       version: app.getVersion(),
       appHost: APP_HOST,

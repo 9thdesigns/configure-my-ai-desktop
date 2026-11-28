@@ -115,6 +115,11 @@ if (info && info.chromeless && onAppOrigin()) {
 // manager, so this is how the site's top bar knows to keep clear of the buttons
 // on GNOME and to use the whole strip on Omarchy.
 //
+// And data-desktop-vibrancy="sidebar" on macOS, where the window has the OS
+// sidebar material behind it: the site makes its left column translucent so
+// the material shows (desktop.css in the Rails app). Absent elsewhere, where
+// the sidebar stays a solid colour.
+//
 // And data-desktop-fullscreen, present only while the window is full screen:
 // macOS hides the traffic lights there, so the top bar stops keeping room for
 // them. The state at load comes with the window info; main sends every change
@@ -145,7 +150,7 @@ function dragStripCss (height) {
   `
 }
 
-function installDragStrip (height, captions, fullscreenAtLoad) {
+function installDragStrip (height, captions, fullscreenAtLoad, vibrancy) {
   let bodyObserver = null
   let lastPointerDown = 0
   let fullscreen = Boolean(fullscreenAtLoad)
@@ -194,6 +199,11 @@ function installDragStrip (height, captions, fullscreenAtLoad) {
     }
   }
 
+  const ensureVibrancy = () => {
+    const root = document.documentElement
+    if (vibrancy && root && root.dataset.desktopVibrancy !== 'sidebar') root.dataset.desktopVibrancy = 'sidebar'
+  }
+
   const ensureFullscreen = () => {
     const root = document.documentElement
     if (!root) return
@@ -203,6 +213,7 @@ function installDragStrip (height, captions, fullscreenAtLoad) {
 
   const ensure = () => {
     ensureCaptions()
+    ensureVibrancy()
     ensureFullscreen()
     ensureStyle()
     ensureStrip()
@@ -244,4 +255,4 @@ function installDragStrip (height, captions, fullscreenAtLoad) {
   })
 }
 
-if (info && info.chromeless) installDragStrip(info.titleBarHeight, info.captions, info.fullscreen)
+if (info && info.chromeless) installDragStrip(info.titleBarHeight, info.captions, info.fullscreen, info.vibrancy)

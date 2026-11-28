@@ -2,7 +2,7 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs')
 const path = require('node:path')
-const { DEFAULTS, defaultColors, validColor, colorsFromPage, symbolFor, overlayOptions } = require('../src/window-chrome')
+const { DEFAULTS, defaultColors, validColor, colorsFromPage, symbolFor, overlayOptions, hasVibrancy, vibrancyOptions } = require('../src/window-chrome')
 
 // The window's own chrome — the band behind the Windows / Linux caption
 // buttons, and the window background — in the page's colours, so the title
@@ -56,4 +56,20 @@ test('the bridge is origin-gated twice and the static colours are gone', () => {
   assert.match(handler.slice(0, 400), /colorsFromPage\(input\)/)
   assert.doesNotMatch(main, /backgroundColor: '#ffffff'/)
   assert.doesNotMatch(main, /color: '#f6f5f1'/)
+})
+
+test('macOS gets the sidebar material behind a transparent window; Windows and Linux add nothing', () => {
+  assert.equal(hasVibrancy('darwin'), true)
+  assert.deepEqual(vibrancyOptions('darwin'), { vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000' })
+  for (const platform of ['win32', 'linux', 'freebsd']) {
+    assert.equal(hasVibrancy(platform), false)
+    assert.deepEqual(vibrancyOptions(platform), {}, `${platform}: solid fallback, no options`)
+  }
+})
+
+test('main.js applies it after the page colour and never repaints a vibrant window opaque', () => {
+  const main = fs.readFileSync(path.join(__dirname, '..', 'src', 'main.js'), 'utf8')
+  assert.ok(main.indexOf('...vibrancyOptions(process.platform)') > main.indexOf('backgroundColor: defaultColors('), 'transparent colour comes last')
+  assert.match(main, /if \(!hasVibrancy\(process\.platform\)\) win\.setBackgroundColor\(colors\.background\)/)
+  assert.match(main, /vibrancy: Boolean\(win && chromelessWindows\.has\(win\) && hasVibrancy\(process\.platform\)\)/)
 })

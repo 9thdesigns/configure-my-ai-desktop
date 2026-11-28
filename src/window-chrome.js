@@ -58,4 +58,21 @@ function overlayOptions (colors, height) {
   return { color: colors.background, symbolColor: colors.symbol, height }
 }
 
-module.exports = { DEFAULTS, defaultColors, validColor, colorsFromPage, symbolFor, overlayOptions }
+// Real translucency for the sidebar, where the OS has a material for it.
+// macOS draws NSVisualEffectView 'sidebar' behind the web view; the page
+// (html[data-desktop-vibrancy], stamped by the preload) lets it show through
+// the left column and nothing else. The window background must then be
+// transparent: an opaque one would paint over the material. followWindow
+// dims it with the window, as every Mac sidebar does. Windows and Linux have
+// no equivalent that survives a Window Controls Overlay or a tiling WM, so
+// they keep the solid page colours (an empty object: nothing is added).
+function hasVibrancy (platform) {
+  return platform === 'darwin'
+}
+
+function vibrancyOptions (platform) {
+  if (!hasVibrancy(platform)) return {}
+  return { vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000' }
+}
+
+module.exports = { DEFAULTS, defaultColors, validColor, colorsFromPage, symbolFor, overlayOptions, hasVibrancy, vibrancyOptions }
