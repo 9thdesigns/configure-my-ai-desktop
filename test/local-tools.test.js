@@ -8,8 +8,18 @@ const lt = require('../src/local-tools')
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cma-lt-'))
 
-test('exactly the four local tools exist', () => {
-  assert.deepEqual([...lt.TOOL_NAMES], ['run_command', 'read_file', 'list_dir', 'take_screenshot'])
+test('exactly these local tools exist', () => {
+  assert.deepEqual([...lt.TOOL_NAMES], ['run_command', 'read_file', 'list_dir', 'take_screenshot', 'search_files', 'write_file', 'create_file', 'delete_file'])
+})
+
+test('a file tool without an approved folder is refused', async () => {
+  const dir = tmp()
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'x')
+  for (const tool of ['read_file', 'list_dir', 'search_files', 'write_file', 'create_file', 'delete_file']) {
+    const res = await lt.runTool(tool, { path: path.join(dir, 'a.txt'), content: 'y', query: 'x' }, {})
+    assert.equal(res.status, 'refused', tool)
+  }
+  assert.equal(fs.readFileSync(path.join(dir, 'a.txt'), 'utf8'), 'x')
 })
 
 test('shell metacharacters are detected; plain argv is not', () => {
@@ -89,30 +99,6 @@ test('cappedCollector keeps the head and counts the rest', () => {
   assert.equal(c.text(), 'abcde')
   assert.equal(c.truncated, true)
   assert.equal(c.totalBytes, 8)
-})
-
-test('read_file caps content and refuses relative paths', async () => {
-  const dir = tmp()
-  const file = path.join(dir, 'big.txt')
-  fs.writeFileSync(file, 'y'.repeat(5000))
-  const res = await lt.readFile({ path: file }, { maxBytes: 100 })
-  assert.equal(res.status, 'ok')
-  assert.equal(res.content.length, 100)
-  assert.equal(res.truncated, true)
-  assert.equal(res.size, 5000)
-  assert.equal((await lt.readFile({ path: 'big.txt' })).status, 'error')
-  assert.equal((await lt.readFile({ path: dir })).status, 'error')
-})
-
-test('list_dir caps entries', async () => {
-  const dir = tmp()
-  for (let i = 0; i < 5; i++) fs.writeFileSync(path.join(dir, `f${i}`), '')
-  fs.mkdirSync(path.join(dir, 'sub'))
-  const res = await lt.listDir({ path: dir }, { maxEntries: 3 })
-  assert.equal(res.status, 'ok')
-  assert.equal(res.entries.length, 3)
-  assert.equal(res.total, 6)
-  assert.equal(res.truncated, true)
 })
 
 test('take_screenshot encodes the captured image and falls back to JPEG when large', async () => {

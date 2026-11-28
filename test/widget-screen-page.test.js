@@ -131,6 +131,9 @@ pageTest('Remove drops the held screenshot in main', async (page) => {
 })
 
 pageTest('the typing placeholder rests while a screenshot is attached, and the screen line sits outside the pill', async (page) => {
+  // Playwright's fake clock: the placeholder's timers run only when told,
+  // so this checks behaviour, not how busy the machine is.
+  await page.clock.install()
   await openChat(page, { available: true, enabled: true })
   await page.click(BUTTON)
   const line = await page.$eval('[data-role="screen"]', (n) => n.getBoundingClientRect().toJSON())
@@ -138,17 +141,17 @@ pageTest('the typing placeholder rests while a screenshot is attached, and the s
   assert.ok(line.bottom <= pill.top, '"Viewing your screen" is above the pill, clear of the placeholder overlay')
   await page.evaluate((preview) => window.__cma.shares[0].resolve({ status: 'ok', botId: 'manager', preview }), PREVIEW)
   await page.waitForSelector('[data-role="screen"] img')
-  // Over more than a full type-rest-retype cycle (REST_MS 2600), the line
-  // must not move: an active placeholder would clear and retype it.
-  const samples = await page.evaluate(async () => {
-    const box = document.querySelector('[data-role="compose-placeholder"]')
-    const seen = []
-    for (let i = 0; i < 36; i++) {
-      seen.push(`${box.dataset.phState}|${box.textContent}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return seen
-  })
-  assert.equal(new Set(samples).size, 1, `placeholder kept typing: ${[...new Set(samples)].slice(0, 3).join(' / ')}`)
-  assert.match(samples[0], /^rest\|/)
+  const read = () => page.$eval('[data-role="compose-placeholder"]', (n) => `${n.dataset.phState}|${n.textContent}`)
+  const first = await read()
+  assert.match(first, /^rest\|/)
+  // Well past a full type, rest and retype cycle (TYPE_MS 45, REST_MS 2600):
+  // an active placeholder would have cleared and retyped the line.
+  for (let i = 0; i < 6; i++) {
+    await page.clock.runFor(1000)
+    assert.equal(await read(), first, `still resting after ${i + 1} s`)
+  }
+  // Removing the screenshot lets it type again.
+  await page.click('[data-role="screen"] button.btn')
+  await page.clock.runFor(45 * 3)
+  assert.match(await read(), /^typing\|/, 'typing again once nothing is attached')
 })

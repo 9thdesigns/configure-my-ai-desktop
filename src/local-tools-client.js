@@ -26,6 +26,10 @@ const ERROR_BACKOFF_MS = 15_000
 // A server without the endpoint (an older web deploy): check back rarely.
 const NOT_DEPLOYED_BACKOFF_MS = 10 * 60_000
 const MAX_RESULT_BYTES = 6 * 1024 * 1024
+// The string arguments a tool call may carry, each with its own cap; content
+// (write_file / create_file) is checked again against the write cap.
+const STRING_ARGS = Object.freeze({ command: 4096, cwd: 4096, path: 4096, content: 1024 * 1024, query: 200, glob: 100 })
+const NUMBER_ARGS = Object.freeze(['timeout_ms', 'max_bytes', 'max_results'])
 
 function pollUrl (base = APP_URL) {
   return `${base}${POLL_PATH}?wait=25`
@@ -52,8 +56,12 @@ function validateToolCall (payload) {
   if (!ID_PATTERN.test(id)) return null
   if (!TOOL_NAMES.includes(raw.tool)) return null
   const args = raw.args && typeof raw.args === 'object' && !Array.isArray(raw.args) ? raw.args : {}
-  for (const key of ['command', 'cwd', 'path']) {
-    if (args[key] != null && typeof args[key] !== 'string') return null
+  for (const [key, max] of Object.entries(STRING_ARGS)) {
+    if (args[key] == null) continue
+    if (typeof args[key] !== 'string' || args[key].length > max) return null
+  }
+  for (const key of NUMBER_ARGS) {
+    if (args[key] != null && !Number.isFinite(Number(args[key]))) return null
   }
   const bot = raw.bot && typeof raw.bot === 'object' ? raw.bot : null
   if (!bot || bot.id == null || !ID_PATTERN.test(String(bot.id))) return null
@@ -61,10 +69,8 @@ function validateToolCall (payload) {
     id,
     tool: raw.tool,
     args: {
-      ...(args.command != null ? { command: args.command } : {}),
-      ...(args.cwd != null ? { cwd: args.cwd } : {}),
-      ...(args.path != null ? { path: args.path } : {}),
-      ...(args.timeout_ms != null ? { timeout_ms: Number(args.timeout_ms) } : {}),
+      ...Object.fromEntries(Object.keys(STRING_ARGS).filter((k) => args[k] != null).map((k) => [k, args[k]])),
+      ...Object.fromEntries(NUMBER_ARGS.filter((k) => args[k] != null).map((k) => [k, Number(args[k])])),
     },
     bot: { id: String(bot.id), name: String(bot.name || '').slice(0, 120) },
     runId: raw.run_id != null ? String(raw.run_id).slice(0, 64) : null,
@@ -75,6 +81,9 @@ function validateToolCall (payload) {
 // What goes back to the server for a call: the decision plus the tool's
 // result. A denied or timed-out call reports that and nothing else.
 function resultPayload (decision, result) {
+  if (!decision.allow && decision.via === 'invalid') {
+    return { status: 'error', result: { error: 'path must be absolute, with no “..” in it' } }
+  }
   if (!decision.allow) {
     return { status: decision.via === 'timeout' ? 'timeout' : 'denied', result: { error: decision.via === 'timeout' ? 'the user did not answer in time' : 'the user denied this action' } }
   }
@@ -92,7 +101,9 @@ async function handleCall (call, { broker, audit, runDeps = {}, postResult, run 
   }
   let result = null
   if (decision.allow) {
-    result = await run(call.tool, call.args, { ...runDeps, shellApproved: Boolean(decision.shellApproved) })
+    // scope: the folder the user approved for a file tool (local-files.js
+    // refuses anything outside it); absent for the other tools.
+    result = await run(call.tool, call.args, { ...runDeps, shellApproved: Boolean(decision.shellApproved), ...(decision.scope ? { scope: decision.scope } : {}) })
   }
   try {
     audit?.record({ call, decision: decision.allow ? 'allow' : 'deny', via: decision.via, result })

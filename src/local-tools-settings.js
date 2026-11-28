@@ -3,7 +3,7 @@
 // revocable), and the audit trail. Built with textContent only.
 (function () {
   const $ = (id) => document.getElementById(id)
-  const TOOL_LABELS = { run_command: 'Command', read_file: 'Read file', list_dir: 'List folder', take_screenshot: 'Screenshot' }
+  const TOOL_LABELS = { run_command: 'Command', read_file: 'Read file', list_dir: 'List folder', take_screenshot: 'Screenshot', folder: 'Folder', search_files: 'Search', write_file: 'Write file', create_file: 'Create file', delete_file: 'Delete file' }
 
   function cell (row, text) {
     const td = document.createElement('td')

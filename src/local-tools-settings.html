@@ -8,7 +8,7 @@
 </head>
 <body>
   <h1>Local Computer Access</h1>
-  <p>Bots can ask to run commands, read files, list folders and take screenshots on this computer. Every request needs your approval unless you chose “Always allow” for it below.</p>
+  <p>Bots can ask to run commands, take screenshots, and list, read, search, write, create and delete files on this computer. Every request needs your approval unless you chose “Always allow” or “Always for this folder” for it below. Changes to files (write, create, delete) ask every time, even in an approved folder.</p>
   <label class="switch"><input type="checkbox" id="enabled"> Allow bots to ask to use this computer</label>
 
   <h2>Your screen</h2>
@@ -20,7 +20,7 @@
     <p id="screen-macos" hidden>macOS asks for Screen Recording permission the first time. You can change it any time in System Settings → Privacy &amp; Security → Screen Recording.</p>
   </div>
 
-  <h2>Always-allowed</h2>
+  <h2>Always-allowed commands and folders</h2>
   <div id="grants"></div>
 
   <h2>Recent activity</h2>
