@@ -558,8 +558,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* The composer: one rounded pill that grows with the text — tools on the
    left (the composer-tools slot), the field, send on the right, all on the
-   bottom line as it grows. The placeholder is its own one-line span, so a
-   long one ellipsizes instead of wrapping, and it shimmers gently. */
+   bottom line as it grows. The placeholder is its own fixed one-line span,
+   so its typing never wraps or moves the composer. */
 .composer { padding: 8px 12px 12px; }
 .composer-pill {
   display: flex;
@@ -605,22 +605,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
   font-size: var(--chat-font-size);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   pointer-events: none;
   color: var(--composer-placeholder-ink);
   visibility: hidden;
-  background: linear-gradient(90deg, var(--composer-placeholder-ink) 0%, var(--composer-placeholder-ink) 40%, var(--chat-ink) 50%, var(--composer-placeholder-ink) 60%, var(--composer-placeholder-ink) 100%);
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: placeholder-shimmer 3.2s ease-in-out infinite;
 }
+/* The typed text, shifted left by data-ph-offset while it outgrows the line
+   (typing-placeholder.js); the "…" at rest is part of the text, cut at a
+   word, so no text-overflow and no fade. */
+.compose-placeholder-text { display: inline-block; white-space: pre; will-change: transform; }
 .composer textarea:placeholder-shown + .compose-placeholder { visibility: visible; }
-@keyframes placeholder-shimmer {
-  0%, 30% { background-position: 100% 0; }
-  70%, 100% { background-position: 0 0; }
-}
 .btn-send {
   flex: none;
   width: 32px;

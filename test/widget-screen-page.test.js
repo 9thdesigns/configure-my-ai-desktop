@@ -129,3 +129,26 @@ pageTest('Remove drops the held screenshot in main', async (page) => {
   await page.click('[data-role="screen"] button.btn')
   assert.deepEqual(await page.evaluate(() => window.__cma.calls.filter((c) => c[0] === 'discardScreen')), [['discardScreen', 'manager']])
 })
+
+pageTest('the typing placeholder rests while a screenshot is attached, and the screen line sits outside the pill', async (page) => {
+  await openChat(page, { available: true, enabled: true })
+  await page.click(BUTTON)
+  const line = await page.$eval('[data-role="screen"]', (n) => n.getBoundingClientRect().toJSON())
+  const pill = await page.$eval('.composer-pill', (n) => n.getBoundingClientRect().toJSON())
+  assert.ok(line.bottom <= pill.top, '"Viewing your screen" is above the pill, clear of the placeholder overlay')
+  await page.evaluate((preview) => window.__cma.shares[0].resolve({ status: 'ok', botId: 'manager', preview }), PREVIEW)
+  await page.waitForSelector('[data-role="screen"] img')
+  // Over more than a full type-rest-retype cycle (REST_MS 2600), the line
+  // must not move: an active placeholder would clear and retype it.
+  const samples = await page.evaluate(async () => {
+    const box = document.querySelector('[data-role="compose-placeholder"]')
+    const seen = []
+    for (let i = 0; i < 36; i++) {
+      seen.push(`${box.dataset.phState}|${box.textContent}`)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    return seen
+  })
+  assert.equal(new Set(samples).size, 1, `placeholder kept typing: ${[...new Set(samples)].slice(0, 3).join(' / ')}`)
+  assert.match(samples[0], /^rest\|/)
+})
