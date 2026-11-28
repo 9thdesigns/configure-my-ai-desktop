@@ -419,3 +419,23 @@ test('the back channel takes only the widget page, and only from a chat grown ou
   ipc.emit('cma-widget:back', win, undefined, { url: 'https://evil.example/' })
   assert.equal(lastLayout(win).mode, 'thread')
 })
+
+test('a drag from the chat grown out of the card resets it: collapsed, no step back pending, no pin', async () => {
+  const { ipc, win, feed } = await start()
+  ipc.emit('cma-widget:recents', win, { bot_id: ADA, seat_y: 120 })
+  await answer(feed, { status: 'ok', threads: ROWS })
+  ipc.emit('cma-widget:open-thread', win, { bot_id: ADA, thread_id: 't1' })
+  const b = win.getBounds()
+  ipc.emit('cma-widget:drag', win, { phase: 'start', screenX: b.x + b.width - 20, screenY: b.y + 100 })
+  const l = lastLayout(win)
+  assert.equal(l.expanded, false)
+  assert.equal(l.mode, 'chat')
+  assert.equal(l.dragging, true)
+  ipc.emit('cma-widget:drag', win, { phase: 'end', screenX: b.x + b.width - 20, screenY: b.y + 100 })
+  ipc.emit('cma-widget:back', win)
+  assert.equal(lastLayout(win).back, undefined, 'nothing to step back to')
+  feed.conversations.length = 0
+  ipc.emit('cma-widget:open', win, ADA)
+  await tick()
+  assert.deepEqual(feed.conversations.at(-1), [ADA, null], 'the next chat is unpinned')
+})
