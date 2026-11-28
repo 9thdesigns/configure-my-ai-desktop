@@ -132,8 +132,17 @@ const frame = (page) => page.evaluate(() => {
   }
 })
 
+// install() alone keeps fake time flowing with the real clock, so on a busy
+// machine extra ticks fire between frames (the "one character per frame"
+// flake). Paused, timers run only when the test says runFor.
+async function pausedClock (page) {
+  const t = Date.now()
+  await page.clock.install({ time: t })
+  await page.clock.pauseAt(t + 1000)
+}
+
 async function openOnClock (page, bot) {
-  await page.clock.install()
+  await pausedClock(page)
   await openChat(page, conv(THREAD), bot)
 }
 

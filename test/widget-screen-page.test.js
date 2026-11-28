@@ -133,7 +133,10 @@ pageTest('Remove drops the held screenshot in main', async (page) => {
 pageTest('the typing placeholder rests while a screenshot is attached, and the screen line sits outside the pill', async (page) => {
   // Playwright's fake clock: the placeholder's timers run only when told,
   // so this checks behaviour, not how busy the machine is.
-  await page.clock.install()
+  // Paused: install() alone lets fake time flow with the real clock.
+  const t = Date.now()
+  await page.clock.install({ time: t })
+  await page.clock.pauseAt(t + 1000)
   await openChat(page, { available: true, enabled: true })
   await page.click(BUTTON)
   const line = await page.$eval('[data-role="screen"]', (n) => n.getBoundingClientRect().toJSON())

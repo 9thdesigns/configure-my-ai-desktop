@@ -322,3 +322,92 @@ test('the docs describe the tool contract the web side relies on', () => {
   assert.match(require('../package.json').scripts.check, /node --check src\/local-files\.js/)
   for (const word of ['Always for this folder', 'Allow once', 'scope', '256 KB', '1 MB', 'denied', 'timeout', 'refused']) assert.match(doc, new RegExp(word), word)
 })
+
+// --- The check-then-use gap -------------------------------------------------------
+//
+// A wrapped fs that swaps things for symlinks at the worst moment: after the
+// scope check, right before the open (or the rename).
+
+function racing (hooks) {
+  const fsp = require('node:fs/promises')
+  const wrapped = Object.assign({}, fsp)
+  for (const [name, hook] of Object.entries(hooks)) {
+    let fired = false
+    wrapped[name] = async (p, ...rest) => {
+      if (!fired && hook.when(p)) { fired = true; hook.then(p) }
+      return fsp[name](p, ...rest)
+    }
+  }
+  return wrapped
+}
+
+function outside () {
+  const { root, proj } = world()
+  const away = path.join(root, 'away')
+  fs.mkdirSync(away)
+  fs.writeFileSync(path.join(away, 'victim.txt'), 'precious')
+  return { root, proj, away, victim: path.join(away, 'victim.txt') }
+}
+
+test('race: create_file target swapped for a symlink before the open → refused, nothing written outside', async () => {
+  const { proj, victim } = outside()
+  const target = path.join(proj, 'new.md')
+  const fsr = racing({ open: { when: (p) => p === target, then: () => fs.symlinkSync(victim, target) } })
+  const r = await F.writeFile({ path: target, content: 'pwned' }, { scope: proj, create: true, fs: fsr })
+  assert.deepEqual([r.status, r.error], ['refused', 'the target is a symbolic link'])
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'precious')
+})
+
+test('race: write_file folder swapped for a link to outside before the open → refused, temp removed, nothing left outside', async () => {
+  const { root, proj, away } = outside()
+  const sub = path.join(proj, 'sub')
+  fs.mkdirSync(sub)
+  const target = path.join(sub, 'a.md')
+  const fsr = racing({ open: { when: (p) => p.startsWith(sub + path.sep), then: () => { fs.renameSync(sub, path.join(root, 'sub-moved')); fs.symlinkSync(away, sub) } } })
+  const r = await F.writeFile({ path: target, content: 'pwned' }, { scope: proj, fs: fsr })
+  assert.equal(r.status, 'refused')
+  assert.match(r.error, /outside the approved folder/)
+  assert.deepEqual(fs.readdirSync(away), ['victim.txt'], 'the temp file it opened out there is gone')
+  assert.equal(fs.readFileSync(path.join(away, 'victim.txt'), 'utf8'), 'precious')
+})
+
+test('race: write_file target swapped for a symlink before the rename → the link is replaced, never followed', async () => {
+  const { proj, victim } = outside()
+  const target = path.join(proj, 'README.md')
+  const fsr = racing({ rename: { when: () => true, then: () => { fs.unlinkSync(target); fs.symlinkSync(victim, target) } } })
+  const r = await F.writeFile({ path: target, content: 'new readme' }, { scope: proj, fs: fsr })
+  assert.equal(r.status, 'ok')
+  assert.equal(fs.readFileSync(victim, 'utf8'), 'precious')
+  assert.equal(fs.lstatSync(target).isSymbolicLink(), false)
+  assert.equal(fs.readFileSync(target, 'utf8'), 'new readme')
+})
+
+test('race: delete_file target swapped for a symlink before the open → refused, the outside file survives', async () => {
+  const { proj, victim } = outside()
+  const target = path.join(proj, 'README.md')
+  const fsr = racing({ open: { when: (p) => p === target, then: () => { fs.unlinkSync(target); fs.symlinkSync(victim, target) } } })
+  const r = await F.deleteFile({ path: target }, { scope: proj, fs: fsr })
+  assert.equal(r.status, 'refused')
+  assert.ok(fs.existsSync(victim))
+})
+
+test('race: delete_file folder swapped for a link to outside before the open → refused, the outside file survives', async () => {
+  const { root, proj, away } = outside()
+  const sub = path.join(proj, 'sub')
+  fs.mkdirSync(sub)
+  fs.writeFileSync(path.join(sub, 'victim.txt'), 'mine')
+  const target = path.join(sub, 'victim.txt')
+  const fsr = racing({ open: { when: (p) => p === target, then: () => { fs.renameSync(sub, path.join(root, 'sub-moved')); fs.symlinkSync(away, sub) } } })
+  const r = await F.deleteFile({ path: target }, { scope: proj, fs: fsr })
+  assert.equal(r.status, 'refused')
+  assert.equal(fs.readFileSync(path.join(away, 'victim.txt'), 'utf8'), 'precious')
+})
+
+test('race: read_file swapped for a symlink to outside before the open → refused, nothing read', async () => {
+  const { proj, victim } = outside()
+  const target = path.join(proj, 'README.md')
+  const fsr = racing({ open: { when: (p) => p === target, then: () => { fs.unlinkSync(target); fs.symlinkSync(victim, target) } } })
+  const r = await F.readFile({ path: target }, { scope: proj, fs: fsr })
+  assert.equal(r.status, 'refused')
+  assert.equal(r.content, undefined)
+})
